@@ -1,13 +1,67 @@
 const express = require("express");
+const OpenAI = require("openai");
+
 const app = express();
 
-// 让服务器能解析 JSON（LINE 必须）
 app.use(express.json());
 
-// 首页（测试服务器是否活着）
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
+});
+
+// 首页测试
 app.get("/", (req, res) => {
   res.send("henxin-ai is running");
 });
+
+// 生成恋爱回复
+async function generateReply(userMessage) {
+  const prompt = `
+你是一个日本市场的「恋愛返信AI」。
+用户会发来一句话，代表“对方说的话”或者“自己想回的话题”。
+
+你的任务：
+1. 给出 3 个适合直接发送的日语回复
+2. 风格自然、像真人聊天，不要太生硬
+3. 语气温柔、恋爱感、不过度油腻
+4. 最后给一个“おすすめ”编号
+5. 输出必须简洁、好复制
+
+输出格式固定如下：
+
+その返信、このまま送って大丈夫？
+
+送ってくれた内容に合わせて、
+ちょうどいい返しを3パターン考えるよ👇
+
+① ...
+② ...
+③ ...
+
+⭐おすすめ：...
+（そのまま送ってOK）
+
+用户内容：
+${userMessage}
+`;
+
+  const completion = await openai.chat.completions.create({
+    model: "gpt-4.1-mini",
+    messages: [
+      {
+        role: "system",
+        content: "あなたは自然で上手な恋愛メッセージ返信アシスタントです。",
+      },
+      {
+        role: "user",
+        content: prompt,
+      },
+    ],
+    temperature: 0.9,
+  });
+
+  return completion.choices[0].message.content;
+}
 
 // LINE webhook
 app.post("/webhook", async (req, res) => {
@@ -19,40 +73,56 @@ app.post("/webhook", async (req, res) => {
     return res.sendStatus(200);
   }
 
-  const event = events[0];
+  for (const event of events) {
+    if (event.type === "message" && event.message.type === "text") {
+      const userText = event.message.text;
+      const replyToken = event.replyToken;
 
-  // 只处理用户发消息
-  if (event.type === "message" && event.message.type === "text") {
-    const replyToken = event.replyToken;
+      try {
+        const aiReply = await generateReply(userText);
 
-    try {
-      await fetch("https://api.line.me/v2/bot/message/reply", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          // 👇👇👇 这里替换成你的 token
-          "Authorization": "Bearer jf1Uibgf3Xt2W6/EgxBwnrpzLfIggus0Sq3HLhPTH+tdrkJSuBXdpIOnNk/Eb6lo0wLUj0rlrRMqcSqay35dNlBQmHdA/KsDZIBB74kDUakrEcQ/0XkFXQ3mjYDfYyfNNWBMEJUJjaoIcO8pz4TydQdB04t89/1O/w1cDnyilFU=",
-        },
-        body: JSON.stringify({
-          replyToken: replyToken,
-          messages: [
-            {
-              type: "text",
-              text: "收到啦～❤️",
-            },
-          ],
-        }),
-      });
-    } catch (error) {
-      console.error("Error sending message:", error);
+        await fetch("https://api.line.me/v2/bot/message/reply", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}`,
+          },
+          body: JSON.stringify({
+            replyToken,
+            messages: [
+              {
+                type: "text",
+                text: aiReply.slice(0, 4900),
+              },
+            ],
+          }),
+        });
+      } catch (error) {
+        console.error("AI reply error:", error);
+
+        await fetch("https://api.line.me/v2/bot/message/reply", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${process.env.jf1Uibgf3Xt2W6/EgxBwnrpzLfIggus0Sq3HLhPTH+tdrkJSuBXdpIOnNk/Eb6lo0wLUj0rlrRMqcSqay35dNlBQmHdA/KsDZIBB74kDUakrEcQ/0XkFXQ3mjYDfYyfNNWBMEJUJjaoIcO8pz4TydQdB04t89/1O/w1cDnyilFU=}`,
+          },
+          body: JSON.stringify({
+            replyToken,
+            messages: [
+              {
+                type: "text",
+                text: "ごめんね、今ちょっと混み合ってるみたい。少ししてからもう一度送ってね🙏",
+              },
+            ],
+          }),
+        });
+      }
     }
   }
 
-  // 一定要返回 200，不然 LINE 会报错
   res.sendStatus(200);
 });
 
-// Render 用这个端口
 const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, () => {
