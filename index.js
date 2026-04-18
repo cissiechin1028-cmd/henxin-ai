@@ -2,16 +2,19 @@ const express = require("express");
 const OpenAI = require("openai");
 
 const app = express();
+
 app.use(express.json());
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
+// 首页测试
 app.get("/", (req, res) => {
   res.send("henxin-ai is running");
 });
 
+// 生成恋爱回复
 async function generateReply(userMessage) {
   const prompt = `
 你是一个日本市场的「恋愛返信AI」。
@@ -60,6 +63,7 @@ ${userMessage}
   return completion.choices[0].message.content;
 }
 
+// LINE webhook
 app.post("/webhook", async (req, res) => {
   console.log("Webhook received:", JSON.stringify(req.body, null, 2));
 
@@ -84,7 +88,7 @@ app.post("/webhook", async (req, res) => {
             "Authorization": `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}`,
           },
           body: JSON.stringify({
-            replyToken: replyToken,
+            replyToken,
             messages: [
               {
                 type: "text",
@@ -103,7 +107,7 @@ app.post("/webhook", async (req, res) => {
             "Authorization": `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}`,
           },
           body: JSON.stringify({
-            replyToken: replyToken,
+            replyToken,
             messages: [
               {
                 type: "text",
