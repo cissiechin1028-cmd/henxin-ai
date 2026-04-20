@@ -1,10 +1,16 @@
 const express = require("express");
-const OpenAI = require("openai");
+const line = require("@line/bot-sdk");
+const OpenAI = require("openai").default;
 
 const app = express();
-app.use(express.json());
 
-// OpenAI
+const lineConfig = {
+  channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN,
+  channelSecret: process.env.LINE_CHANNEL_SECRET,
+};
+
+const client = new line.Client(lineConfig);
+
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
@@ -14,7 +20,7 @@ app.get("/", (req, res) => {
   res.send("henxin-ai is running");
 });
 
-// 🔥 你的核心 Prompt（已经帮你接好了）
+// 核心 Prompt
 const SYSTEM_PROMPT = `
 あなたは日本人向けの恋愛LINE返信AIです。
 
@@ -68,14 +74,14 @@ const SYSTEM_PROMPT = `
 
 ▼おすすめ（必ず出す）
 
-・相手が冷たい → ③  
-・普通 → ②  
-・ポジティブ → ②  
-・迷う → ③  
+・相手が冷たい → ③
+・普通 → ②
+・ポジティブ → ②
+・迷う → ③
 
 出力：
 
-⭐おすすめ：○  
+⭐おすすめ：○
 （これをそのまま送ればOK）
 
 ーーーーーーー
@@ -108,9 +114,9 @@ const SYSTEM_PROMPT = `
 
 出力：
 
-① わかった、今までありがとう  
-② わかった、無理させてたらごめんね  
-③ 了解、少し距離置くね  
+① わかった、今までありがとう
+② わかった、無理させてたらごめんね
+③ 了解、少し距離置くね
 
 ⭐おすすめ：②
 
@@ -118,8 +124,8 @@ const SYSTEM_PROMPT = `
 
 【スタイル補足】
 
-・自然な場合のみ空気感を入れる  
-・季節ネタは自然な場合のみ  
+・自然な場合のみ空気感を入れる
+・季節ネタは自然な場合のみ
 
 ーーーーーーー
 
@@ -135,7 +141,7 @@ const SYSTEM_PROMPT = `
 入力：
 `;
 
-// 🔥 AI生成函数
+// AI生成
 async function generateReply(userMessage) {
   const completion = await openai.chat.completions.create({
     model: "gpt-4o-mini",
@@ -152,72 +158,55 @@ async function generateReply(userMessage) {
     temperature: 0.9,
   });
 
-  return completion.choices[0].message.content;
+  const content = completion.choices?.[0]?.message?.content?.trim();
+
+  if (!content) {
+    return "うまく整えられなかった。もう一回だけ送って🙏";
+  }
+
+  // 过长保护，避免 LINE 回复失败
+  return content.slice(0, 1500);
 }
 
-// 🔥 LINE webhook
-app.post("/webhook", async (req, res) => {
-  const events = req.body.events;
-
-  if (!events || events.length === 0) {
-    return res.sendStatus(200);
+// 处理单条事件
+async function handleEvent(event) {
+  if (event.type !== "message" || event.message.type !== "text") {
+    return null;
   }
 
-  for (const event of events) {
-    if (event.type !== "message" || event.message.type !== "text") {
-      continue;
-    }
+  const userMessage = event.message.text;
 
-    const userText = event.message.text;
-    const replyToken = event.replyToken;
+  try {
+    const aiReply = await generateReply(userMessage);
 
-    try {
-      const aiReply = await generateReply(userText);
+    return client.replyMessage(event.replyToken, {
+      type: "text",
+      text: aiReply,
+    });
+  } catch (error) {
+    console.error("AI / Reply error:", error);
 
-      await fetch("https://api.line.me/v2/bot/message/reply", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}`,
-        },
-        body: JSON.stringify({
-          replyToken: replyToken,
-          messages: [
-            {
-              type: "text",
-              text: aiReply.slice(0, 4900),
-            },
-          ],
-        }),
-      });
-    } catch (error) {
-      console.error("AI error:", error);
-
-      await fetch("https://api.line.me/v2/bot/message/reply", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}`,
-        },
-        body: JSON.stringify({
-          replyToken: replyToken,
-          messages: [
-            {
-              type: "text",
-              text: "今ちょっと調子悪いみたい、少ししてからもう一回送って🙏",
-            },
-          ],
-        }),
-      });
-    }
+    return client.replyMessage(event.replyToken, {
+      type: "text",
+      text: "今ちょっと調子悪いみたい、少ししてからもう一回送って🙏",
+    });
   }
+}
 
-  res.sendStatus(200);
+// LINE webhook
+app.post("/webhook", line.middleware(lineConfig), async (req, res) => {
+  try {
+    const events = req.body.events || [];
+    await Promise.all(events.map(handleEvent));
+    res.sendStatus(200);
+  } catch (error) {
+    console.error("Webhook error:", error);
+    res.sendStatus(500);
+  }
 });
 
 // 启动
 const PORT = process.env.PORT || 3000;
-
 app.listen(PORT, () => {
   console.log("Server running on port " + PORT);
 });
