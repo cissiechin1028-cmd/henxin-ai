@@ -1,12 +1,13 @@
 {
   "name": "henxin-ai",
   "version": "1.0.0",
-  "main": "index.js",
+  "main": "app.js",
   "scripts": {
-    "start": "node index.js"
+    "start": "node app.js"
   },
   "dependencies": {
-    "express": "^4.21.2",
+    "@line/bot-sdk": "^9.7.0",
+    "express": "^4.19.2",
     "openai": "^4.104.0"
   }
 }
