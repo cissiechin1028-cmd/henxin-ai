@@ -1,13 +1,14 @@
 {
   "name": "henxin-ai",
   "version": "1.0.0",
+  "description": "LINE webhook server",
   "main": "app.js",
   "scripts": {
     "start": "node app.js"
   },
   "dependencies": {
-    "@line/bot-sdk": "^9.7.0",
-    "express": "^4.19.2",
-    "openai": "^4.104.0"
+    "axios": "^1.9.0",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.2"
   }
 }
