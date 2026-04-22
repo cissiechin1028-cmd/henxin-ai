@@ -7,6 +7,7 @@ const {
   getHistory,
   increaseFreeCount,
   getFreeCount,
+  setPaid,
 } = require("./userStore");
 
 const { generateReply } = require("./services/openai");
@@ -29,23 +30,34 @@ app.post("/webhook", async (req, res) => {
 
       const user = getUser(userId);
 
-      // 免费次数限制
-      if (getFreeCount(userId) >= 3) {
+      // ===== 临时付费测试（输入「解锁」变付费）=====
+      if (userMessage === "解锁") {
+        setPaid(userId, true);
+
         await replyMessage(
           event.replyToken,
-          "無料回数が終了しました。続けるにはプランにご加入ください。"
+          "プレミアムプランが有効になりました（無制限利用可能）"
+        );
+        continue;
+      }
+
+      // ===== 免费次数限制 =====
+      if (!user.isPaid && getFreeCount(userId) >= 3) {
+        await replyMessage(
+          event.replyToken,
+          "本日の無料回数（3回）が終了しました。\n明日また3回使えます。\nプレミアムプランなら無制限で利用できます。"
         );
         continue;
       }
 
       increaseFreeCount(userId);
 
-      // 记录用户输入
+      // ===== 记录用户输入 =====
       addHistory(userId, `ユーザー: ${userMessage}`);
 
       const history = getHistory(userId);
 
-      // 构建 Prompt
+      // ===== 构建 Prompt =====
       const prompt = buildPrompt({
         relationship: user.relationship,
         purpose: user.purpose,
@@ -53,13 +65,13 @@ app.post("/webhook", async (req, res) => {
         userMessage,
       });
 
-      // 调用 OpenAI
+      // ===== 调用 AI =====
       const aiText = await generateReply(prompt);
 
-      // 记录 AI 输出
+      // ===== 记录 AI =====
       addHistory(userId, `AI: ${aiText}`);
 
-      // 回复 LINE 用户
+      // ===== 回复用户 =====
       await replyMessage(event.replyToken, aiText);
     }
 
