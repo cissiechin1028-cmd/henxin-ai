@@ -151,7 +151,7 @@ ${SYSTEM_PROMPT}
 目的：${purpose || "不明"}
 
 【直近の会話履歴】
-${history.length ? history.join("\n") : "なし"}
+${history.length ? history.join("\\n") : "なし"}
 
 【今回の入力】
 ${userMessage}
