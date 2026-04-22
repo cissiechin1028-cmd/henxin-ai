@@ -9,14 +9,15 @@ async function generateReply(prompt) {
         messages: [
           {
             role: "system",
-            content: "出力は必ず自然な日本語。文脈不足なら無理に返信案を作らず確認を優先する。",
+            content:
+              "必ず自然な日本語で答える。内部判断は絶対に表示しない。おすすめ番号と送信タイミングは固定せず、内容ごとに最適化する。",
           },
           {
             role: "user",
             content: prompt,
           },
         ],
-        temperature: 0.7,
+        temperature: 0.9,
       },
       {
         headers: {
