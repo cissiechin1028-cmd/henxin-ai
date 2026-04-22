@@ -1,33 +1,41 @@
-// ===== userStore.js =====
-
 const userMap = new Map();
 
-// 初始化用户
 function initUser(userId) {
   if (!userMap.has(userId)) {
     userMap.set(userId, {
-      relationship: null, // 关系
-      purpose: null,      // 目的
-      history: [],        // 对话历史
-      freeCount: 0,       // 免费次数
+      relationship: null,
+      purpose: null,
+      history: [],
+      freeCount: 0,
+      lastUsedDate: null, // 👈 新增
     });
   }
 }
 
-// 获取用户
+function getToday() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+// 获取用户（自动处理每日重置）
 function getUser(userId) {
   initUser(userId);
-  return userMap.get(userId);
+  const user = userMap.get(userId);
+
+  const today = getToday();
+
+  if (user.lastUsedDate !== today) {
+    user.freeCount = 0;        // 👈 重置次数
+    user.lastUsedDate = today; // 👈 更新日期
+  }
+
+  return user;
 }
 
 // 添加历史
 function addHistory(userId, text) {
-  initUser(userId);
-  const user = userMap.get(userId);
+  const user = getUser(userId);
 
   user.history.push(text);
-
-  // 只保留最近10条
   if (user.history.length > 10) {
     user.history.shift();
   }
@@ -35,20 +43,18 @@ function addHistory(userId, text) {
 
 // 获取历史
 function getHistory(userId) {
-  initUser(userId);
-  return userMap.get(userId).history;
+  return getUser(userId).history;
 }
 
-// 免费次数 +1
+// +1
 function increaseFreeCount(userId) {
-  initUser(userId);
-  userMap.get(userId).freeCount += 1;
+  const user = getUser(userId);
+  user.freeCount += 1;
 }
 
-// 获取免费次数
+// 获取次数
 function getFreeCount(userId) {
-  initUser(userId);
-  return userMap.get(userId).freeCount;
+  return getUser(userId).freeCount;
 }
 
 module.exports = {
