@@ -13,6 +13,7 @@ const {
 const { generateReply } = require("./services/openai");
 const { replyMessage } = require("./services/line");
 const { buildPrompt } = require("./utils/prompt");
+const { postprocessReply } = require("./utils/postprocess");
 
 const app = express();
 app.use(express.json());
@@ -30,7 +31,7 @@ app.post("/webhook", async (req, res) => {
 
       const user = getUser(userId);
 
-      // ===== 临时付费测试（输入「解锁」变付费）=====
+      // 临时付费测试
       if (userMessage === "解锁") {
         setPaid(userId, true);
 
@@ -41,7 +42,7 @@ app.post("/webhook", async (req, res) => {
         continue;
       }
 
-      // ===== 免费次数限制 =====
+      // 免费次数限制
       if (!user.isPaid && getFreeCount(userId) >= 3) {
         await replyMessage(
           event.replyToken,
@@ -52,12 +53,12 @@ app.post("/webhook", async (req, res) => {
 
       increaseFreeCount(userId);
 
-      // ===== 记录用户输入 =====
+      // 记录用户输入
       addHistory(userId, `ユーザー: ${userMessage}`);
 
       const history = getHistory(userId);
 
-      // ===== 构建 Prompt =====
+      // 构建 Prompt
       const prompt = buildPrompt({
         relationship: user.relationship,
         purpose: user.purpose,
@@ -65,13 +66,16 @@ app.post("/webhook", async (req, res) => {
         userMessage,
       });
 
-      // ===== 调用 AI =====
-      const aiText = await generateReply(prompt);
+      // 调用 AI
+      const rawAiText = await generateReply(prompt);
 
-      // ===== 记录 AI =====
+      // 后处理：去掉内部判断 + 推荐保护 + 时机修正
+      const aiText = postprocessReply(rawAiText, userMessage, history);
+
+      // 记录 AI
       addHistory(userId, `AI: ${aiText}`);
 
-      // ===== 回复用户 =====
+      // 回复用户
       await replyMessage(event.replyToken, aiText);
     }
 
