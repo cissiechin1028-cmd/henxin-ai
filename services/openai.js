@@ -9,7 +9,7 @@ async function generateReply(prompt) {
         messages: [
           {
             role: "system",
-            content: "恋愛返信AI。必ず自然な日本語で出力する",
+            content: "出力は必ず自然な日本語。文脈不足なら無理に返信案を作らず確認を優先する。",
           },
           {
             role: "user",
@@ -23,7 +23,7 @@ async function generateReply(prompt) {
           Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
           "Content-Type": "application/json",
         },
-        timeout: 15000, // 15秒超时
+        timeout: 15000,
       }
     );
 
@@ -37,14 +37,7 @@ async function generateReply(prompt) {
   } catch (err) {
     console.error("OpenAI ERROR:", err.response?.data || err.message);
 
-    // ===== 降级兜底（绝对不能让系统挂）=====
-    return `① ちょっとバタバタしてた、ごめんね！元気してる？  
-② 最近どうしてる？ふと思い出して連絡しちゃった  
-③ なんか急に話したくなった笑 元気？
-
-⭐おすすめ：②  
-理由：自然で圧がない  
-送信タイミング：今すぐ`;
+    return "ごめん、うまく判断できなかった。相手のメッセージか状況をもう少しだけ送って。";
   }
 }
 
