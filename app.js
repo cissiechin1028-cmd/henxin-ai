@@ -29,6 +29,7 @@ app.post("/webhook", async (req, res) => {
 
       const user = getUser(userId);
 
+      // 免费次数限制
       if (getFreeCount(userId) >= 3) {
         await replyMessage(
           event.replyToken,
@@ -39,10 +40,12 @@ app.post("/webhook", async (req, res) => {
 
       increaseFreeCount(userId);
 
+      // 记录用户输入
       addHistory(userId, `ユーザー: ${userMessage}`);
 
       const history = getHistory(userId);
 
+      // 构建 Prompt
       const prompt = buildPrompt({
         relationship: user.relationship,
         purpose: user.purpose,
@@ -50,10 +53,13 @@ app.post("/webhook", async (req, res) => {
         userMessage,
       });
 
+      // 调用 OpenAI
       const aiText = await generateReply(prompt);
 
+      // 记录 AI 输出
       addHistory(userId, `AI: ${aiText}`);
 
+      // 回复 LINE 用户
       await replyMessage(event.replyToken, aiText);
     }
 
