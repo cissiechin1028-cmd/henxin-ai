@@ -7,7 +7,8 @@ function initUser(userId) {
       purpose: null,
       history: [],
       freeCount: 0,
-      lastUsedDate: null, // 👈 新增
+      lastUsedDate: null,
+      isPaid: false,
     });
   }
 }
@@ -16,7 +17,6 @@ function getToday() {
   return new Date().toISOString().slice(0, 10);
 }
 
-// 获取用户（自动处理每日重置）
 function getUser(userId) {
   initUser(userId);
   const user = userMap.get(userId);
@@ -24,37 +24,39 @@ function getUser(userId) {
   const today = getToday();
 
   if (user.lastUsedDate !== today) {
-    user.freeCount = 0;        // 👈 重置次数
-    user.lastUsedDate = today; // 👈 更新日期
+    user.freeCount = 0;
+    user.lastUsedDate = today;
   }
 
   return user;
 }
 
-// 添加历史
 function addHistory(userId, text) {
   const user = getUser(userId);
 
   user.history.push(text);
+
   if (user.history.length > 10) {
     user.history.shift();
   }
 }
 
-// 获取历史
 function getHistory(userId) {
   return getUser(userId).history;
 }
 
-// +1
 function increaseFreeCount(userId) {
   const user = getUser(userId);
   user.freeCount += 1;
 }
 
-// 获取次数
 function getFreeCount(userId) {
   return getUser(userId).freeCount;
+}
+
+function setPaid(userId, value) {
+  const user = getUser(userId);
+  user.isPaid = value;
 }
 
 module.exports = {
@@ -63,4 +65,5 @@ module.exports = {
   getHistory,
   increaseFreeCount,
   getFreeCount,
+  setPaid,
 };
