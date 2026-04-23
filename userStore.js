@@ -5,6 +5,7 @@ function initUser(userId) {
     userMap.set(userId, {
       relationship: null,
       purpose: null,
+      style: "balance", // soft / balance / push
       history: [],
       freeCount: 0,
       lastUsedDate: null,
