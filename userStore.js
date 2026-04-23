@@ -5,7 +5,7 @@ function initUser(userId) {
     userMap.set(userId, {
       relationship: null,
       purpose: null,
-      style: "balance", // soft / balance / push
+      style: "balance",
       history: [],
       freeCount: 0,
       lastUsedDate: null,
@@ -23,7 +23,6 @@ function getUser(userId) {
   const user = userMap.get(userId);
 
   const today = getToday();
-
   if (user.lastUsedDate !== today) {
     user.freeCount = 0;
     user.lastUsedDate = today;
@@ -34,7 +33,6 @@ function getUser(userId) {
 
 function addHistory(userId, text) {
   const user = getUser(userId);
-
   user.history.push(text);
 
   if (user.history.length > 10) {
