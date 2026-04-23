@@ -16,54 +16,44 @@ const { postprocessReply } = require("./utils/postprocess");
 const app = express();
 app.use(express.json());
 
-/**
- * ===== 只识别“入口闲聊” =====
- * ⚠️ 不再用长度判断
- * ⚠️ 不再误伤“最近冷たい”等情况输入
- */
+// 只把“纯入口闲聊”当短输入
 function classifyShortInput(text) {
   const s = (text || "").trim();
 
-  // 纯打招呼
   if (["おはよう", "おはよ", "こんにちは", "こんばんは"].includes(s)) {
     return "greeting";
   }
 
-  // 简单感谢
   if (["ありがとう", "ありがと", "ありがとうございます"].includes(s)) {
     return "thanks";
   }
 
-  // 简单道歉
   if (["ごめん", "ごめんね", "すみません"].includes(s)) {
     return "sorry";
   }
 
-  // 极短反应
-  if (["うん", "了解", "OK", "ok", "笑", "w"].includes(s)) {
+  if (["うん", "了解", "りょ", "OK", "ok", "笑", "w"].includes(s)) {
     return "reaction";
   }
 
   return null;
 }
 
-/**
- * ===== 入口引导（只用于打招呼）=====
- */
 function buildShortInputPrompt(userMessage, type) {
   if (type === "greeting") {
     return `
 あなたは恋愛LINE返信サポートAIです。
 
 挨拶に自然に返しつつ、
-「相手とのやり取りを送れば返信を考えられる」ことを
-さりげなく伝えてください。
+「相手とのやり取りを送れば返事を考えられる」ことを
+会話の流れを壊さない範囲で軽く伝えてください。
 
 条件：
 ・1〜2文
 ・自然
 ・営業っぽくしない
 ・軽く導線を出すだけ
+・ユーザー本人と雑談しない
 
 入力：
 ${userMessage}
@@ -77,6 +67,11 @@ ${userMessage}
     return `
 感謝への自然な一言返信を作る。
 
+条件：
+・1〜2文
+・自然
+・重くしない
+
 入力：
 ${userMessage}
 
@@ -88,6 +83,11 @@ ${userMessage}
   if (type === "sorry") {
     return `
 謝罪への自然な受け止め返信を作る。
+
+条件：
+・1〜2文
+・自然
+・責めない
 
 入力：
 ${userMessage}
@@ -101,6 +101,11 @@ ${userMessage}
     return `
 短い相づちへの自然な返しを作る。
 
+条件：
+・1〜2文
+・自然
+・広げすぎない
+
 入力：
 ${userMessage}
 
@@ -109,12 +114,17 @@ ${userMessage}
 `;
   }
 
-  return null;
+  return `
+自然な返信文を1つ作ってください。
+
+入力：
+${userMessage}
+
+出力：
+返信文1つ
+`;
 }
 
-/**
- * ===== webhook =====
- */
 app.post("/webhook", async (req, res) => {
   try {
     const events = req.body.events || [];
@@ -125,13 +135,11 @@ app.post("/webhook", async (req, res) => {
 
       const userId = event.source.userId;
       const userMessage = event.message.text.trim();
-
       const user = getUser(userId);
 
-      // ===== 测试用解锁 =====
+      // 测试用解锁
       if (userMessage === "解锁") {
         setPaid(userId, true);
-
         await replyMessage(
           event.replyToken,
           "プレミアムプランが有効になりました（無制限利用可能）"
@@ -139,20 +147,15 @@ app.post("/webhook", async (req, res) => {
         continue;
       }
 
-      // ===== 记录历史 =====
       addHistory(userId, `ユーザー: ${userMessage}`);
       const history = getHistory(userId);
 
-      let prompt = "";
-
-      // ===== 判断是否入口闲聊 =====
       const shortType = classifyShortInput(userMessage);
 
+      let prompt = "";
       if (shortType) {
-        // 👉 仅打招呼走这里
         prompt = buildShortInputPrompt(userMessage, shortType);
       } else {
-        // 👉 所有真实需求全部走主Prompt
         prompt = buildPrompt({
           relationship: user.relationship,
           purpose: user.purpose,
@@ -161,16 +164,10 @@ app.post("/webhook", async (req, res) => {
         });
       }
 
-      // ===== 调用AI =====
       const raw = await generateReply(prompt);
+      const final = postprocessReply(raw);
 
-      // ===== 后处理（推荐/时机修正）=====
-      const final = postprocessReply(raw, userMessage, history);
-
-      // ===== 存储AI回复 =====
       addHistory(userId, `AI: ${final}`);
-
-      // ===== 回复用户 =====
       await replyMessage(event.replyToken, final);
     }
 
