@@ -16,41 +16,6 @@ const { postprocessReply } = require("./utils/postprocess");
 const app = express();
 app.use(express.json());
 
-/**
- * ===== 自动识别用户风格（最终版）=====
- * 不需要用户输入任何指令
- */
-function detectUserStyle(userMessage, history = []) {
-  const text = (userMessage || "").toLowerCase();
-
-  // 🔴 强风险场景 → 一律温和
-  if (
-    /既読無視|未読|返事来ない|冷たい|そっけない|無視/.test(text)
-  ) {
-    return "soft";
-  }
-
-  // 🟡 焦虑 / 犹豫 → 温和
-  if (
-    /どうしよう|不安|怖い|迷って|送っていい|大丈夫かな|重いかな/.test(text)
-  ) {
-    return "soft";
-  }
-
-  // 🔵 主动推进意图
-  if (
-    /会いたい|誘いたい|どうやって誘う|行きたい|進めたい/.test(text)
-  ) {
-    return "push";
-  }
-
-  // ⚪ 默认
-  return "balance";
-}
-
-/**
- * ===== 入口闲聊识别（只保留必要）=====
- */
 function classifyShortInput(text) {
   const s = (text || "").trim();
 
@@ -58,30 +23,41 @@ function classifyShortInput(text) {
     return "greeting";
   }
 
+  if (["ありがとう", "ありがと", "ありがとうございます"].includes(s)) {
+    return "thanks";
+  }
+
+  if (["ごめん", "ごめんね", "すみません"].includes(s)) {
+    return "sorry";
+  }
+
+  if (["うん", "了解", "りょ", "OK", "ok", "笑", "w"].includes(s)) {
+    return "reaction";
+  }
+
   return null;
 }
 
-/**
- * ===== 入口引导 =====
- */
 function buildShortInputPrompt(userMessage) {
   return `
 あなたは恋愛LINE返信サポートAIです。
 
 挨拶に自然に返しつつ、
-「相手とのやり取りを送れば返信を考えられる」ことを
+「相手とのやり取りや状況を送れば返事を考えられる」ことを
 軽く伝えてください。
 
 条件：
 ・1〜2文
 ・自然
 ・営業っぽくしない
+・ユーザー本人と雑談しない
+・絵文字は最大1つまで
 
 入力：
 ${userMessage}
 
 出力：
-返信文1つ
+返信文1つだけ
 `;
 }
 
@@ -97,7 +73,6 @@ app.post("/webhook", async (req, res) => {
       const userMessage = event.message.text.trim();
       const user = getUser(userId);
 
-      // 解锁（测试）
       if (userMessage === "解锁") {
         setPaid(userId, true);
         await replyMessage(
@@ -113,19 +88,14 @@ app.post("/webhook", async (req, res) => {
       const shortType = classifyShortInput(userMessage);
 
       let prompt = "";
-
       if (shortType) {
         prompt = buildShortInputPrompt(userMessage);
       } else {
-        // 👉 自动风格识别（核心）
-        const style = detectUserStyle(userMessage, history);
-
         prompt = buildPrompt({
           relationship: user.relationship,
           purpose: user.purpose,
           history,
           userMessage,
-          style,
         });
       }
 
