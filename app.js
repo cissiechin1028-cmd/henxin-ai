@@ -18,16 +18,6 @@ const { postprocessReply } = require("./utils/postprocess");
 const app = express();
 app.use(express.json());
 
-// ===== 测试白名单 =====
-const TEST_USER_IDS = (process.env.TEST_USER_IDS || "")
-  .split(",")
-  .map((s) => s.trim())
-  .filter(Boolean);
-
-function isTestUser(userId) {
-  return TEST_USER_IDS.includes(userId);
-}
-
 // ===== 短输入分类 =====
 function classifyShortInput(text) {
   const s = (text || "").trim();
@@ -43,15 +33,17 @@ function classifyShortInput(text) {
   return null;
 }
 
-// ===== 短输入 Prompt =====
+// ===== 短输入 Prompt（🔥已强化引导）=====
 function buildShortInputPrompt(userMessage, type) {
   if (type === "greeting") {
     return `
 あなたは日本人向けの恋愛返信代写AIです。
 
 以下は挨拶メッセージです。
-自然に返しつつ、会話の流れを壊さない範囲で、
-「返信を一緒に考えられる」ことをさりげなく伝えてください。
+自然に返しつつ、「次にユーザーが何を送ればいいか」を明確に伝えてください。
+
+目的：
+ユーザーを「相手のメッセージ or 状況入力」に誘導する
 
 条件：
 ・1〜2文
@@ -59,39 +51,43 @@ function buildShortInputPrompt(userMessage, type) {
 ・やわらかい
 ・営業っぽくしない
 ・押しつけない
-・あくまで会話の延長
+・最後に必ず導線を入れる
 
 入力：
 ${userMessage}
 
+出力例：
+・おはよう。もし返事に迷ってるLINEがあったら、そのまま送ってくれたら一緒に考えるよ。
+・お疲れ様、無理しすぎないでね。相手のメッセージを送ってくれたら、そのまま使える返事を考えられるよ。
+
 出力：
-返信文のみを1つ
+返信文のみ
 `;
   }
 
   if (type === "thanks") {
     return `
 感謝メッセージへの自然な返信を1つ作る。
-軽く受けつつ、必要ならやさしく会話をつなぐ。
+軽く受けつつ、「返信相談できる」ことを自然に伝える。
 
 入力：
 ${userMessage}
 
 出力：
-返信文のみを1つ
+返信文のみ
 `;
   }
 
   if (type === "sorry") {
     return `
 謝罪メッセージへの自然な返信を1つ作る。
-責めずに受け止める。
+責めずに受け止めつつ、軽く安心させる。
 
 入力：
 ${userMessage}
 
 出力：
-返信文のみを1つ
+返信文のみ
 `;
   }
 
@@ -104,7 +100,7 @@ ${userMessage}
 ${userMessage}
 
 出力：
-返信文のみを1つ
+返信文のみ
 `;
   }
 
@@ -117,7 +113,7 @@ ${userMessage}
 ${userMessage}
 
 出力：
-返信文のみを1つ
+返信文のみ
 `;
   }
 
@@ -128,7 +124,7 @@ ${userMessage}
 ${userMessage}
 
 出力：
-返信文のみを1つ
+返信文のみ
 `;
 }
 
@@ -145,19 +141,27 @@ app.post("/webhook", async (req, res) => {
       const userMessage = event.message.text.trim();
 
       const user = getUser(userId);
-      const isTest = isTestUser(userId);
 
-      // ===== 免费限制 =====
-      if (!isTest && !user.isPaid && getFreeCount(userId) >= 3) {
+      // 👉 测试期间建议先关闭（你可以以后再打开）
+      /*
+      if (!user.isPaid && getFreeCount(userId) >= 3) {
         await replyMessage(
           event.replyToken,
           "本日の無料回数（3回）が終了しました。\nプレミアムで無制限に使えます。"
         );
         continue;
       }
+      increaseFreeCount(userId);
+      */
 
-      if (!isTest) {
-        increaseFreeCount(userId);
+      // 👉 手动解锁测试
+      if (userMessage === "解锁") {
+        setPaid(userId, true);
+        await replyMessage(
+          event.replyToken,
+          "プレミアムプランが有効になりました（無制限利用可能）"
+        );
+        continue;
       }
 
       addHistory(userId, `ユーザー: ${userMessage}`);
