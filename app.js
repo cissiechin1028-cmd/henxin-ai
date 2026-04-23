@@ -18,6 +18,16 @@ const { postprocessReply } = require("./utils/postprocess");
 const app = express();
 app.use(express.json());
 
+// ===== 测试白名单 =====
+const TEST_USER_IDS = (process.env.TEST_USER_IDS || "")
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
+
+function isTestUser(userId) {
+  return TEST_USER_IDS.includes(userId);
+}
+
 // =========================
 // 短输入分类
 // =========================
@@ -87,7 +97,6 @@ function classifyShortInput(text) {
   if (reactionList.includes(s)) return "reaction";
   if (questionList.includes(s)) return "question";
 
-  // 极短输入兜底
   if (s.length <= 8 && !s.includes(" ") && !s.includes("\n")) {
     return "reaction";
   }
@@ -95,9 +104,6 @@ function classifyShortInput(text) {
   return null;
 }
 
-// =========================
-// 短输入 Prompt
-// =========================
 function buildShortInputPrompt(userMessage, shortType) {
   const baseRule = `
 あなたは日本人向けの恋愛返信代写AIです。
@@ -174,9 +180,6 @@ ${userMessage}
 `;
 }
 
-// =========================
-// 同一批事件内，连续文本合并
-// =========================
 function groupTextEvents(events = []) {
   const result = [];
 
@@ -193,7 +196,7 @@ function groupTextEvents(events = []) {
 
     if (last && last.userId === userId) {
       last.messages.push(text);
-      last.replyToken = event.replyToken; // 用最后一条的 token 回
+      last.replyToken = event.replyToken;
     } else {
       result.push({
         userId,
@@ -216,11 +219,10 @@ app.post("/webhook", async (req, res) => {
       const userMessage = messages.join("\n").trim();
 
       const user = getUser(userId);
+      const testUser = isTestUser(userId);
 
-      // 临时付费测试
       if (userMessage === "解锁") {
         setPaid(userId, true);
-
         await replyMessage(
           replyToken,
           "プレミアムプランが有効になりました（無制限利用可能）"
@@ -228,8 +230,7 @@ app.post("/webhook", async (req, res) => {
         continue;
       }
 
-      // 免费次数限制
-      if (!user.isPaid && getFreeCount(userId) >= 3) {
+      if (!testUser && !user.isPaid && getFreeCount(userId) >= 3) {
         await replyMessage(
           replyToken,
           "本日の無料回数（3回）が終了しました。\n明日また3回使えます。\nプレミアムプランなら無制限で利用できます。"
@@ -237,15 +238,14 @@ app.post("/webhook", async (req, res) => {
         continue;
       }
 
-      increaseFreeCount(userId);
+      if (!testUser) {
+        increaseFreeCount(userId);
+      }
 
-      // 记录用户输入
       addHistory(userId, `ユーザー: ${userMessage}`);
       const history = getHistory(userId);
 
       let prompt = "";
-
-      // ===== 短输入分流 =====
       const shortType = classifyShortInput(userMessage);
 
       if (shortType) {
@@ -263,7 +263,6 @@ app.post("/webhook", async (req, res) => {
       const aiText = postprocessReply(rawAiText, userMessage, history);
 
       addHistory(userId, `AI: ${aiText}`);
-
       await replyMessage(replyToken, aiText);
     }
 
