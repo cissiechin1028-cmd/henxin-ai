@@ -147,6 +147,34 @@ app.post("/webhook", async (req, res) => {
         continue;
       }
 
+      // 风格切换（测试用）
+      if (userMessage === "温和") {
+        user.style = "soft";
+        await replyMessage(
+          event.replyToken,
+          "スタイル：やさしめに設定しました"
+        );
+        continue;
+      }
+
+      if (userMessage === "正常") {
+        user.style = "balance";
+        await replyMessage(
+          event.replyToken,
+          "スタイル：標準に設定しました"
+        );
+        continue;
+      }
+
+      if (userMessage === "主动") {
+        user.style = "push";
+        await replyMessage(
+          event.replyToken,
+          "スタイル：少し積極的に設定しました"
+        );
+        continue;
+      }
+
       addHistory(userId, `ユーザー: ${userMessage}`);
       const history = getHistory(userId);
 
@@ -161,6 +189,7 @@ app.post("/webhook", async (req, res) => {
           purpose: user.purpose,
           history,
           userMessage,
+          style: user.style,
         });
       }
 
