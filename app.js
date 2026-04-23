@@ -16,7 +16,41 @@ const { postprocessReply } = require("./utils/postprocess");
 const app = express();
 app.use(express.json());
 
-// 只把“纯入口闲聊”当短输入
+/**
+ * ===== 自动识别用户风格（最终版）=====
+ * 不需要用户输入任何指令
+ */
+function detectUserStyle(userMessage, history = []) {
+  const text = (userMessage || "").toLowerCase();
+
+  // 🔴 强风险场景 → 一律温和
+  if (
+    /既読無視|未読|返事来ない|冷たい|そっけない|無視/.test(text)
+  ) {
+    return "soft";
+  }
+
+  // 🟡 焦虑 / 犹豫 → 温和
+  if (
+    /どうしよう|不安|怖い|迷って|送っていい|大丈夫かな|重いかな/.test(text)
+  ) {
+    return "soft";
+  }
+
+  // 🔵 主动推进意图
+  if (
+    /会いたい|誘いたい|どうやって誘う|行きたい|進めたい/.test(text)
+  ) {
+    return "push";
+  }
+
+  // ⚪ 默认
+  return "balance";
+}
+
+/**
+ * ===== 入口闲聊识别（只保留必要）=====
+ */
 function classifyShortInput(text) {
   const s = (text || "").trim();
 
@@ -24,98 +58,24 @@ function classifyShortInput(text) {
     return "greeting";
   }
 
-  if (["ありがとう", "ありがと", "ありがとうございます"].includes(s)) {
-    return "thanks";
-  }
-
-  if (["ごめん", "ごめんね", "すみません"].includes(s)) {
-    return "sorry";
-  }
-
-  if (["うん", "了解", "りょ", "OK", "ok", "笑", "w"].includes(s)) {
-    return "reaction";
-  }
-
   return null;
 }
 
-function buildShortInputPrompt(userMessage, type) {
-  if (type === "greeting") {
-    return `
+/**
+ * ===== 入口引导 =====
+ */
+function buildShortInputPrompt(userMessage) {
+  return `
 あなたは恋愛LINE返信サポートAIです。
 
 挨拶に自然に返しつつ、
-「相手とのやり取りを送れば返事を考えられる」ことを
-会話の流れを壊さない範囲で軽く伝えてください。
+「相手とのやり取りを送れば返信を考えられる」ことを
+軽く伝えてください。
 
 条件：
 ・1〜2文
 ・自然
 ・営業っぽくしない
-・軽く導線を出すだけ
-・ユーザー本人と雑談しない
-
-入力：
-${userMessage}
-
-出力：
-返信文1つだけ
-`;
-  }
-
-  if (type === "thanks") {
-    return `
-感謝への自然な一言返信を作る。
-
-条件：
-・1〜2文
-・自然
-・重くしない
-
-入力：
-${userMessage}
-
-出力：
-返信文1つ
-`;
-  }
-
-  if (type === "sorry") {
-    return `
-謝罪への自然な受け止め返信を作る。
-
-条件：
-・1〜2文
-・自然
-・責めない
-
-入力：
-${userMessage}
-
-出力：
-返信文1つ
-`;
-  }
-
-  if (type === "reaction") {
-    return `
-短い相づちへの自然な返しを作る。
-
-条件：
-・1〜2文
-・自然
-・広げすぎない
-
-入力：
-${userMessage}
-
-出力：
-返信文1つ
-`;
-  }
-
-  return `
-自然な返信文を1つ作ってください。
 
 入力：
 ${userMessage}
@@ -137,40 +97,12 @@ app.post("/webhook", async (req, res) => {
       const userMessage = event.message.text.trim();
       const user = getUser(userId);
 
-      // 测试用解锁
+      // 解锁（测试）
       if (userMessage === "解锁") {
         setPaid(userId, true);
         await replyMessage(
           event.replyToken,
-          "プレミアムプランが有効になりました（無制限利用可能）"
-        );
-        continue;
-      }
-
-      // 风格切换（测试用）
-      if (userMessage === "温和") {
-        user.style = "soft";
-        await replyMessage(
-          event.replyToken,
-          "スタイル：やさしめに設定しました"
-        );
-        continue;
-      }
-
-      if (userMessage === "正常") {
-        user.style = "balance";
-        await replyMessage(
-          event.replyToken,
-          "スタイル：標準に設定しました"
-        );
-        continue;
-      }
-
-      if (userMessage === "主动") {
-        user.style = "push";
-        await replyMessage(
-          event.replyToken,
-          "スタイル：少し積極的に設定しました"
+          "プレミアムプランが有効になりました"
         );
         continue;
       }
@@ -181,15 +113,19 @@ app.post("/webhook", async (req, res) => {
       const shortType = classifyShortInput(userMessage);
 
       let prompt = "";
+
       if (shortType) {
-        prompt = buildShortInputPrompt(userMessage, shortType);
+        prompt = buildShortInputPrompt(userMessage);
       } else {
+        // 👉 自动风格识别（核心）
+        const style = detectUserStyle(userMessage, history);
+
         prompt = buildPrompt({
           relationship: user.relationship,
           purpose: user.purpose,
           history,
           userMessage,
-          style: user.style,
+          style,
         });
       }
 
