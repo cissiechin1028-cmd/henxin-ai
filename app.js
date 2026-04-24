@@ -19,45 +19,62 @@ app.use(express.json());
 function classifyShortInput(text) {
   const s = (text || "").trim();
 
-  if (["おはよう", "おはよ", "こんにちは", "こんばんは"].includes(s)) {
-    return "greeting";
-  }
+  const greetings = [
+    "おはよう",
+    "おはよ",
+    "こんにちは",
+    "こんばんは",
+    "お疲れ様",
+    "お疲れ様です",
+  ];
 
-  if (["ありがとう", "ありがと", "ありがとうございます"].includes(s)) {
-    return "thanks";
-  }
-
-  if (["ごめん", "ごめんね", "すみません"].includes(s)) {
-    return "sorry";
-  }
-
-  if (["うん", "了解", "りょ", "OK", "ok", "笑", "w"].includes(s)) {
-    return "reaction";
-  }
+  if (greetings.includes(s)) return "greeting";
 
   return null;
 }
 
-function buildShortInputPrompt(userMessage) {
-  return `
+function buildGreetingPrompt(userMessage, greetingCount) {
+  if (greetingCount >= 2) {
+    return `
 あなたは恋愛LINE返信サポートAIです。
 
-挨拶に自然に返しつつ、
-「相手とのやり取りや状況を送れば返事を考えられる」ことを
-軽く伝えてください。
+ユーザーが続けて挨拶だけを送っています。
+自然に返しつつ、次に何を送ればいいかをはっきり伝えてください。
 
 条件：
 ・1〜2文
 ・自然
 ・営業っぽくしない
-・ユーザー本人と雑談しない
-・絵文字は最大1つまで
+・①②③を出さない
+・おすすめ、理由、送信タイミングを出さない
+・「相手のLINE内容」または「今の状況」を送るように案内する
 
 入力：
 ${userMessage}
 
 出力：
-返信文1つだけ
+返信文1つ
+`;
+  }
+
+  return `
+あなたは恋愛LINE返信サポートAIです。
+
+ユーザーの挨拶に自然に返しつつ、
+「相手とのLINE内容や状況を送れば返信を一緒に考えられる」ことを伝えてください。
+
+条件：
+・1〜2文
+・自然
+・営業っぽくしない
+・①②③を出さない
+・おすすめ、理由、送信タイミングを出さない
+
+入力：
+${userMessage}
+
+出力：
+返信文1つ
 `;
 }
 
@@ -82,27 +99,37 @@ app.post("/webhook", async (req, res) => {
         continue;
       }
 
-      addHistory(userId, `ユーザー: ${userMessage}`);
-      const history = getHistory(userId);
-
       const shortType = classifyShortInput(userMessage);
 
       let prompt = "";
-      if (shortType) {
-        prompt = buildShortInputPrompt(userMessage);
+      let final = "";
+
+      if (shortType === "greeting") {
+        user.greetingCount = (user.greetingCount || 0) + 1;
+
+        prompt = buildGreetingPrompt(userMessage, user.greetingCount);
+
+        const raw = await generateReply(prompt);
+        final = raw.trim();
       } else {
+        user.greetingCount = 0;
+
+        addHistory(userId, `ユーザー: ${userMessage}`);
+        const history = getHistory(userId);
+
         prompt = buildPrompt({
           relationship: user.relationship,
           purpose: user.purpose,
           history,
           userMessage,
         });
+
+        const raw = await generateReply(prompt);
+        final = postprocessReply(raw);
+
+        addHistory(userId, `AI: ${final}`);
       }
 
-      const raw = await generateReply(prompt);
-      const final = postprocessReply(raw);
-
-      addHistory(userId, `AI: ${final}`);
       await replyMessage(event.replyToken, final);
     }
 
