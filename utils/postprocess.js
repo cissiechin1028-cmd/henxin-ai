@@ -1,7 +1,5 @@
 function cleanup(text) {
-  return (text || "")
-    .replace(/\r/g, "")
-    .trim();
+  return (text || "").replace(/\r/g, "").trim();
 }
 
 function normalize(text) {
@@ -28,22 +26,51 @@ function parseOptions(text) {
   return options;
 }
 
+function sanitizeOptions(text) {
+  const forbidden = [
+    "送らない",
+    "様子を見る",
+    "時間を置く",
+    "今はやめ",
+    "控えた方",
+    "待つ",
+  ];
+
+  const safe = {
+    "①": "タイミング合う時教えてくれたら嬉しいな",
+    "②": "落ち着いたらまた話そうね",
+    "③": "無理しないでね、落ち着いたらで大丈夫だよ",
+  };
+
+  return text
+    .split("\n")
+    .map((line) => {
+      const m = line.match(/^([①②③])\s*(.*)$/);
+      if (!m) return line;
+
+      const no = m[1];
+      const body = m[2];
+
+      if (forbidden.some((w) => body.includes(w))) {
+        return `${no} ${safe[no]}`;
+      }
+
+      return line;
+    })
+    .join("\n");
+}
+
 function scoreOption(text, fullText) {
   let score = 0;
 
   if (/[？?]/.test(text)) score += 2;
-  if (/落ち着いた|元気|どう|話せ/.test(text)) score += 1;
-  if (/嬉しい|ちょっと/.test(text)) score += 1;
-
-  if (/無理しないでね/.test(text) && !/[？?]/.test(text)) score -= 2;
-  if (/またタイミング|待ってる|いつでも/.test(text)) score -= 1;
+  if (/嬉しい|話せ|教えて|落ち着いた|都合|タイミング/.test(text)) score += 1;
+  if (/無理しないでね/.test(text) && !/[？?]/.test(text)) score -= 1;
 
   const failed = /既読無視|無視された|返事来ない|同じような/.test(fullText);
   if (failed) {
-    if (/また落ち着いたら|待ってる|いつでも/.test(text)) score -= 3;
-    if (/無理しないで/.test(text)) score -= 2;
-    if (/話題変え|最近どう/.test(text)) score += 3;
-    if (/[？?]/.test(text)) score += 1;
+    if (/また落ち着いたら|待ってる|いつでも/.test(text)) score -= 2;
+    if (/タイミング|都合/.test(text)) score += 1;
   }
 
   return score;
@@ -73,7 +100,7 @@ function ensureSelectorHint(text) {
   const insertAt = lines.findIndex((line) => /^③/.test(line));
 
   if (insertAt !== -1) {
-    lines.splice(insertAt + 1, 0, "👉しっくりくるものをそのまま使ってOK");
+    lines.splice(insertAt + 1, 0, "", "👉しっくりくるものをそのまま使ってOK");
     return lines.join("\n");
   }
 
@@ -91,10 +118,10 @@ function replaceRecommended(text, rec) {
 function postprocessReply(aiText) {
   let text = cleanup(aiText);
   text = normalize(text);
+  text = sanitizeOptions(text);
 
   const options = parseOptions(text);
 
-  // 只有真正是三选一输出时才处理
   if (options.length >= 3) {
     const rec = chooseRecommended(options, text);
     text = ensureSelectorHint(text);
