@@ -16,7 +16,7 @@ const { postprocessReply } = require("./utils/postprocess");
 const app = express();
 app.use(express.json());
 
-function classifyShortInput(text) {
+function classifyGreeting(text) {
   const s = (text || "").trim();
 
   const greetings = [
@@ -28,40 +28,33 @@ function classifyShortInput(text) {
     "お疲れ様です",
   ];
 
-  if (greetings.includes(s)) return "greeting";
-
-  return null;
+  return greetings.includes(s);
 }
 
-function buildGreetingPrompt(userMessage, greetingCount) {
-  if (greetingCount >= 2) {
-    return `
-あなたは恋愛LINE返信サポートAIです。
+function detectUserStyle(userMessage) {
+  const text = userMessage || "";
 
-ユーザーが続けて挨拶だけを送っています。
-自然に返しつつ、次に何を送ればいいかをはっきり伝えてください。
-
-条件：
-・1〜2文
-・自然
-・営業っぽくしない
-・①②③を出さない
-・おすすめ、理由、送信タイミングを出さない
-・「相手のLINE内容」または「今の状況」を送るように案内する
-
-入力：
-${userMessage}
-
-出力：
-返信文1つ
-`;
+  if (/既読無視|未読|返事来ない|冷たい|そっけない|無視/.test(text)) {
+    return "soft";
   }
 
+  if (/不安|怖い|迷って|送っていい|重いかな|大丈夫かな/.test(text)) {
+    return "soft";
+  }
+
+  if (/会いたい|誘いたい|ご飯行きたい|進めたい/.test(text)) {
+    return "push";
+  }
+
+  return "balance";
+}
+
+function buildGreetingPrompt(userMessage) {
   return `
 あなたは恋愛LINE返信サポートAIです。
 
 ユーザーの挨拶に自然に返しつつ、
-「相手とのLINE内容や状況を送れば返信を一緒に考えられる」ことを伝えてください。
+「相手とのLINE内容」または「今の状況」を送れば返信を一緒に考えられることを伝えてください。
 
 条件：
 ・1〜2文
@@ -69,12 +62,12 @@ ${userMessage}
 ・営業っぽくしない
 ・①②③を出さない
 ・おすすめ、理由、送信タイミングを出さない
+・返信文1つだけ
 
 入力：
 ${userMessage}
 
 出力：
-返信文1つ
 `;
 }
 
@@ -92,36 +85,28 @@ app.post("/webhook", async (req, res) => {
 
       if (userMessage === "解锁") {
         setPaid(userId, true);
-        await replyMessage(
-          event.replyToken,
-          "プレミアムプランが有効になりました"
-        );
+        await replyMessage(event.replyToken, "プレミアムプランが有効になりました");
         continue;
       }
-
-      const shortType = classifyShortInput(userMessage);
 
       let prompt = "";
       let final = "";
 
-      if (shortType === "greeting") {
-        user.greetingCount = (user.greetingCount || 0) + 1;
-
-        prompt = buildGreetingPrompt(userMessage, user.greetingCount);
-
+      if (classifyGreeting(userMessage)) {
+        prompt = buildGreetingPrompt(userMessage);
         const raw = await generateReply(prompt);
         final = raw.trim();
       } else {
-        user.greetingCount = 0;
-
         addHistory(userId, `ユーザー: ${userMessage}`);
         const history = getHistory(userId);
+        const style = detectUserStyle(userMessage);
 
         prompt = buildPrompt({
           relationship: user.relationship,
           purpose: user.purpose,
           history,
           userMessage,
+          style,
         });
 
         const raw = await generateReply(prompt);
