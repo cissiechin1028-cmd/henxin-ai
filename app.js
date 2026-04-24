@@ -76,6 +76,25 @@ app.post("/webhook", async (req, res) => {
     const events = req.body.events || [];
 
     for (const event of events) {
+
+      // ✅ 这里是新增（欢迎语）
+      if (event.type === "follow") {
+        await replyMessage(event.replyToken, `そのLINE、このまま送ると失敗するかも。
+
+ここで👇
+✔ 今送るべきか判断
+✔ 一番安全な返しを作る
+
+やることは1つだけ👇
+相手のメッセージ、そのまま送って
+
+（コピペ・スクショOK）
+
+こっちで全部判断して、
+そのまま送れる形で出します。`);
+        continue;
+      }
+
       if (event.type !== "message") continue;
       if (event.message.type !== "text") continue;
 
