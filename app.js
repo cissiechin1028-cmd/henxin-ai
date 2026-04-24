@@ -77,9 +77,12 @@ app.post("/webhook", async (req, res) => {
 
     for (const event of events) {
 
-      // ✅ 这里是新增（欢迎语）
+      // ✅ 欢迎语（最终版）
       if (event.type === "follow") {
         await replyMessage(event.replyToken, `そのLINE、このまま送ると失敗するかも。
+
+ちょっとした一言で、
+距離が一気にズレることもある。
 
 ここで👇
 ✔ 今送るべきか判断
@@ -90,8 +93,8 @@ app.post("/webhook", async (req, res) => {
 
 （コピペ・スクショOK）
 
-こっちで全部判断して、
-そのまま送れる形で出します。`);
+そのまま送れる形で出すから、
+考えなくて大丈夫。`);
         continue;
       }
 
