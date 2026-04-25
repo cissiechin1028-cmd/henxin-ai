@@ -104,7 +104,7 @@ function buildFreeLimitMessage() {
 }
 
 function buildCriticalLockedMessage() {
-  return `このケースはかなり重要な分岐です。
+  return `この状況はかなり重要な分岐です。
 
 ここでの対応を間違えると、
 「戻れる可能性」が一気に下がるケースもあります。
@@ -203,6 +203,7 @@ app.post("/webhook", async (req, res) => {
         continue;
       }
 
+      // ✅ 修复点：免费次数结束后，直接 continue，绝不再走 AI 生成
       if (plan === "free" && user.usageCount >= 3) {
         await replyMessage(event.replyToken, buildFreeLimitMessage());
         continue;
