@@ -49,6 +49,12 @@ function detectUserStyle(userMessage) {
   return "balance";
 }
 
+// ✅ 新增：复合识别
+function detectReconciliation(userMessage) {
+  const text = userMessage || "";
+  return /復縁|元カレ|元カノ|やり直したい|振られた|別れた|もう一度|取り戻したい/.test(text);
+}
+
 function buildGreetingPrompt(userMessage) {
   return `
 あなたは恋愛LINE返信サポートAIです。
@@ -104,6 +110,32 @@ app.post("/webhook", async (req, res) => {
       const userId = event.source.userId;
       const userMessage = event.message.text.trim();
       const user = getUser(userId);
+
+      const isReconciliation = detectReconciliation(userMessage);
+
+      // ✅ 复合场景：免费用户降级
+      if (isReconciliation && !user.isPaid) {
+        const reply = `この状況は少し慎重に見た方がいいです。
+
+一言で印象が大きく変わる可能性があります。
+
+【今の一番安全な返し】
+「久しぶりだね、元気にしてる？」
+
+──────────
+
+このケースは通常のLINE返信よりも、
+タイミングや言い方で結果が大きく変わる可能性があります。
+
+一度の判断ミスで、
+関係が戻らなくなるケースもあります。
+
+より精度の高い判断（送るべきか・タイミング・戦略）は
+プレミアムで対応しています。`;
+
+        await replyMessage(event.replyToken, reply);
+        continue;
+      }
 
       if (userMessage === "解锁") {
         setPaid(userId, true);
