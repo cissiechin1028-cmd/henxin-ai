@@ -49,7 +49,6 @@ function detectUserStyle(userMessage) {
   return "balance";
 }
 
-// ✅ 新增：复合识别
 function detectReconciliation(userMessage) {
   const text = userMessage || "";
   return /復縁|元カレ|元カノ|やり直したい|振られた|別れた|もう一度|取り戻したい/.test(text);
@@ -82,8 +81,6 @@ app.post("/webhook", async (req, res) => {
     const events = req.body.events || [];
 
     for (const event of events) {
-
-      // ✅ 欢迎语（最终版）
       if (event.type === "follow") {
         await replyMessage(event.replyToken, `そのLINE、このまま送ると失敗するかも。
 
@@ -113,24 +110,25 @@ app.post("/webhook", async (req, res) => {
 
       const isReconciliation = detectReconciliation(userMessage);
 
-      // ✅ 复合场景：免费用户降级
       if (isReconciliation && !user.isPaid) {
-        const reply = `この状況は少し慎重に見た方がいいです。
+        const reply = `この状況はかなり重要な分岐です。
 
-一言で印象が大きく変わる可能性があります。
+ここでの一言で、
+「戻れる関係」になるか、
+そのまま終わるかが分かれる可能性があります。
+
+軽く見て送ると、
+取り返しがつかなくなるケースもあります。
 
 【今の一番安全な返し】
 「久しぶりだね、元気にしてる？」
 
 ──────────
 
-このケースは通常のLINE返信よりも、
-タイミングや言い方で結果が大きく変わる可能性があります。
+このケースは通常のLINE返信とは違い、
+タイミングと言い方で結果が大きく変わります。
 
-一度の判断ミスで、
-関係が戻らなくなるケースもあります。
-
-より精度の高い判断（送るべきか・タイミング・戦略）は
+より精度の高い判断（送るべきか・待つべきか・距離の詰め方）は
 プレミアムで対応しています。`;
 
         await replyMessage(event.replyToken, reply);
