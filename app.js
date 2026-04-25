@@ -8,6 +8,7 @@ const {
   setPaid,
   setPlan,
   incrementUsage,
+  resetUser,
 } = require("./userStore");
 
 const { generateReply } = require("./services/openai");
@@ -20,33 +21,15 @@ app.use(express.json());
 
 function classifyGreeting(text) {
   const s = (text || "").trim();
-
-  const greetings = [
-    "おはよう",
-    "おはよ",
-    "こんにちは",
-    "こんばんは",
-    "お疲れ様",
-    "お疲れ様です",
-  ];
-
-  return greetings.includes(s);
+  return ["おはよう", "おはよ", "こんにちは", "こんばんは", "お疲れ様", "お疲れ様です"].includes(s);
 }
 
 function detectUserStyle(userMessage) {
   const text = userMessage || "";
 
-  if (/既読無視|未読|返事来ない|冷たい|そっけない|無視/.test(text)) {
-    return "soft";
-  }
-
-  if (/不安|怖い|迷って|送っていい|重いかな|大丈夫かな/.test(text)) {
-    return "soft";
-  }
-
-  if (/会いたい|誘いたい|ご飯行きたい|進めたい/.test(text)) {
-    return "push";
-  }
+  if (/既読無視|未読|返事来ない|冷たい|そっけない|無視/.test(text)) return "soft";
+  if (/不安|怖い|迷って|送っていい|重いかな|大丈夫かな/.test(text)) return "soft";
+  if (/会いたい|誘いたい|ご飯行きたい|進めたい/.test(text)) return "push";
 
   return "balance";
 }
@@ -57,7 +40,12 @@ function detectReconciliation(userMessage) {
 }
 
 function isCriticalCase(text) {
-  return /復縁|元カレ|元カノ|やり直したい|振られた|別れた|もう一度|取り戻したい|別れ話|もう無理|会わない|終わり/.test(text || "");
+  return detectReconciliation(text || "");
+}
+
+function isTestUser(userId) {
+  const ids = (process.env.TEST_USER_IDS || "").split(",").map((v) => v.trim());
+  return ids.includes(userId);
 }
 
 function trimToFreeVersion(text) {
@@ -65,12 +53,24 @@ function trimToFreeVersion(text) {
 
   let result = text;
 
-  if (result.includes("【⚠️")) {
-    result = result.split("【⚠️")[0].trim();
+  const cutPoints = [
+    "【⚠️",
+    "【他の選択肢】",
+    "⭐",
+    "👉しっくり",
+    "送信タイミング",
+    "タイミング",
+  ];
+
+  for (const point of cutPoints) {
+    if (result.includes(point)) {
+      result = result.split(point)[0].trim();
+    }
   }
 
-  if (result.includes("【他の選択肢】")) {
-    result = result.split("【他の選択肢】")[0].trim();
+  const sections = result.split("\n\n");
+  if (sections.length >= 2) {
+    result = sections.slice(0, 2).join("\n\n");
   }
 
   return `${result}
@@ -89,7 +89,7 @@ function trimToFreeVersion(text) {
 }
 
 function buildFreeLimitMessage() {
-  return `無料分が終了しました。
+  return `無料分はすでにご利用済みです。
 
 このまま自己判断で送ると、
 一言で距離が広がることもあります。
@@ -181,6 +181,12 @@ app.post("/webhook", async (req, res) => {
       const user = getUser(userId);
       const plan = user.plan || "free";
 
+      if (userMessage.toLowerCase() === "reset" && isTestUser(userId)) {
+        resetUser(userId);
+        await replyMessage(event.replyToken, "テスト用リセット完了しました。");
+        continue;
+      }
+
       if (userMessage === "解锁" || userMessage.toLowerCase() === "premium") {
         setPaid(userId, true);
         setPlan(userId, "premium");
@@ -204,7 +210,6 @@ app.post("/webhook", async (req, res) => {
         continue;
       }
 
-      // ✅ 免费次数已结束：这里必须拦截，不能再往下生成AI
       const usageCount = Number(user.usageCount || user.count || 0);
 
       if (plan === "free" && usageCount >= 3 && !isGreeting) {
@@ -212,19 +217,17 @@ app.post("/webhook", async (req, res) => {
         continue;
       }
 
-      let prompt = "";
       let final = "";
 
       if (isGreeting) {
-        prompt = buildGreetingPrompt(userMessage);
-        const raw = await generateReply(prompt);
+        const raw = await generateReply(buildGreetingPrompt(userMessage));
         final = raw.trim();
       } else {
         addHistory(userId, `ユーザー: ${userMessage}`);
         const history = getHistory(userId);
         const style = detectUserStyle(userMessage);
 
-        prompt = buildPrompt({
+        const prompt = buildPrompt({
           relationship: user.relationship,
           purpose: user.purpose,
           history,
