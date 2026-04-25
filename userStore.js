@@ -8,7 +8,7 @@ function getUser(userId) {
       relationship: "不明",
       purpose: "不明",
       isPaid: false,
-      plan: "free", // free / premium / pro
+      plan: "free",
       usageCount: 0,
     };
   }
@@ -26,13 +26,11 @@ function addHistory(userId, message) {
 }
 
 function getHistory(userId) {
-  const user = getUser(userId);
-  return user.history || [];
+  return getUser(userId).history || [];
 }
 
 function setPaid(userId, value) {
-  const user = getUser(userId);
-  user.isPaid = value;
+  getUser(userId).isPaid = value;
 }
 
 function setPlan(userId, plan) {
@@ -40,6 +38,7 @@ function setPlan(userId, plan) {
 
   if (!["free", "premium", "pro"].includes(plan)) {
     user.plan = "free";
+    user.isPaid = false;
     return;
   }
 
@@ -52,6 +51,18 @@ function incrementUsage(userId) {
   user.usageCount = (user.usageCount || 0) + 1;
 }
 
+function resetUser(userId) {
+  users[userId] = {
+    userId,
+    history: [],
+    relationship: "不明",
+    purpose: "不明",
+    isPaid: false,
+    plan: "free",
+    usageCount: 0,
+  };
+}
+
 module.exports = {
   getUser,
   addHistory,
@@ -59,4 +70,5 @@ module.exports = {
   setPaid,
   setPlan,
   incrementUsage,
+  resetUser,
 };
