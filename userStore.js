@@ -1,56 +1,33 @@
-const userMap = new Map();
-
-function initUser(userId) {
-  if (!userMap.has(userId)) {
-    userMap.set(userId, {
-      relationship: null,
-      purpose: null,
-      style: "balance",
-      history: [],
-      freeCount: 0,
-      lastUsedDate: null,
-      isPaid: false,
-    });
-  }
-}
-
-function getToday() {
-  return new Date().toISOString().slice(0, 10);
-}
+const users = {};
 
 function getUser(userId) {
-  initUser(userId);
-  const user = userMap.get(userId);
-
-  const today = getToday();
-  if (user.lastUsedDate !== today) {
-    user.freeCount = 0;
-    user.lastUsedDate = today;
+  if (!users[userId]) {
+    users[userId] = {
+      userId,
+      history: [],
+      relationship: "不明",
+      purpose: "不明",
+      isPaid: false,
+      plan: "free", // free / premium / pro
+      usageCount: 0,
+    };
   }
 
-  return user;
+  return users[userId];
 }
 
-function addHistory(userId, text) {
+function addHistory(userId, message) {
   const user = getUser(userId);
-  user.history.push(text);
+  user.history.push(message);
 
-  if (user.history.length > 10) {
-    user.history.shift();
+  if (user.history.length > 20) {
+    user.history = user.history.slice(-20);
   }
 }
 
 function getHistory(userId) {
-  return getUser(userId).history;
-}
-
-function increaseFreeCount(userId) {
   const user = getUser(userId);
-  user.freeCount += 1;
-}
-
-function getFreeCount(userId) {
-  return getUser(userId).freeCount;
+  return user.history || [];
 }
 
 function setPaid(userId, value) {
@@ -58,11 +35,28 @@ function setPaid(userId, value) {
   user.isPaid = value;
 }
 
+function setPlan(userId, plan) {
+  const user = getUser(userId);
+
+  if (!["free", "premium", "pro"].includes(plan)) {
+    user.plan = "free";
+    return;
+  }
+
+  user.plan = plan;
+  user.isPaid = plan !== "free";
+}
+
+function incrementUsage(userId) {
+  const user = getUser(userId);
+  user.usageCount = (user.usageCount || 0) + 1;
+}
+
 module.exports = {
   getUser,
   addHistory,
   getHistory,
-  increaseFreeCount,
-  getFreeCount,
   setPaid,
+  setPlan,
+  incrementUsage,
 };
