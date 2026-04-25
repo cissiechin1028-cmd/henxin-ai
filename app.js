@@ -6,6 +6,8 @@ const {
   addHistory,
   getHistory,
   setPaid,
+  setPlan,
+  incrementUsage,
 } = require("./userStore");
 
 const { generateReply } = require("./services/openai");
@@ -51,7 +53,77 @@ function detectUserStyle(userMessage) {
 
 function detectReconciliation(userMessage) {
   const text = userMessage || "";
-  return /復縁|元カレ|元カノ|やり直したい|振られた|別れた|もう一度|取り戻したい/.test(text);
+  return /復縁|元カレ|元カノ|やり直したい|振られた|別れた|もう一度|取り戻したい|別れ話|もう無理|会わない|終わり/.test(text);
+}
+
+function isCriticalCase(text) {
+  return /復縁|元カレ|元カノ|やり直したい|振られた|別れた|もう一度|取り戻したい|別れ話|もう無理|会わない|終わり/.test(text || "");
+}
+
+function trimToFreeVersion(text) {
+  if (!text) return "";
+
+  let result = text;
+
+  if (result.includes("【⚠️")) {
+    result = result.split("【⚠️")[0].trim();
+  }
+
+  if (result.includes("【他の選択肢】")) {
+    result = result.split("【他の選択肢】")[0].trim();
+  }
+
+  return `${result}
+
+──────────
+
+無料版ではここまで表示しています。
+
+プレミアムでは👇
+・やりがちNG
+・他の選択肢
+・送るタイミング
+・関係が悪化しやすいポイント
+
+まで詳しく見られます。`;
+}
+
+function buildFreeLimitMessage() {
+  return `無料分が終了しました。
+
+このまま自己判断で送ると、
+一言で距離が広がることもあります。
+
+プレミアムでは👇
+・無制限で返信作成
+・NG回避
+・送る/送らない判断
+・タイミング判断
+
+まで使えます。`;
+}
+
+function buildCriticalLockedMessage() {
+  return `このケースはかなり重要な分岐です。
+
+ここでの対応を間違えると、
+「戻れる可能性」が一気に下がるケースもあります。
+
+実際、このタイミングでの一言で
+そのまま終わってしまうことも少なくありません。
+
+軽く考えて送るのは、正直リスクが高いです。
+
+【今の一番安全な返し】
+「久しぶりだね、元気にしてる？」
+
+──────────
+
+このケースは通常のLINE返信とは違い、
+タイミング・言い方・距離感で結果が大きく変わります。
+
+より精度の高い判断（送るべきか・待つべきか・距離の詰め方）は
+復縁PROで対応しています。`;
 }
 
 function buildGreetingPrompt(userMessage) {
@@ -107,37 +179,32 @@ app.post("/webhook", async (req, res) => {
       const userId = event.source.userId;
       const userMessage = event.message.text.trim();
       const user = getUser(userId);
+      const plan = user.plan || "free";
 
-      const isReconciliation = detectReconciliation(userMessage);
-
-      if (isReconciliation && !user.isPaid) {
-        const reply = `この状況はかなり重要な分岐です。
-
-ここでの一言で、
-「戻れる関係」になるか、
-そのまま終わるかが分かれる可能性があります。
-
-軽く見て送ると、
-取り返しがつかなくなるケースもあります。
-
-【今の一番安全な返し】
-「久しぶりだね、元気にしてる？」
-
-──────────
-
-このケースは通常のLINE返信とは違い、
-タイミングと言い方で結果が大きく変わります。
-
-より精度の高い判断（送るべきか・待つべきか・距離の詰め方）は
-プレミアムで対応しています。`;
-
-        await replyMessage(event.replyToken, reply);
+      if (userMessage === "解锁" || userMessage.toLowerCase() === "premium") {
+        setPaid(userId, true);
+        setPlan(userId, "premium");
+        await replyMessage(event.replyToken, "プレミアムプランが有効になりました");
         continue;
       }
 
-      if (userMessage === "解锁") {
+      if (userMessage.toLowerCase() === "pro") {
         setPaid(userId, true);
-        await replyMessage(event.replyToken, "プレミアムプランが有効になりました");
+        setPlan(userId, "pro");
+        await replyMessage(event.replyToken, "復縁PROプランが有効になりました");
+        continue;
+      }
+
+      const isReconciliation = detectReconciliation(userMessage);
+      const isCritical = isCriticalCase(userMessage);
+
+      if (isCritical && plan !== "pro") {
+        await replyMessage(event.replyToken, buildCriticalLockedMessage());
+        continue;
+      }
+
+      if (plan === "free" && user.usageCount >= 3) {
+        await replyMessage(event.replyToken, buildFreeLimitMessage());
         continue;
       }
 
@@ -159,12 +226,20 @@ app.post("/webhook", async (req, res) => {
           history,
           userMessage,
           style,
+          plan,
+          isReconciliation,
+          isCritical,
         });
 
         const raw = await generateReply(prompt);
         final = postprocessReply(raw);
 
         addHistory(userId, `AI: ${final}`);
+      }
+
+      if (plan === "free") {
+        incrementUsage(userId);
+        final = trimToFreeVersion(final);
       }
 
       await replyMessage(event.replyToken, final);
