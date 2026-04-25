@@ -195,6 +195,7 @@ app.post("/webhook", async (req, res) => {
         continue;
       }
 
+      const isGreeting = classifyGreeting(userMessage);
       const isReconciliation = detectReconciliation(userMessage);
       const isCritical = isCriticalCase(userMessage);
 
@@ -203,8 +204,10 @@ app.post("/webhook", async (req, res) => {
         continue;
       }
 
-      // ✅ 修复点：免费次数结束后，直接 continue，绝不再走 AI 生成
-      if (plan === "free" && user.usageCount >= 3) {
+      // ✅ 免费次数已结束：这里必须拦截，不能再往下生成AI
+      const usageCount = Number(user.usageCount || user.count || 0);
+
+      if (plan === "free" && usageCount >= 3 && !isGreeting) {
         await replyMessage(event.replyToken, buildFreeLimitMessage());
         continue;
       }
@@ -212,7 +215,7 @@ app.post("/webhook", async (req, res) => {
       let prompt = "";
       let final = "";
 
-      if (classifyGreeting(userMessage)) {
+      if (isGreeting) {
         prompt = buildGreetingPrompt(userMessage);
         const raw = await generateReply(prompt);
         final = raw.trim();
@@ -238,7 +241,7 @@ app.post("/webhook", async (req, res) => {
         addHistory(userId, `AI: ${final}`);
       }
 
-      if (plan === "free") {
+      if (plan === "free" && !isGreeting) {
         incrementUsage(userId);
         final = trimToFreeVersion(final);
       }
