@@ -38,6 +38,33 @@ function welcomeMessage() {
 そのまま送れる返信、作る。`;
 }
 
+function getFreeTip(decision) {
+  const map = {
+    "今は理解を見せる返信が安全です":
+      "“忙しい中でも返してくれたこと”に触れると印象が上がります",
+
+    "今は責めずに、やさしく受け止めるのが安全です":
+      "“忙しい中でも返してくれたこと”に触れると印象が上がります",
+
+    "今は軽く気遣う返信が安全です":
+      "“返さなくても大丈夫”という空気を出すと、逆に返ってきやすくなります",
+
+    "今は相手の温度を確認しながら進めるのが安全です":
+      "踏み込むより、“ちょっと気になった”くらいがちょうどいいです",
+
+    "今は感情的に追いかけすぎない方が安全です":
+      "ここで強く出ると、一気に距離が開くので注意です",
+
+    "今は少し好意を見せても大丈夫です":
+      "ストレートに言うより、“話していて楽しい”の方が自然です",
+
+    "今は自然に短く返すのが安全です":
+      "長く説明するより、短く返す方が自然に続きやすいです"
+  };
+
+  return map[decision.conclusion] || "相手の負担を下げる言い方がポイントです";
+}
+
 function formatFreeOutput({ decision, reply }) {
   return `【結論】
 👉 ${decision.conclusion}
@@ -45,7 +72,16 @@ function formatFreeOutput({ decision, reply }) {
 【返信】
 👉 ${reply}
 
-もっと自然な言い方・別パターン・タイミングまで見たい場合はプレミアムで確認できます。`;
+💡ワンポイント
+👉 ${getFreeTip(decision)}
+
+──
+このままでもOKですが👇
+・もっと自然な言い方
+・相手が返しやすい言い方
+・距離を縮める言い方
+
+はプレミアムで見れます。`;
 }
 
 function formatPremiumOutput({ decision, replies }) {
@@ -56,14 +92,21 @@ function formatPremiumOutput({ decision, replies }) {
 ${decision.reason}
 
 【おすすめ返信】
-1. ${replies[0]}
-2. ${replies[1]}
-3. ${replies[2]}
+① ${replies[0]}
+→ 自然で安全
+
+② ${replies[1]}
+→ 少し距離を縮める
+
+③ ${replies[2]}
+→ やさしめ
 
 【送るタイミング】
 ${decision.sendTiming}
 
-さらに戦略まで見たい場合はPROがおすすめです。`;
+──
+💡この中で一番いい返し方や、
+相手がどう受け取りやすいかはPROで確認できます。`;
 }
 
 function formatProOutput({ decision, replies }) {
@@ -77,9 +120,9 @@ ${decision.reason}
 ${decision.action}
 
 【返信候補】
-1. ${replies[0]}
-2. ${replies[1]}
-3. ${replies[2]}
+① ${replies[0]}
+② ${replies[1]}
+③ ${replies[2]}
 
 【送るタイミング】
 ${decision.sendTiming}
@@ -101,11 +144,12 @@ function handleLogic(userId, input, plan = "free") {
   if (safePlan === "free" && user.usageCount >= 3) {
     return `無料診断は3回までです。
 
+ここから先は👇
 ・返信パターン
 ・送るタイミング
 ・関係の進め方
 
-はプレミアムで確認できます。`;
+をプレミアムで確認できます。`;
   }
 
   const decision = decisionEngine({
@@ -115,16 +159,12 @@ function handleLogic(userId, input, plan = "free") {
     plan: safePlan
   });
 
-  console.log("DECISION:", decision);
-
   if (!decision || !decision.conclusion) {
     throw new Error("decisionEngine returned invalid result");
   }
 
   if (safePlan === "free") {
     const reply = getOneReply(scene, "free");
-
-    console.log("SELECTED REPLY:", reply);
 
     if (!reply) {
       throw new Error(`No reply template found for scene: ${scene}`);
@@ -215,7 +255,7 @@ app.post("/webhook", async (req, res) => {
 
       console.log("UNSUPPORTED EVENT:", event.type);
     } catch (err) {
-      console.error("🔥 WEBHOOK REAL ERROR:", err.stack || err.message || err);
+      console.error("WEBHOOK ERROR:", err.stack || err.message || err);
 
       try {
         if (event.replyToken) {
@@ -225,7 +265,7 @@ app.post("/webhook", async (req, res) => {
           );
         }
       } catch (replyErr) {
-        console.error("🔥 ERROR REPLY FAILED:", replyErr.response?.data || replyErr.message);
+        console.error("ERROR REPLY FAILED:", replyErr.response?.data || replyErr.message);
       }
     }
   }
@@ -250,7 +290,7 @@ app.post("/api/chat", (req, res) => {
 
     return res.json({ message: result });
   } catch (err) {
-    console.error("🔥 API REAL ERROR:", err.stack || err.message || err);
+    console.error("API ERROR:", err.stack || err.message || err);
     return res.status(500).json({ error: err.message });
   }
 });
