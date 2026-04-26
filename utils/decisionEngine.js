@@ -1,81 +1,73 @@
-function decideNext(state, scene, risk, action) {
-  // 1. 返信なしは最優先
-  if (action === "no_reply") {
-    return {
-      conclusion: "今は追わず、少し時間を空けるのが一番安全",
-      reason:
-        "相手は今、返信する余裕がないか、返し方に迷っている可能性があります。ここでさらに送ると、プレッシャーになり、返信が来ない状態が固定されるリスクがあります。",
-    };
+// decisionEngine.js
+
+function decisionEngine({ scene, risk, action, plan = "free" }) {
+  let conclusion = "";
+  let reason = "";
+  let recommendedAction = "";
+  let tone = "";
+  let sendTiming = "";
+  let proStrategy = "";
+
+  if (risk === "critical" || scene === "break") {
+    conclusion = "今は感情的に追いかけすぎない方が安全です";
+    reason = "別れや復縁に近い場面では、強く迫るほど相手が引きやすくなります";
+    recommendedAction = "短く、責めずに、話す余地だけ残す";
+    tone = "落ち着いた・重くしすぎない";
+    sendTiming = "すぐ連投せず、少し時間を置いてから";
+    proStrategy = "相手に決断を迫らず、“一度だけ話したい”という形にするのが安全です";
+  } else if (scene === "ignore" || risk === "high") {
+    conclusion = "今は軽く気遣う返信が安全です";
+    reason = "既読無視の場面で追いLINEすると、重い印象になりやすいです";
+    recommendedAction = "相手を責めず、返事の負担を下げる";
+    tone = "軽い・優しい・余白あり";
+    sendTiming = "最後の送信から半日〜1日空けるのが無難";
+    proStrategy = "返信を催促せず、“返さなくても大丈夫”という空気を出すと再開しやすくなります";
+  } else if (scene === "cold" || risk === "medium") {
+    conclusion = "今は相手の温度を確認しながら進めるのが安全です";
+    reason = "冷たい返信に対して踏み込みすぎると、さらに距離ができます";
+    recommendedAction = "軽く気遣い、相手の状態を探る";
+    tone = "やわらかい・確認する・責めない";
+    sendTiming = "すぐ送ってもOK。ただし長文は避ける";
+    proStrategy = "不安をぶつけるより、“少し気になった”くらいの軽さが安全です";
+  } else if (scene === "explain") {
+    conclusion = "今は理解を見せる返信が安全です";
+    reason = "相手が忙しさを説明している場合、責めずに受け止める方が印象が良いです";
+    recommendedAction = "感謝と気遣いを短く返す";
+    tone = "安心感・余裕・優しさ";
+    sendTiming = "すぐ返信してOK";
+    proStrategy = "“忙しい中返してくれたこと”に反応すると、相手の負担を下げられます";
+  } else if (scene === "like") {
+    conclusion = "今は少し好意を見せても大丈夫です";
+    reason = "好感がある場面では、軽い好意表現が関係を進めやすくします";
+    recommendedAction = "重くならない程度に好意を出す";
+    tone = "自然・少し甘い・軽め";
+    sendTiming = "会話の流れがあるうちに送るのが良い";
+    proStrategy = "“好き”を直接言うより、“話していて楽しい”の方が安全に距離を縮められます";
+  } else {
+    conclusion = "今は自然に短く返すのが安全です";
+    reason = "状況が強く悪いわけではないため、重く考えすぎない方が自然です";
+    recommendedAction = "短く自然に返す";
+    tone = "自然・軽い・やさしい";
+    sendTiming = "自然なタイミングでOK";
+    proStrategy = "無理に駆け引きせず、会話を続けやすい余白を残すのが安全です";
   }
 
-  // 2. すでに送った後
-  if (action === "sent") {
-    return {
-      conclusion: "今は追加で送らず、相手の反応を待つのが一番安全",
-      reason:
-        "一度送った後にさらに動くと、相手にとって圧に感じられ、返信しづらくなる可能性があります。今は追加で説明したり補足するより、反応を見ることが重要です。",
-    };
-  }
-
-  // 3. 相手から返信あり
-  if (action === "replied") {
-    return {
-      conclusion: "今は相手の返信内容を見て、温度を合わせるのが一番安全",
-      reason:
-        "返信が来ている時点で、関係が完全に切れているわけではない可能性があります。ただし、ここで温度を上げすぎると負担になり、また距離が開くリスクがあります。",
-    };
-  }
-
-  // 4. 分手・拒絶系
-  if (scene === "break" || risk === "critical") {
-    return {
-      conclusion: "今は感情で動かず、距離を保つのが一番安全",
-      reason:
-        "相手は気持ちを整理している可能性があります。ここで焦って動くと、戻れる余地がある関係も完全に終わる方向へ進むリスクがあります。",
-    };
-  }
-
-  // 5. 既読無視
-  if (scene === "ignore") {
-    return {
-      conclusion: "今は追いメッセージを送らず、少し間を空けるのが一番安全",
-      reason:
-        "相手は返信する余裕がない、または返し方に迷っている可能性があります。ここで追うと、プレッシャーになり返信が来にくくなるリスクがあります。",
-    };
-  }
-
-  // 6. 説明型：忙しい・ごめん・落ち着いたら
-  if (scene === "explain") {
-    return {
-      conclusion: "今は距離を詰めず、軽く受け止めるのが一番安全",
-      reason:
-        "相手は忙しさや余裕のなさを説明しながら、関係を切るつもりではないことも伝えようとしている可能性があります。ここで深く返すと、負担に感じて距離が広がるリスクがあります。",
-    };
-  }
-
-  // 7. 冷淡・温度差
-  if (scene === "cold" || risk === "medium") {
-    return {
-      conclusion: "今は温度を上げず、普通の距離感で返すのが安全",
-      reason:
-        "相手は少し距離を取りたい、または余裕がない可能性があります。ここで不安や感情を強く出すと、さらに引かれるリスクがあります。",
-    };
-  }
-
-  // 8. 好きバレ
-  if (scene === "like") {
-    return {
-      conclusion: "今は気持ちを強く出さず、自然な距離を保つのが安全",
-      reason:
-        "相手はあなたの好意を意識して、少し構えている可能性があります。ここで押しすぎると、距離を取られるリスクがあります。",
-    };
-  }
-
-  return {
-    conclusion: "今は状況を見ながら、軽く返すのが安全",
-    reason:
-      "相手の温度感がまだはっきりしないため、強く踏み込むと負担に感じられる可能性があります。",
+  const result = {
+    conclusion,
+    action: recommendedAction,
+    tone
   };
+
+  if (plan === "premium" || plan === "pro") {
+    result.reason = reason;
+    result.sendTiming = sendTiming;
+  }
+
+  if (plan === "pro") {
+    result.proStrategy = proStrategy;
+  }
+
+  return result;
 }
 
-module.exports = { decideNext };
+module.exports = decisionEngine;
