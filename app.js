@@ -8,6 +8,7 @@ const {
   setPaid,
   setPlan,
   incrementUsage,
+  incrementCriticalUsage,
   resetUser,
 } = require("./userStore");
 
@@ -26,11 +27,9 @@ function classifyGreeting(text) {
 
 function detectUserStyle(userMessage) {
   const text = userMessage || "";
-
   if (/既読無視|未読|返事来ない|冷たい|そっけない|無視/.test(text)) return "soft";
   if (/不安|怖い|迷って|送っていい|重いかな|大丈夫かな/.test(text)) return "soft";
   if (/会いたい|誘いたい|ご飯行きたい|進めたい/.test(text)) return "push";
-
   return "balance";
 }
 
@@ -52,7 +51,6 @@ function trimToFreeVersion(text) {
   if (!text) return "";
 
   let result = "";
-
   const hasConclusion = text.includes("【結論】");
   const hasReason = text.includes("【理由】");
 
@@ -120,27 +118,42 @@ function buildFreeLimitMessage() {
 まで使えます。`;
 }
 
-function buildCriticalLockedMessage() {
+function buildCriticalPreviewMessage() {
   return `この状況はかなり重要な分岐です。
 
-ここでの対応を間違えると、
-「戻れる可能性」が一気に下がるケースもあります。
+【結論】
+👉 今はすぐに戻ろうとせず、軽く様子を見るのが一番安全
 
-実際、このタイミングでの一言で
-そのまま終わってしまうことも少なくありません。
-
-軽く考えて送るのは、正直リスクが高いです。
+【理由】
+相手は今、気持ちを整理している可能性があります。
+ここで踏み込むと、負担に感じて距離が固定されるリスクがあります。
 
 【今の一番安全な返し】
 「久しぶりだね、元気にしてる？」
 
 ──────────
 
-このケースは通常のLINE返信とは違い、
+このケースは一言で結果が変わる可能性があります。
+
+より安全な返し・送るタイミング・NG回避は
+復縁PROで詳しく見られます。`;
+}
+
+function buildCriticalLockedMessage() {
+  return `このケースは通常のLINE返信とは違い、
 タイミング・言い方・距離感で結果が大きく変わります。
 
-より精度の高い判断（送るべきか・待つべきか・距離の詰め方）は
-復縁PROで対応しています。`;
+ここから先の詳しい判断は
+復縁PROで対応しています。
+
+復縁PROでは👇
+・送るべきか / 待つべきか
+・最適なタイミング
+・距離の詰め方
+・絶対NG
+・相手の返信別の次の一手
+
+まで判断できます。`;
 }
 
 function buildGreetingPrompt(userMessage) {
@@ -223,7 +236,15 @@ app.post("/webhook", async (req, res) => {
       const isCritical = isCriticalCase(userMessage);
 
       if (isCritical && plan !== "pro") {
-        await replyMessage(event.replyToken, buildCriticalLockedMessage());
+        const criticalUsage = Number(user.criticalUsageCount || 0);
+
+        if (criticalUsage >= 1) {
+          await replyMessage(event.replyToken, buildCriticalLockedMessage());
+          continue;
+        }
+
+        incrementCriticalUsage(userId);
+        await replyMessage(event.replyToken, buildCriticalPreviewMessage());
         continue;
       }
 
