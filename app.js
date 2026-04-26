@@ -2,25 +2,21 @@
 
 const express = require("express");
 
-// ===== utils =====
 const detectScene = require("./utils/detectScene");
 const detectRisk = require("./utils/detectRisk");
 const detectUserAction = require("./utils/detectUserAction");
 const decisionEngine = require("./utils/decisionEngine");
 
-// ===== root =====
 const { getOneReply, getReplyTemplates } = require("./replyTemplates");
 const { getUser, updateUser } = require("./userStore");
 
-// ===== LINE =====
 const { replyMessage } = require("./services/line");
 
 const app = express();
 app.use(express.json());
 
 function trimText(text = "", max = 1000) {
-  if (!text) return "";
-  const s = String(text);
+  const s = String(text || "");
   return s.length > max ? s.slice(0, max) : s;
 }
 
@@ -100,6 +96,8 @@ function handleLogic(userId, input, plan = "free") {
   const risk = detectRisk({ text: input, scene });
   const action = detectUserAction(input);
 
+  console.log("DEBUG:", { input, scene, risk, action, safePlan, user });
+
   if (safePlan === "free" && user.usageCount >= 3) {
     return `無料診断は3回までです。
 
@@ -117,8 +115,20 @@ function handleLogic(userId, input, plan = "free") {
     plan: safePlan
   });
 
+  console.log("DECISION:", decision);
+
+  if (!decision || !decision.conclusion) {
+    throw new Error("decisionEngine returned invalid result");
+  }
+
   if (safePlan === "free") {
     const reply = getOneReply(scene, "free");
+
+    console.log("SELECTED REPLY:", reply);
+
+    if (!reply) {
+      throw new Error(`No reply template found for scene: ${scene}`);
+    }
 
     updateUser(userId, {
       usageCount: user.usageCount + 1,
@@ -157,15 +167,13 @@ function handleLogic(userId, input, plan = "free") {
     return formatProOutput({ decision, replies });
   }
 
-  return "うまく判断できませんでした。もう少し詳しく送ってください。";
+  throw new Error("Unknown plan");
 }
 
-// ===== health check =====
 app.get("/", (req, res) => {
   res.status(200).send("API running");
 });
 
-// ===== LINE webhook：保命版 =====
 app.post("/webhook", async (req, res) => {
   const events = req.body.events || [];
 
@@ -180,38 +188,23 @@ app.post("/webhook", async (req, res) => {
         continue;
       }
 
-      // 加好友
       if (event.type === "follow") {
-        console.log("FOLLOW EVENT:", event.source?.userId);
-
         await replyMessage(replyToken, welcomeMessage());
         continue;
       }
 
-      // 普通文字消息
       if (event.type === "message" && event.message?.type === "text") {
         const userId = event.source?.userId || "unknown_user";
         const text = trimText(event.message.text);
 
-        console.log("USER ID:", userId);
         console.log("USER TEXT:", text);
 
         let result;
 
-        try {
-          if (!text || isGreeting(text)) {
-            result = welcomeMessage();
-          } else {
-            result = handleLogic(userId, text, "free");
-          }
-        } catch (logicErr) {
-          console.error("HANDLE LOGIC ERROR:", logicErr);
-
-          result = `受け取りました。
-
-この内容なら、まずはこう返すのが安全です👇
-
-無理しないでね。落ち着いたらまた話そ😊`;
+        if (!text || isGreeting(text)) {
+          result = welcomeMessage();
+        } else {
+          result = handleLogic(userId, text, "free");
         }
 
         console.log("REPLY TEXT:", result);
@@ -221,18 +214,25 @@ app.post("/webhook", async (req, res) => {
       }
 
       console.log("UNSUPPORTED EVENT:", event.type);
-    } catch (eventErr) {
-      console.error(
-        "EVENT ERROR:",
-        eventErr.response?.data || eventErr.message || eventErr
-      );
+    } catch (err) {
+      console.error("🔥 WEBHOOK REAL ERROR:", err.stack || err.message || err);
+
+      try {
+        if (event.replyToken) {
+          await replyMessage(
+            event.replyToken,
+            "エラーが出ました。もう一度メッセージを送ってください。"
+          );
+        }
+      } catch (replyErr) {
+        console.error("🔥 ERROR REPLY FAILED:", replyErr.response?.data || replyErr.message);
+      }
     }
   }
 
   return res.sendStatus(200);
 });
 
-// ===== API测试接口 =====
 app.post("/api/chat", (req, res) => {
   try {
     const { userId = "test_user", message, plan = "free" } = req.body;
@@ -243,23 +243,18 @@ app.post("/api/chat", (req, res) => {
     }
 
     if (isGreeting(input)) {
-      return res.json({
-        message: welcomeMessage()
-      });
+      return res.json({ message: welcomeMessage() });
     }
 
     const result = handleLogic(userId, input, plan);
 
-    return res.json({
-      message: result
-    });
+    return res.json({ message: result });
   } catch (err) {
-    console.error("API ERROR:", err);
-    return res.status(500).json({ error: "server error" });
+    console.error("🔥 API REAL ERROR:", err.stack || err.message || err);
+    return res.status(500).json({ error: err.message });
   }
 });
 
-// ===== start =====
 const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, () => {
