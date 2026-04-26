@@ -20,7 +20,8 @@ app.use(express.json());
 
 function trimText(text = "", max = 1000) {
   if (!text) return "";
-  return String(text).length > max ? String(text).slice(0, max) : String(text);
+  const s = String(text);
+  return s.length > max ? s.slice(0, max) : s;
 }
 
 function isGreeting(text = "") {
@@ -161,69 +162,74 @@ function handleLogic(userId, input, plan = "free") {
 
 // ===== health check =====
 app.get("/", (req, res) => {
-  res.send("API running");
+  res.status(200).send("API running");
 });
 
-// ===== LINE webhook =====
+// ===== LINE webhook：保命版 =====
 app.post("/webhook", async (req, res) => {
-  const processedReplyTokens = new Set();
+  const events = req.body.events || [];
 
-  try {
-    const events = req.body.events || [];
+  console.log("WEBHOOK EVENTS:", JSON.stringify(events));
 
-    console.log("LINE webhook received:", JSON.stringify(events));
-
-    for (const event of events) {
+  for (const event of events) {
+    try {
       const replyToken = event.replyToken;
 
       if (!replyToken) {
-        console.log("No replyToken, skipped");
+        console.log("NO REPLY TOKEN");
         continue;
       }
-
-      if (processedReplyTokens.has(replyToken)) {
-        console.log("Duplicate replyToken, skipped:", replyToken);
-        continue;
-      }
-
-      processedReplyTokens.add(replyToken);
 
       // 加好友
       if (event.type === "follow") {
-        console.log("Follow event:", event.source?.userId);
+        console.log("FOLLOW EVENT:", event.source?.userId);
 
         await replyMessage(replyToken, welcomeMessage());
         continue;
       }
 
-      // 文字消息
+      // 普通文字消息
       if (event.type === "message" && event.message?.type === "text") {
         const userId = event.source?.userId || "unknown_user";
         const text = trimText(event.message.text);
 
-        console.log("Message from:", userId, "text:", text);
+        console.log("USER ID:", userId);
+        console.log("USER TEXT:", text);
 
-        if (!text || isGreeting(text)) {
-          await replyMessage(replyToken, welcomeMessage());
-          continue;
+        let result;
+
+        try {
+          if (!text || isGreeting(text)) {
+            result = welcomeMessage();
+          } else {
+            result = handleLogic(userId, text, "free");
+          }
+        } catch (logicErr) {
+          console.error("HANDLE LOGIC ERROR:", logicErr);
+
+          result = `受け取りました。
+
+この内容なら、まずはこう返すのが安全です👇
+
+無理しないでね。落ち着いたらまた話そ😊`;
         }
 
-        const result = handleLogic(userId, text, "free");
-
-        console.log("Reply result:", result);
+        console.log("REPLY TEXT:", result);
 
         await replyMessage(replyToken, result);
         continue;
       }
 
-      console.log("Unsupported event skipped:", event.type);
+      console.log("UNSUPPORTED EVENT:", event.type);
+    } catch (eventErr) {
+      console.error(
+        "EVENT ERROR:",
+        eventErr.response?.data || eventErr.message || eventErr
+      );
     }
-
-    return res.sendStatus(200);
-  } catch (err) {
-    console.error("Webhook error:", err.response?.data || err.message || err);
-    return res.sendStatus(200);
   }
+
+  return res.sendStatus(200);
 });
 
 // ===== API测试接口 =====
@@ -248,7 +254,7 @@ app.post("/api/chat", (req, res) => {
       message: result
     });
   } catch (err) {
-    console.error("API error:", err);
+    console.error("API ERROR:", err);
     return res.status(500).json({ error: "server error" });
   }
 });
