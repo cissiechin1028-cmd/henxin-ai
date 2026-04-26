@@ -41,25 +41,83 @@ function welcomeMessage() {
 そのまま送れる返信、作る。`;
 }
 
-function getFreeTip({ decision, scene }) {
+// =======================
+// mode分流：核心
+// =======================
+function decideMode({ scene, action }) {
+  if (scene === "ignore" && (action === "none" || action === "no_reply")) {
+    return "judge";
+  }
+
+  if (scene === "break" && action !== "sent") {
+    return "judge";
+  }
+
+  return "reply";
+}
+
+// =======================
+// judge输出：不给返信
+// =======================
+function formatDecisionOnlyOutput({ scene }) {
+  if (scene === "ignore") {
+    return `【結論】
+👉 今はまだ送らない方が安全です
+
+💡ここで差が出ます
+👉 既読無視の状態で追うと、一気に「重い」と感じられやすいです。
+
+今は👇
+・追わない
+・少し時間を空ける
+・相手の負担を増やさない
+
+が一番安全です。
+
+──
+このあと知りたい場合👇
+・いつ送るべきか
+・送るなら何て送るべきか
+・返事が来やすい一言
+
+はプレミアムで見れます。`;
+  }
+
+  if (scene === "break") {
+    return `【結論】
+👉 今は感情的に追いかけない方が安全です
+
+💡ここで差が出ます
+👉 別れ・距離置きの場面で強く迫ると、相手はさらに離れやすくなります。
+
+今は👇
+・すぐ長文を送らない
+・責めない
+・一度落ち着く
+
+が一番安全です。
+
+──
+このあと知りたい場合👇
+・今送るべきか
+・待つべきか
+・関係を壊さない一言
+
+はPROで見れます。`;
+  }
+
+  return null;
+}
+
+function getFreeTip({ scene }) {
   if (scene === "explain") {
     return `この一言で「いい人止まり」になるか決まります。
 “忙しい中でも返してくれたこと”に触れると、ただ優しいだけじゃなく、印象に残りやすくなります。`;
   }
 
-  if (scene === "ignore") {
-    return `ここで追うと一気に重く見えます。
-“返さなくても大丈夫”の空気を出すと、相手が戻ってきやすくなります。`;
-  }
-
   if (scene === "cold") {
     return `ここで詰めると、さらに温度が下がります。
 “少し気になっただけ”くらいで止めるのが一番安全です。`;
-  }
-
-  if (scene === "break") {
-    return `ここで感情をぶつけると、関係が一気に壊れます。
-短く、責めずに、話す余地だけ残すのが大事です。`;
   }
 
   if (scene === "like") {
@@ -115,7 +173,7 @@ function formatFreeOutput({ decision, reply, scene, style }) {
 👉 ${reply}
 
 💡ここで差が出ます
-👉 ${getFreeTip({ decision, scene })}
+👉 ${getFreeTip({ scene })}
 
 【今の返信タイプ】
 👉 ${getStyleLabel(style)}
@@ -129,7 +187,7 @@ ${getPaidHook(scene)}
 はプレミアムで見れます。`;
 }
 
-function formatPremiumOutput({ decision, replies, scene }) {
+function formatPremiumOutput({ decision, replies }) {
   return `【結論】
 👉 ${decision.conclusion}
 
@@ -183,17 +241,7 @@ function handleLogic(userId, input, plan = "free") {
   const scene = detectScene(input);
   const risk = detectRisk({ text: input, scene });
   const action = detectUserAction(input);
-
-  const decision = decisionEngine({
-    scene,
-    risk,
-    action,
-    plan: safePlan
-  });
-
-  if (!decision || !decision.conclusion) {
-    throw new Error("decisionEngine returned invalid result");
-  }
+  const mode = decideMode({ scene, action });
 
   if (safePlan === "free" && user.usageCount >= 3) {
     return `無料診断は3回までです。
@@ -206,6 +254,31 @@ function handleLogic(userId, input, plan = "free") {
 をプレミアムで確認できます。`;
   }
 
+  // judge模式：不生成返信
+  if (safePlan === "free" && mode === "judge") {
+    updateUser(userId, {
+      usageCount: user.usageCount + 1,
+      scene,
+      risk,
+      action,
+      mode,
+      plan: safePlan
+    });
+
+    return formatDecisionOnlyOutput({ scene });
+  }
+
+  const decision = decisionEngine({
+    scene,
+    risk,
+    action,
+    plan: safePlan
+  });
+
+  if (!decision || !decision.conclusion) {
+    throw new Error("decisionEngine returned invalid result");
+  }
+
   if (safePlan === "free") {
     const baseReply = getOneReply(scene, "free");
     const style = pickStyle({ scene, input });
@@ -216,6 +289,7 @@ function handleLogic(userId, input, plan = "free") {
       scene,
       risk,
       action,
+      mode,
       plan: safePlan
     });
 
@@ -234,13 +308,13 @@ function handleLogic(userId, input, plan = "free") {
       scene,
       risk,
       action,
+      mode,
       plan: safePlan
     });
 
     return formatPremiumOutput({
       decision,
-      replies,
-      scene
+      replies
     });
   }
 
@@ -251,6 +325,7 @@ function handleLogic(userId, input, plan = "free") {
       scene,
       risk,
       action,
+      mode,
       plan: safePlan
     });
 
