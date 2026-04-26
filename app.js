@@ -43,26 +43,32 @@ function welcomeMessage() {
 
 function getFreeTip({ decision, scene }) {
   if (scene === "explain") {
-    return "このままだと普通止まりです。“忙しい中でも返してくれたこと”に触れると、一段上にいきます";
+    return `この一言で「いい人止まり」になるか決まります。
+“忙しい中でも返してくれたこと”に触れると、ただ優しいだけじゃなく、印象に残りやすくなります。`;
   }
 
   if (scene === "ignore") {
-    return "ここで追うと重く見えます。“返さなくても大丈夫”の空気を出すと、逆に返ってきやすくなります";
+    return `ここで追うと一気に重く見えます。
+“返さなくても大丈夫”の空気を出すと、相手が戻ってきやすくなります。`;
   }
 
   if (scene === "cold") {
-    return "ここで踏み込むと距離が開きやすいです。“ちょっと気になった”くらいが一番安全です";
+    return `ここで詰めると、さらに温度が下がります。
+“少し気になっただけ”くらいで止めるのが一番安全です。`;
   }
 
   if (scene === "break") {
-    return "ここで強く出ると一気に距離が開きます。短く、責めない一言が大事です";
+    return `ここで感情をぶつけると、関係が一気に壊れます。
+短く、責めずに、話す余地だけ残すのが大事です。`;
   }
 
   if (scene === "like") {
-    return "ストレートに好意を出すより、“話していて楽しい”の方が自然に距離が縮まります";
+    return `ストレートに好意を出すと重くなることがあります。
+“話していて楽しい”くらいが、一番自然に距離を縮めます。`;
   }
 
-  return "このままだと普通止まりです。1フレーズ足すだけで印象が変わります";
+  return `この一言で印象が変わります。
+普通に返すだけで終わるか、次につながるかの差が出ます。`;
 }
 
 function getPaidHook(scene) {
@@ -115,7 +121,9 @@ function formatFreeOutput({ decision, reply, scene, style }) {
 👉 ${getStyleLabel(style)}
 
 ──
-この返信でもOKですが👇
+この返信でも大きく外しません。
+でも、相手の温度を上げたいなら👇
+
 ${getPaidHook(scene)}
 
 はプレミアムで見れます。`;
@@ -181,15 +189,6 @@ function handleLogic(userId, input, plan = "free") {
     risk,
     action,
     plan: safePlan
-  });
-
-  console.log("DEBUG:", {
-    input,
-    scene,
-    risk,
-    action,
-    plan: safePlan,
-    usageCount: user.usageCount
   });
 
   if (!decision || !decision.conclusion) {
