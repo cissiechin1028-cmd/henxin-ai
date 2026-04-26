@@ -11,6 +11,12 @@ function getUser(userId) {
       plan: "free",
       usageCount: 0,
       criticalUsageCount: 0,
+
+      scene: "",
+      risk: "",
+      phase: "",
+      lastAdvice: "",
+      lastAction: "",
     };
   }
 
@@ -57,6 +63,14 @@ function incrementCriticalUsage(userId) {
   user.criticalUsageCount = (user.criticalUsageCount || 0) + 1;
 }
 
+function updateDecisionState(userId, { scene, risk, action, advice }) {
+  const user = getUser(userId);
+  user.scene = scene || user.scene;
+  user.risk = risk || user.risk;
+  user.lastAction = action || user.lastAction;
+  user.lastAdvice = advice || user.lastAdvice;
+}
+
 function resetUser(userId) {
   users[userId] = {
     userId,
@@ -67,6 +81,12 @@ function resetUser(userId) {
     plan: "free",
     usageCount: 0,
     criticalUsageCount: 0,
+
+    scene: "",
+    risk: "",
+    phase: "",
+    lastAdvice: "",
+    lastAction: "",
   };
 }
 
@@ -78,5 +98,6 @@ module.exports = {
   setPlan,
   incrementUsage,
   incrementCriticalUsage,
+  updateDecisionState,
   resetUser,
 };
