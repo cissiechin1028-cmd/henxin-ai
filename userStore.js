@@ -10,6 +10,7 @@ function getUser(userId) {
       isPaid: false,
       plan: "free",
       usageCount: 0,
+      criticalUsageCount: 0,
     };
   }
 
@@ -51,6 +52,11 @@ function incrementUsage(userId) {
   user.usageCount = (user.usageCount || 0) + 1;
 }
 
+function incrementCriticalUsage(userId) {
+  const user = getUser(userId);
+  user.criticalUsageCount = (user.criticalUsageCount || 0) + 1;
+}
+
 function resetUser(userId) {
   users[userId] = {
     userId,
@@ -60,6 +66,7 @@ function resetUser(userId) {
     isPaid: false,
     plan: "free",
     usageCount: 0,
+    criticalUsageCount: 0,
   };
 }
 
@@ -70,5 +77,6 @@ module.exports = {
   setPaid,
   setPlan,
   incrementUsage,
+  incrementCriticalUsage,
   resetUser,
 };
