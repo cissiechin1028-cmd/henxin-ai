@@ -9,6 +9,7 @@ const {
   setPlan,
   incrementUsage,
   incrementCriticalUsage,
+  updateDecisionState,
   resetUser,
 } = require("./userStore");
 
@@ -16,6 +17,11 @@ const { generateReply } = require("./services/openai");
 const { replyMessage } = require("./services/line");
 const { buildPrompt } = require("./utils/prompt");
 const { postprocessReply } = require("./utils/postprocess");
+
+const { detectScene } = require("./utils/detectScene");
+const { detectRisk } = require("./utils/detectRisk");
+const { detectUserAction } = require("./utils/detectUserAction");
+const { decideNext } = require("./utils/decisionEngine");
 
 const app = express();
 app.use(express.json());
@@ -35,7 +41,7 @@ function detectUserStyle(userMessage) {
 
 function detectReconciliation(userMessage) {
   const text = userMessage || "";
-  return /復縁|元カレ|元カノ|やり直したい|振られた|別れた|もう一度|取り戻したい|別れ話|もう無理|会わない|終わり/.test(text);
+  return /復縁|元カレ|元カノ|やり直したい|もう一度|取り戻したい/.test(text);
 }
 
 function isCriticalCase(text) {
@@ -92,17 +98,22 @@ ${reason}`;
     usageCountBefore === 2
       ? `
 
-──────────
+━━━━━━━━━━━━━━━
 
-無料版は今回で終了です。
+無料版はここまでです。
 
-プレミアムでは👇
-・やりがちNG
-・他の選択肢
-・送るタイミング
-・関係が悪化しやすいポイント
+このまま自己判断で送ると  
+一言で関係が終わるケースも普通にあります
 
-まで詳しく見られます。`
+ここから先は👇  
+✔ 今送るべきかの最終判断  
+✔ 一番安全な返信内容  
+✔ NG回避  
+✔ タイミング戦略  
+
+をすべて具体的に出せます
+
+👉 プレミアムで続きを見る`
       : "";
 
   return `${result}${upgradeText}`;
@@ -111,11 +122,12 @@ ${reason}`;
 function buildFreeLimitMessage() {
   return `無料分はすでにご利用済みです。
 
-このまま自己判断で送ると、
-一言で距離が広がることもあります。
+このまま自己判断で動くと、
+一言で関係が終わるケースもあります。
 
 プレミアムでは👇
 ・無制限で返信作成
+・そのまま送れる返信
 ・NG回避
 ・送る/送らない判断
 ・タイミング判断
@@ -190,6 +202,30 @@ function buildGreetingPrompt(userMessage) {
 ${userMessage}
 
 出力：
+`;
+}
+
+function buildDecisionPrompt(decision, userMessage) {
+  return `
+あなたは「恋愛返信AI」です。
+
+以下の判断をベースに、無料版として出力してください。
+
+【出力ルール】
+・具体的な返信文は出さない
+・テンプレやセリフは禁止
+・「詳しく教えてください」は禁止
+・必ず判断を出す
+・出力は【結論】【理由】のみ
+・理由では、ユーザーの不安を少し言語化し、相手の状態とリスクを書く
+・最後に「今は何を重視すべきか」を1行でまとめる
+
+【判断】
+結論：${decision.conclusion}
+理由：${decision.reason}
+
+【ユーザー入力】
+${userMessage}
 `;
 }
 
@@ -276,23 +312,40 @@ app.post("/webhook", async (req, res) => {
         const raw = await generateReply(buildGreetingPrompt(userMessage));
         final = raw.trim();
       } else {
+        const scene = detectScene(userMessage);
+        const risk = detectRisk(userMessage);
+        const action = detectUserAction(userMessage);
+        const decision = decideNext(user, scene, risk, action);
+
+        updateDecisionState(userId, {
+          scene,
+          risk,
+          action,
+          advice: decision.conclusion,
+        });
+
         addHistory(userId, `ユーザー: ${userMessage}`);
         const history = getHistory(userId);
         const style = detectUserStyle(userMessage);
 
-        const prompt = buildPrompt({
-          relationship: user.relationship,
-          purpose: user.purpose,
-          history,
-          userMessage,
-          style,
-          plan,
-          isReconciliation,
-          isCritical,
-        });
+        if (plan === "free") {
+          const raw = await generateReply(buildDecisionPrompt(decision, userMessage));
+          final = postprocessReply(raw);
+        } else {
+          const prompt = buildPrompt({
+            relationship: user.relationship,
+            purpose: user.purpose,
+            history,
+            userMessage,
+            style,
+            plan,
+            isReconciliation,
+            isCritical,
+          });
 
-        const raw = await generateReply(prompt);
-        final = postprocessReply(raw);
+          const raw = await generateReply(prompt);
+          final = postprocessReply(raw);
+        }
 
         addHistory(userId, `AI: ${final}`);
       }
