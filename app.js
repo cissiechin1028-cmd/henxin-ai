@@ -18,14 +18,13 @@ const { replyMessage } = require("./services/line");
 const app = express();
 app.use(express.json());
 
-// ===== 工具函数 =====
 function trimText(text = "", max = 1000) {
   if (!text) return "";
-  return text.length > max ? text.slice(0, max) : text;
+  return String(text).length > max ? String(text).slice(0, max) : String(text);
 }
 
 function isGreeting(text = "") {
-  const t = text.toLowerCase();
+  const t = String(text).toLowerCase();
   return ["こんにちは", "こんばんは", "おはよう", "hello", "hi"].some(w =>
     t.includes(w)
   );
@@ -42,7 +41,6 @@ function welcomeMessage() {
 そのまま送れる返信、作る。`;
 }
 
-// ===== 输出结构 =====
 function formatFreeOutput({ decision, reply }) {
   return `【結論】
 👉 ${decision.conclusion}
@@ -93,7 +91,6 @@ ${decision.sendTiming}
 ${decision.proStrategy}`;
 }
 
-// ===== 核心处理逻辑 =====
 function handleLogic(userId, input, plan = "free") {
   const safePlan = ["free", "premium", "pro"].includes(plan) ? plan : "free";
   const user = getUser(userId);
@@ -119,15 +116,8 @@ function handleLogic(userId, input, plan = "free") {
     plan: safePlan
   });
 
-  let output = "";
-
   if (safePlan === "free") {
     const reply = getOneReply(scene, "free");
-
-    output = formatFreeOutput({
-      decision,
-      reply
-    });
 
     updateUser(userId, {
       usageCount: user.usageCount + 1,
@@ -137,17 +127,12 @@ function handleLogic(userId, input, plan = "free") {
       plan: safePlan
     });
 
-    return output;
+    return formatFreeOutput({ decision, reply });
   }
 
   if (safePlan === "premium") {
     const replies = getReplyTemplates(scene, "premium").slice(0, 3);
 
-    output = formatPremiumOutput({
-      decision,
-      replies
-    });
-
     updateUser(userId, {
       scene,
       risk,
@@ -155,17 +140,12 @@ function handleLogic(userId, input, plan = "free") {
       plan: safePlan
     });
 
-    return output;
+    return formatPremiumOutput({ decision, replies });
   }
 
   if (safePlan === "pro") {
     const replies = getReplyTemplates(scene, "pro").slice(0, 3);
 
-    output = formatProOutput({
-      decision,
-      replies
-    });
-
     updateUser(userId, {
       scene,
       risk,
@@ -173,7 +153,7 @@ function handleLogic(userId, input, plan = "free") {
       plan: safePlan
     });
 
-    return output;
+    return formatProOutput({ decision, replies });
   }
 
   return "うまく判断できませんでした。もう少し詳しく送ってください。";
@@ -186,53 +166,70 @@ app.get("/", (req, res) => {
 
 // ===== LINE webhook =====
 app.post("/webhook", async (req, res) => {
+  const processedReplyTokens = new Set();
+
   try {
     const events = req.body.events || [];
+
+    console.log("LINE webhook received:", JSON.stringify(events));
 
     for (const event of events) {
       const replyToken = event.replyToken;
 
-      // ✅ 加好友欢迎语
+      if (!replyToken) {
+        console.log("No replyToken, skipped");
+        continue;
+      }
+
+      if (processedReplyTokens.has(replyToken)) {
+        console.log("Duplicate replyToken, skipped:", replyToken);
+        continue;
+      }
+
+      processedReplyTokens.add(replyToken);
+
+      // 加好友
       if (event.type === "follow") {
+        console.log("Follow event:", event.source?.userId);
+
         await replyMessage(replyToken, welcomeMessage());
         continue;
       }
 
-      // ✅ 文字消息
-      if (event.type === "message" && event.message.type === "text") {
-        const userId = event.source.userId || "unknown_user";
+      // 文字消息
+      if (event.type === "message" && event.message?.type === "text") {
+        const userId = event.source?.userId || "unknown_user";
         const text = trimText(event.message.text);
 
-        if (!text) {
-          await replyMessage(replyToken, welcomeMessage());
-          continue;
-        }
+        console.log("Message from:", userId, "text:", text);
 
-        if (isGreeting(text)) {
+        if (!text || isGreeting(text)) {
           await replyMessage(replyToken, welcomeMessage());
           continue;
         }
 
         const result = handleLogic(userId, text, "free");
+
+        console.log("Reply result:", result);
+
         await replyMessage(replyToken, result);
         continue;
       }
+
+      console.log("Unsupported event skipped:", event.type);
     }
 
     return res.sendStatus(200);
   } catch (err) {
-    console.error(err);
-
-    // LINE webhook 最好返回 200，避免反复重试
+    console.error("Webhook error:", err.response?.data || err.message || err);
     return res.sendStatus(200);
   }
 });
 
-// ===== 本地/API测试接口 =====
+// ===== API测试接口 =====
 app.post("/api/chat", (req, res) => {
   try {
     const { userId = "test_user", message, plan = "free" } = req.body;
-
     const input = trimText(message || "");
 
     if (!input) {
@@ -251,12 +248,12 @@ app.post("/api/chat", (req, res) => {
       message: result
     });
   } catch (err) {
-    console.error(err);
+    console.error("API error:", err);
     return res.status(500).json({ error: "server error" });
   }
 });
 
-// ===== 启动服务器 =====
+// ===== start =====
 const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, () => {
