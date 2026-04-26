@@ -2,19 +2,20 @@
 
 const express = require("express");
 
-// ✅ utils 里的模块（重点修复）
+// ===== utils =====
 const detectScene = require("./utils/detectScene");
 const detectRisk = require("./utils/detectRisk");
 const detectUserAction = require("./utils/detectUserAction");
 const decisionEngine = require("./utils/decisionEngine");
 
-// ✅ 根目录模块
+// ===== root =====
 const { getOneReply, getReplyTemplates } = require("./replyTemplates");
 const { getUser, updateUser } = require("./userStore");
 
 const app = express();
 app.use(express.json());
 
+// ===== 工具函数 =====
 function trimText(text = "", max = 1000) {
   return text.length > max ? text.slice(0, max) : text;
 }
@@ -26,7 +27,6 @@ function isGreeting(text = "") {
 }
 
 // ===== 输出结构 =====
-
 function formatFreeOutput({ decision, reply }) {
   return {
     plan: "free",
@@ -89,7 +89,10 @@ ${decision.proStrategy}`
   };
 }
 
-// ===== 主接口 =====
+// ===== API =====
+app.get("/", (req, res) => {
+  res.send("API running");
+});
 
 app.post("/api/chat", (req, res) => {
   try {
@@ -105,7 +108,7 @@ app.post("/api/chat", (req, res) => {
       return res.status(400).json({ error: "message required" });
     }
 
-    // 👇 greeting
+    // greeting
     if (isGreeting(input)) {
       return res.json({
         message:
@@ -126,7 +129,7 @@ app.post("/api/chat", (req, res) => {
 
     const safePlan = ["free", "premium", "pro"].includes(plan) ? plan : "free";
 
-    // ===== free 次数限制 =====
+    // ===== free 限制 =====
     if (safePlan === "free" && user.usageCount >= 3) {
       return res.json({
         locked: true,
@@ -202,6 +205,13 @@ app.post("/api/chat", (req, res) => {
     console.error(err);
     return res.status(500).json({ error: "server error" });
   }
+});
+
+// ===== 启动服务器（关键！！！）=====
+const PORT = process.env.PORT || 3000;
+
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
 });
 
 module.exports = app;
