@@ -12,6 +12,9 @@ const { getUser, updateUser } = require("./userStore");
 
 const { replyMessage } = require("./services/line");
 
+const { pickStyle, getStyleLabel } = require("./styleEngine");
+const composeReply = require("./replyComposer");
+
 const app = express();
 app.use(express.json());
 
@@ -38,53 +41,87 @@ function welcomeMessage() {
 そのまま送れる返信、作る。`;
 }
 
-function getFreeTip(decision) {
-  const map = {
-    "今は理解を見せる返信が安全です":
-      "“忙しい中でも返してくれたこと”に触れると印象が上がります",
+function getFreeTip({ decision, scene }) {
+  if (scene === "explain") {
+    return "このままだと普通止まりです。“忙しい中でも返してくれたこと”に触れると、一段上にいきます";
+  }
 
-    "今は責めずに、やさしく受け止めるのが安全です":
-      "“忙しい中でも返してくれたこと”に触れると印象が上がります",
+  if (scene === "ignore") {
+    return "ここで追うと重く見えます。“返さなくても大丈夫”の空気を出すと、逆に返ってきやすくなります";
+  }
 
-    "今は軽く気遣う返信が安全です":
-      "“返さなくても大丈夫”という空気を出すと、逆に返ってきやすくなります",
+  if (scene === "cold") {
+    return "ここで踏み込むと距離が開きやすいです。“ちょっと気になった”くらいが一番安全です";
+  }
 
-    "今は相手の温度を確認しながら進めるのが安全です":
-      "踏み込むより、“ちょっと気になった”くらいがちょうどいいです",
+  if (scene === "break") {
+    return "ここで強く出ると一気に距離が開きます。短く、責めない一言が大事です";
+  }
 
-    "今は感情的に追いかけすぎない方が安全です":
-      "ここで強く出ると、一気に距離が開くので注意です",
+  if (scene === "like") {
+    return "ストレートに好意を出すより、“話していて楽しい”の方が自然に距離が縮まります";
+  }
 
-    "今は少し好意を見せても大丈夫です":
-      "ストレートに言うより、“話していて楽しい”の方が自然です",
-
-    "今は自然に短く返すのが安全です":
-      "長く説明するより、短く返す方が自然に続きやすいです"
-  };
-
-  return map[decision.conclusion] || "相手の負担を下げる言い方がポイントです";
+  return "このままだと普通止まりです。1フレーズ足すだけで印象が変わります";
 }
 
-function formatFreeOutput({ decision, reply }) {
+function getPaidHook(scene) {
+  if (scene === "explain") {
+    return `・もっと自然な受け止め方
+・相手がまた返しやすい言い方
+・距離を縮める一言`;
+  }
+
+  if (scene === "ignore") {
+    return `・重く見えない追い方
+・返事が来やすい一言
+・送るタイミング`;
+  }
+
+  if (scene === "cold") {
+    return `・温度を戻す言い方
+・距離を詰めすぎない一言
+・相手の本音の見方`;
+  }
+
+  if (scene === "break") {
+    return `・今送るべきか
+・追うべきか待つべきか
+・関係を壊さない一言`;
+  }
+
+  if (scene === "like") {
+    return `・好意が自然に伝わる言い方
+・相手が意識しやすい一言
+・距離を縮める返し`;
+  }
+
+  return `・もっと自然な言い方
+・相手が返しやすい言い方
+・距離を縮める言い方`;
+}
+
+function formatFreeOutput({ decision, reply, scene, style }) {
   return `【結論】
 👉 ${decision.conclusion}
 
 【返信】
 👉 ${reply}
 
-💡ワンポイント
-👉 ${getFreeTip(decision)}
+💡ここで差が出ます
+👉 ${getFreeTip({ decision, scene })}
+
+【今の返信タイプ】
+👉 ${getStyleLabel(style)}
 
 ──
-このままでもOKですが👇
-・もっと自然な言い方
-・相手が返しやすい言い方
-・距離を縮める言い方
+この返信でもOKですが👇
+${getPaidHook(scene)}
 
 はプレミアムで見れます。`;
 }
 
-function formatPremiumOutput({ decision, replies }) {
+function formatPremiumOutput({ decision, replies, scene }) {
   return `【結論】
 👉 ${decision.conclusion}
 
@@ -96,17 +133,17 @@ ${decision.reason}
 → 自然で安全
 
 ② ${replies[1]}
-→ 少し距離を縮める
+→ 相手が返しやすい
 
 ③ ${replies[2]}
-→ やさしめ
+→ 少し距離を縮める
 
 【送るタイミング】
 ${decision.sendTiming}
 
 ──
-💡この中で一番いい返し方や、
-相手がどう受け取りやすいかはPROで確認できます。`;
+💡どれを送るのが一番いいか、
+相手の反応まで読むならPROがおすすめです。`;
 }
 
 function formatProOutput({ decision, replies }) {
@@ -139,7 +176,25 @@ function handleLogic(userId, input, plan = "free") {
   const risk = detectRisk({ text: input, scene });
   const action = detectUserAction(input);
 
-  console.log("DEBUG:", { input, scene, risk, action, safePlan, user });
+  const decision = decisionEngine({
+    scene,
+    risk,
+    action,
+    plan: safePlan
+  });
+
+  console.log("DEBUG:", {
+    input,
+    scene,
+    risk,
+    action,
+    plan: safePlan,
+    usageCount: user.usageCount
+  });
+
+  if (!decision || !decision.conclusion) {
+    throw new Error("decisionEngine returned invalid result");
+  }
 
   if (safePlan === "free" && user.usageCount >= 3) {
     return `無料診断は3回までです。
@@ -152,23 +207,10 @@ function handleLogic(userId, input, plan = "free") {
 をプレミアムで確認できます。`;
   }
 
-  const decision = decisionEngine({
-    scene,
-    risk,
-    action,
-    plan: safePlan
-  });
-
-  if (!decision || !decision.conclusion) {
-    throw new Error("decisionEngine returned invalid result");
-  }
-
   if (safePlan === "free") {
-    const reply = getOneReply(scene, "free");
-
-    if (!reply) {
-      throw new Error(`No reply template found for scene: ${scene}`);
-    }
+    const baseReply = getOneReply(scene, "free");
+    const style = pickStyle({ scene, input });
+    const reply = composeReply(baseReply, style);
 
     updateUser(userId, {
       usageCount: user.usageCount + 1,
@@ -178,7 +220,12 @@ function handleLogic(userId, input, plan = "free") {
       plan: safePlan
     });
 
-    return formatFreeOutput({ decision, reply });
+    return formatFreeOutput({
+      decision,
+      reply,
+      scene,
+      style
+    });
   }
 
   if (safePlan === "premium") {
@@ -191,7 +238,11 @@ function handleLogic(userId, input, plan = "free") {
       plan: safePlan
     });
 
-    return formatPremiumOutput({ decision, replies });
+    return formatPremiumOutput({
+      decision,
+      replies,
+      scene
+    });
   }
 
   if (safePlan === "pro") {
@@ -204,7 +255,10 @@ function handleLogic(userId, input, plan = "free") {
       plan: safePlan
     });
 
-    return formatProOutput({ decision, replies });
+    return formatProOutput({
+      decision,
+      replies
+    });
   }
 
   throw new Error("Unknown plan");
@@ -217,16 +271,11 @@ app.get("/", (req, res) => {
 app.post("/webhook", async (req, res) => {
   const events = req.body.events || [];
 
-  console.log("WEBHOOK EVENTS:", JSON.stringify(events));
-
   for (const event of events) {
     try {
       const replyToken = event.replyToken;
 
-      if (!replyToken) {
-        console.log("NO REPLY TOKEN");
-        continue;
-      }
+      if (!replyToken) continue;
 
       if (event.type === "follow") {
         await replyMessage(replyToken, welcomeMessage());
@@ -237,8 +286,6 @@ app.post("/webhook", async (req, res) => {
         const userId = event.source?.userId || "unknown_user";
         const text = trimText(event.message.text);
 
-        console.log("USER TEXT:", text);
-
         let result;
 
         if (!text || isGreeting(text)) {
@@ -247,13 +294,8 @@ app.post("/webhook", async (req, res) => {
           result = handleLogic(userId, text, "free");
         }
 
-        console.log("REPLY TEXT:", result);
-
         await replyMessage(replyToken, result);
-        continue;
       }
-
-      console.log("UNSUPPORTED EVENT:", event.type);
     } catch (err) {
       console.error("WEBHOOK ERROR:", err.stack || err.message || err);
 
@@ -261,7 +303,7 @@ app.post("/webhook", async (req, res) => {
         if (event.replyToken) {
           await replyMessage(
             event.replyToken,
-            "エラーが出ました。もう一度メッセージを送ってください。"
+            "エラーが出ました。もう一度送ってください。"
           );
         }
       } catch (replyErr) {
