@@ -51,26 +51,43 @@ function isTestUser(userId) {
 function trimToFreeVersion(text) {
   if (!text) return "";
 
-  let result = text;
+  let result = "";
 
-  const cutPoints = [
-    "【⚠️",
-    "【他の選択肢】",
-    "⭐",
-    "👉しっくり",
-    "送信タイミング",
-    "タイミング",
-  ];
+  const hasConclusion = text.includes("【結論】");
+  const hasReason = text.includes("【理由】");
 
-  for (const point of cutPoints) {
-    if (result.includes(point)) {
-      result = result.split(point)[0].trim();
+  if (hasConclusion && hasReason) {
+    const afterConclusion = text.split("【結論】")[1];
+    const parts = afterConclusion.split("【理由】");
+
+    const conclusion = parts[0].trim();
+    let reason = parts[1] ? parts[1].trim() : "";
+
+    const stopPoints = [
+      "【⚠️",
+      "【他の選択肢】",
+      "【今の最適な行動】",
+      "【⭐",
+      "⭐",
+      "⚠️",
+      "他の選択肢",
+      "送信タイミング",
+      "タイミング",
+    ];
+
+    for (const point of stopPoints) {
+      if (reason.includes(point)) {
+        reason = reason.split(point)[0].trim();
+      }
     }
-  }
 
-  const sections = result.split("\n\n");
-  if (sections.length >= 2) {
-    result = sections.slice(0, 2).join("\n\n");
+    result = `【結論】
+${conclusion}
+
+【理由】
+${reason}`;
+  } else {
+    result = text.split("──────────")[0].trim();
   }
 
   return `${result}
