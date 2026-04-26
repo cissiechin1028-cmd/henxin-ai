@@ -1,376 +1,282 @@
-require("dotenv").config();
+// app.js
+
 const express = require("express");
+
+const detectScene = require("./detectScene");
+const detectRisk = require("./detectRisk");
+const detectUserAction = require("./detectUserAction");
+const decisionEngine = require("./decisionEngine");
+
+const {
+  getOneReply,
+  getReplyTemplates
+} = require("./replyTemplates");
 
 const {
   getUser,
-  addHistory,
-  getHistory,
-  setPaid,
-  setPlan,
-  incrementUsage,
-  incrementCriticalUsage,
-  updateDecisionState,
-  resetUser,
+  updateUser
 } = require("./userStore");
-
-const { generateReply } = require("./services/openai");
-const { replyMessage } = require("./services/line");
-const { buildPrompt } = require("./utils/prompt");
-const { postprocessReply } = require("./utils/postprocess");
-
-const { detectScene } = require("./utils/detectScene");
-const { detectRisk } = require("./utils/detectRisk");
-const { detectUserAction } = require("./utils/detectUserAction");
-const { decideNext } = require("./utils/decisionEngine");
 
 const app = express();
 app.use(express.json());
 
-function classifyGreeting(text) {
-  const s = (text || "").trim();
-  return ["おはよう", "おはよ", "こんにちは", "こんばんは", "お疲れ様", "お疲れ様です"].includes(s);
+function isGreeting(text = "") {
+  const t = text.trim().toLowerCase();
+
+  return [
+    "hi",
+    "hello",
+    "hey",
+    "こんにちは",
+    "こんばんは",
+    "おはよう",
+    "はじめまして"
+  ].some(word => t.includes(word));
 }
 
-function detectUserStyle(userMessage) {
-  const text = userMessage || "";
-  if (/既読無視|未読|返事来ない|冷たい|そっけない|無視/.test(text)) return "soft";
-  if (/不安|怖い|迷って|送っていい|重いかな|大丈夫かな/.test(text)) return "soft";
-  if (/会いたい|誘いたい|ご飯行きたい|進めたい/.test(text)) return "push";
-  return "balance";
-}
-
-function detectReconciliation(userMessage) {
-  const text = userMessage || "";
-  return /復縁|元カレ|元カノ|やり直したい|もう一度|取り戻したい/.test(text);
-}
-
-function isCriticalCase(text) {
-  return detectReconciliation(text || "");
-}
-
-function isTestUser(userId) {
-  const ids = (process.env.TEST_USER_IDS || "").split(",").map((v) => v.trim());
-  return ids.includes(userId);
-}
-
-function trimToFreeVersion(text, usageCountBefore = 0) {
+function trimText(text = "", max = 1200) {
   if (!text) return "";
+  return text.length > max ? text.slice(0, max) : text;
+}
 
-  let result = "";
-  const hasConclusion = text.includes("【結論】");
-  const hasReason = text.includes("【理由】");
+function formatFreeOutput({ decision, reply }) {
+  return {
+    plan: "free",
+    message:
+`【結論】
+👉 ${decision.conclusion}
 
-  if (hasConclusion && hasReason) {
-    const afterConclusion = text.split("【結論】")[1];
-    const parts = afterConclusion.split("【理由】");
+【返信】
+👉 ${reply}
 
-    const conclusion = parts[0].trim();
-    let reason = parts[1] ? parts[1].trim() : "";
+もっと自然な言い方・別パターン・送るタイミングまで見たい場合は、プレミアムで確認できます。`
+  };
+}
 
-    const stopPoints = [
-      "【⚠️",
-      "【他の選択肢】",
-      "【今の最適な行動】",
-      "【⭐",
-      "⭐",
-      "⚠️",
-      "他の選択肢",
-      "送信タイミング",
-      "タイミング",
-    ];
+function formatPremiumOutput({ decision, replies }) {
+  return {
+    plan: "premium",
+    message:
+`【結論】
+👉 ${decision.conclusion}
 
-    for (const point of stopPoints) {
-      if (reason.includes(point)) {
-        reason = reason.split(point)[0].trim();
-      }
+【理由】
+${decision.reason}
+
+【おすすめ返信】
+1. ${replies[0]}
+2. ${replies[1]}
+3. ${replies[2]}
+
+【おすすめの雰囲気】
+${decision.tone}
+
+【送るタイミング】
+${decision.sendTiming}
+
+さらに「送るべきか・待つべきか」「関係の流れ」まで見たい場合はPROで確認できます。`
+  };
+}
+
+function formatProOutput({ decision, replies }) {
+  return {
+    plan: "pro",
+    message:
+`【結論】
+👉 ${decision.conclusion}
+
+【リスク判断】
+${decision.reason}
+
+【今取るべき行動】
+${decision.action}
+
+【返信候補】
+1. ${replies[0]}
+2. ${replies[1]}
+3. ${replies[2]}
+
+【おすすめの雰囲気】
+${decision.tone}
+
+【送るタイミング】
+${decision.sendTiming}
+
+【PRO戦略】
+${decision.proStrategy}`
+  };
+}
+
+app.post("/api/chat", async (req, res) => {
+  try {
+    const {
+      userId,
+      message,
+      plan = "free"
+    } = req.body;
+
+    if (!userId) {
+      return res.status(400).json({
+        error: "userId is required"
+      });
     }
 
-    result = `【結論】
-${conclusion}
+    const input = trimText(message || "");
 
-【理由】
-${reason}`;
-  } else {
-    result = text.split("──────────")[0].trim();
-  }
+    if (!input) {
+      return res.status(400).json({
+        error: "message is required"
+      });
+    }
 
-  const upgradeText =
-    usageCountBefore === 2
-      ? `
+    if (isGreeting(input)) {
+      return res.json({
+        message:
+`こんにちは😊
+相手とのLINE内容や、今の状況を送ってください。
 
-━━━━━━━━━━━━━━━
+例：
+・既読無視されてる
+・返信が冷たい
+・忙しいって言われた
+・好きバレしたかも
+・別れ話になってる`
+      });
+    }
 
-無料版はここまでです。
+    const user = getUser(userId);
 
-このまま自己判断で送ると  
-一言で関係が終わるケースも普通にあります
+    const scene = detectScene(input);
+    const risk = detectRisk({ text: input, scene });
+    const action = detectUserAction(input);
 
-ここから先は👇  
-✔ 今送るべきかの最終判断  
-✔ 一番安全な返信内容  
-✔ NG回避  
-✔ タイミング戦略  
+    const safePlan = ["free", "premium", "pro"].includes(plan) ? plan : "free";
 
-をすべて具体的に出せます
-
-👉 プレミアムで続きを見る`
-      : "";
-
-  return `${result}${upgradeText}`;
-}
-
-function buildFreeLimitMessage() {
-  return `無料分はすでにご利用済みです。
-
-このまま自己判断で動くと、
-一言で関係が終わるケースもあります。
-
-プレミアムでは👇
-・無制限で返信作成
-・そのまま送れる返信
-・NG回避
-・送る/送らない判断
-・タイミング判断
-
-まで使えます。`;
-}
-
-function buildCriticalPreviewMessage() {
-  return `この状況はかなり重要な分岐です。
-
-【結論】
-👉 今はすぐに戻ろうとせず、軽く様子を見るのが一番安全
-
-【理由】
-相手は今、気持ちを整理している可能性があります。
-ここで踏み込むと、負担に感じて距離が固定されるリスクがあります。
-
-【今の一番安全な返し】
-「久しぶりだね、元気にしてる？」
-
-──────────
-
-このケースは一言で結果が変わる可能性があります。
-
-より安全な返し・送るタイミング・NG回避は
-復縁PROで詳しく見られます。`;
-}
-
-function buildCriticalLockedMessage() {
-  return `このケースはかなり重要な分岐です。
+    // free制限
+    if (safePlan === "free" && user.usageCount >= 3) {
+      return res.json({
+        locked: true,
+        message:
+`無料診断は3回までです。
 
 ここから先は、
-「送るかどうか」
-「タイミング」
-「距離の詰め方」
-で結果が大きく変わります。
-
-一言で戻れるケースもあれば、
-完全に終わるケースもあります。
-
-このまま自己判断で進めると、
-取り返しがつかなくなる可能性もあります。
-
-──────────
-
-復縁PROでは👇
-・送るべきか / 待つべきか
-・最適なタイミング
-・距離の詰め方
-・絶対NG
-・相手の反応別の次の一手
-
-まで判断できます。`;
-}
-
-function buildGreetingPrompt(userMessage) {
-  return `
-あなたは恋愛LINE返信サポートAIです。
-
-ユーザーの挨拶に自然に返しつつ、
-「相手とのLINE内容」または「今の状況」を送れば返信を一緒に考えられることを伝えてください。
-
-条件：
-・1〜2文
-・自然
-・営業っぽくしない
-・①②③を出さない
-・おすすめ、理由、送信タイミングを出さない
-・返信文1つだけ
-
-入力：
-${userMessage}
-
-出力：
-`;
-}
-
-function buildDecisionPrompt(decision, userMessage) {
-  return `
-あなたは「恋愛返信AI」です。
-
-以下の判断をベースに、無料版として出力してください。
-
-【出力ルール】
-・具体的な返信文は出さない
-・テンプレやセリフは禁止
-・「詳しく教えてください」は禁止
-・必ず判断を出す
-・出力は【結論】【理由】のみ
-・理由では、ユーザーの不安を少し言語化し、相手の状態とリスクを書く
-・最後に「今は何を重視すべきか」を1行でまとめる
-
-【判断】
-結論：${decision.conclusion}
-理由：${decision.reason}
-
-【ユーザー入力】
-${userMessage}
-`;
-}
-
-app.post("/webhook", async (req, res) => {
-  try {
-    const events = req.body.events || [];
-
-    for (const event of events) {
-      if (event.type === "follow") {
-        await replyMessage(event.replyToken, `そのLINE、このまま送ると失敗するかも。
-
-ちょっとした一言で、
-距離が一気にズレることもある。
-
-ここで👇
-✔ 今送るべきか判断
-✔ 一番安全な返しを作る
-
-やることは1つだけ👇
-相手のメッセージ、そのまま送って
-
-（コピペ・スクショOK）
-
-そのまま送れる形で出すから、
-考えなくて大丈夫。`);
-        continue;
-      }
-
-      if (event.type !== "message") continue;
-      if (event.message.type !== "text") continue;
-
-      const userId = event.source.userId;
-      const userMessage = event.message.text.trim();
-      const user = getUser(userId);
-      const plan = user.plan || "free";
-
-      if (userMessage.toLowerCase() === "reset" && isTestUser(userId)) {
-        resetUser(userId);
-        await replyMessage(event.replyToken, "テスト用リセット完了しました。");
-        continue;
-      }
-
-      if (userMessage === "解锁" || userMessage.toLowerCase() === "premium") {
-        setPaid(userId, true);
-        setPlan(userId, "premium");
-        await replyMessage(event.replyToken, "プレミアムプランが有効になりました");
-        continue;
-      }
-
-      if (userMessage.toLowerCase() === "pro") {
-        setPaid(userId, true);
-        setPlan(userId, "pro");
-        await replyMessage(event.replyToken, "復縁PROプランが有効になりました");
-        continue;
-      }
-
-      const isGreeting = classifyGreeting(userMessage);
-      const isReconciliation = detectReconciliation(userMessage);
-      const isCritical = isCriticalCase(userMessage);
-
-      if (isCritical && plan !== "pro") {
-        const criticalUsage = Number(user.criticalUsageCount || 0);
-
-        if (criticalUsage >= 1) {
-          await replyMessage(event.replyToken, buildCriticalLockedMessage());
-          continue;
-        }
-
-        incrementCriticalUsage(userId);
-        await replyMessage(event.replyToken, buildCriticalPreviewMessage());
-        continue;
-      }
-
-      const usageCount = Number(user.usageCount || user.count || 0);
-
-      if (plan === "free" && usageCount >= 3 && !isGreeting) {
-        await replyMessage(event.replyToken, buildFreeLimitMessage());
-        continue;
-      }
-
-      let final = "";
-
-      if (isGreeting) {
-        const raw = await generateReply(buildGreetingPrompt(userMessage));
-        final = raw.trim();
-      } else {
-        const scene = detectScene(userMessage);
-        const risk = detectRisk(userMessage);
-        const action = detectUserAction(userMessage);
-        const decision = decideNext(user, scene, risk, action);
-
-        updateDecisionState(userId, {
-          scene,
-          risk,
-          action,
-          advice: decision.conclusion,
-        });
-
-        addHistory(userId, `ユーザー: ${userMessage}`);
-        const history = getHistory(userId);
-        const style = detectUserStyle(userMessage);
-
-        if (plan === "free") {
-          const raw = await generateReply(buildDecisionPrompt(decision, userMessage));
-          final = postprocessReply(raw);
-        } else {
-          const prompt = buildPrompt({
-            relationship: user.relationship,
-            purpose: user.purpose,
-            history,
-            userMessage,
-            style,
-            plan,
-            isReconciliation,
-            isCritical,
-          });
-
-          const raw = await generateReply(prompt);
-          final = postprocessReply(raw);
-        }
-
-        addHistory(userId, `AI: ${final}`);
-      }
-
-      if (plan === "free" && !isGreeting) {
-        const usageCountBefore = Number(user.usageCount || user.count || 0);
-        incrementUsage(userId);
-        final = trimToFreeVersion(final, usageCountBefore);
-      }
-
-      await replyMessage(event.replyToken, final);
+・返信パターン
+・送るタイミング
+・相手の温度感
+まで見られるプレミアムで確認できます。`
+      });
     }
 
-    return res.sendStatus(200);
-  } catch (err) {
-    console.error("ERROR:", err.response?.data || err.message);
-    return res.sendStatus(500);
+    // critical / break はPRO誘導
+    if ((risk === "critical" || scene === "break") && safePlan !== "pro") {
+      user.criticalUsageCount = (user.criticalUsageCount || 0) + 1;
+
+      // ただし完全ロックしない。freeでも1回は返信を出す
+      const decision = decisionEngine({
+        scene,
+        risk,
+        action,
+        plan: safePlan
+      });
+
+      const reply = getOneReply(scene, "free");
+
+      updateUser(userId, {
+        usageCount: user.usageCount + 1,
+        criticalUsageCount: user.criticalUsageCount,
+        scene,
+        risk,
+        action,
+        plan: safePlan
+      });
+
+      return res.json({
+        locked: false,
+        proRecommended: true,
+        message:
+`【結論】
+👉 ${decision.conclusion}
+
+【返信】
+👉 ${reply}
+
+※これは別れ・復縁に近い高リスク場面です。
+送るタイミングや、追うべきか待つべきかまで判断するにはPROがおすすめです。`
+      });
+    }
+
+    const decision = decisionEngine({
+      scene,
+      risk,
+      action,
+      plan: safePlan
+    });
+
+    let response;
+
+    if (safePlan === "free") {
+      const reply = getOneReply(scene, "free");
+
+      response = formatFreeOutput({
+        decision,
+        reply
+      });
+
+      updateUser(userId, {
+        usageCount: user.usageCount + 1,
+        scene,
+        risk,
+        action,
+        plan: safePlan
+      });
+    }
+
+    if (safePlan === "premium") {
+      const replies = getReplyTemplates(scene, "premium").slice(0, 3);
+
+      response = formatPremiumOutput({
+        decision,
+        replies
+      });
+
+      updateUser(userId, {
+        scene,
+        risk,
+        action,
+        plan: safePlan
+      });
+    }
+
+    if (safePlan === "pro") {
+      const replies = getReplyTemplates(scene, "pro").slice(0, 3);
+
+      response = formatProOutput({
+        decision,
+        replies
+      });
+
+      updateUser(userId, {
+        scene,
+        risk,
+        action,
+        plan: safePlan
+      });
+    }
+
+    return res.json({
+      scene,
+      risk,
+      action,
+      ...response
+    });
+
+  } catch (error) {
+    console.error(error);
+
+    return res.status(500).json({
+      error: "server error"
+    });
   }
 });
 
-app.get("/", (req, res) => {
-  res.send("henxin-ai running");
-});
-
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`Server running on ${PORT}`);
-});
+module.exports = app;
