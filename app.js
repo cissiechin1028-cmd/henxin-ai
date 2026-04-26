@@ -47,7 +47,7 @@ function isTestUser(userId) {
   return ids.includes(userId);
 }
 
-function trimToFreeVersion(text) {
+function trimToFreeVersion(text, usageCountBefore = 0) {
   if (!text) return "";
 
   let result = "";
@@ -88,11 +88,13 @@ ${reason}`;
     result = text.split("──────────")[0].trim();
   }
 
-  return `${result}
+  const upgradeText =
+    usageCountBefore === 2
+      ? `
 
 ──────────
 
-無料版ではここまで表示しています。
+無料版は今回で終了です。
 
 プレミアムでは👇
 ・やりがちNG
@@ -100,7 +102,10 @@ ${reason}`;
 ・送るタイミング
 ・関係が悪化しやすいポイント
 
-まで詳しく見られます。`;
+まで詳しく見られます。`
+      : "";
+
+  return `${result}${upgradeText}`;
 }
 
 function buildFreeLimitMessage() {
@@ -293,8 +298,9 @@ app.post("/webhook", async (req, res) => {
       }
 
       if (plan === "free" && !isGreeting) {
+        const usageCountBefore = Number(user.usageCount || user.count || 0);
         incrementUsage(userId);
-        final = trimToFreeVersion(final);
+        final = trimToFreeVersion(final, usageCountBefore);
       }
 
       await replyMessage(event.replyToken, final);
