@@ -21,16 +21,15 @@ function normalize(text = "") {
 function isGreeting(text = "") {
   const t = normalize(text);
 
-  return [
-    "こんにちは",
-    "こんばんは",
-    "おはよう",
-    "おはようございます",
-    "hi",
-    "hello",
-    "hey",
-    "はじめまして"
-  ].includes(t);
+  return (
+    t.includes("こんにちは") ||
+    t.includes("こんばんは") ||
+    t.includes("おはよう") ||
+    t.includes("hi") ||
+    t.includes("hello") ||
+    t.includes("hey") ||
+    t.includes("はじめまして")
+  );
 }
 
 function pickOne(arr) {
@@ -38,7 +37,31 @@ function pickOne(arr) {
 }
 
 //
-// ✅ 已优化 welcome（加好友）
+// ✅ 智能问候（已修复）
+//
+function greetingReply(text = "") {
+  const t = normalize(text);
+
+  let greeting = "こんにちは";
+
+  if (t.includes("おはよう")) {
+    greeting = "おはよう";
+  } else if (t.includes("こんばんは")) {
+    greeting = "こんばんは";
+  } else if (t.includes("こんにちは")) {
+    greeting = "こんにちは";
+  }
+
+  return `${greeting}😊
+
+相手とのやり取り、そのまま送ってもらえれば一緒に見ます。
+
+コピペでもいいし、
+最近ちょっと冷たいかも…みたいな感じでも大丈夫です。`;
+}
+
+//
+// ✅ 加好友欢迎
 //
 function welcomeMessage() {
   return `はじめまして、返信くんです😊
@@ -52,18 +75,6 @@ function welcomeMessage() {
 自然な返信を一緒に考えます。
 
 まずは3回まで無料で使えます。`;
-}
-
-//
-// ✅ 已优化 greeting（打招呼）
-//
-function greetingReply() {
-  return `こんにちは😊
-
-相手とのやり取り、そのまま送ってもらえれば一緒に見ます。
-
-コピペでもいいし、
-最近ちょっと冷たいかも…みたいな感じでも大丈夫です。`;
 }
 
 function freeLimitMessage() {
@@ -90,7 +101,7 @@ function imageReply() {
 }
 
 //
-// 🔥 付费钩子（随机）
+// 🔥 随机付费钩子（已修复重复问题）
 //
 function premiumHook() {
   const hooks = [
@@ -117,7 +128,7 @@ function premiumHook() {
 はプレミアムで見れます。`,
 
     `——
-ここはちょっとだけ空気を読むと、
+ここはちょっと空気を読むだけで、
 印象がかなり変わるポイントです。
 
 この先👇
@@ -132,7 +143,7 @@ function premiumHook() {
 }
 
 //
-// 🔥 免费裁剪（关键）
+// 🔥 免费裁剪（核心）
 //
 function trimFreeOutput(text = "") {
   const clean = String(text || "").trim();
@@ -165,9 +176,7 @@ ${premiumHook()}`;
       break;
     }
 
-    if (result.length >= 6) {
-      break;
-    }
+    if (result.length >= 6) break;
   }
 
   return result.join("\n") + `
@@ -179,8 +188,8 @@ async function handleTextMessage(userId, text) {
   const input = trimText(text);
   const user = getUser(userId);
 
-  if (!input) return greetingReply();
-  if (isGreeting(input)) return greetingReply();
+  if (!input) return greetingReply(input);
+  if (isGreeting(input)) return greetingReply(input);
 
   const plan = user.plan || "free";
   const usageCount = user.usageCount || 0;
