@@ -170,32 +170,26 @@ function formatDecisionOnlyOutput({ scene }) {
 
 function getFreeTip({ scene }) {
   if (scene === "explain") {
-    return `この一言で「いい人止まり」になるか決まります。
-“忙しい中でも返してくれたこと”に触れると、ただ優しいだけじゃなく、印象に残りやすくなります。`;
+    return `“忙しい中でも返してくれたこと”に触れると、ただ優しいだけじゃなく、印象に残りやすくなります。`;
   }
 
   if (scene === "ignore") {
-    return `ここで追うと一気に重く見えます。
-“返さなくても大丈夫”の空気を出すと、相手が戻ってきやすくなります。`;
+    return `“返さなくても大丈夫”の空気を出すと、相手が戻ってきやすくなります。`;
   }
 
   if (scene === "cold") {
-    return `ここで詰めると、さらに温度が下がります。
-“少し気になっただけ”くらいで止めるのが一番安全です。`;
+    return `不安をぶつけるより、“少し気になった”くらいで止める方が安全です。`;
   }
 
   if (scene === "break") {
-    return `ここで感情をぶつけると、関係が一気に壊れます。
-短く、責めずに、話す余地だけ残すのが大事です。`;
+    return `短く、責めずに、話す余地だけ残すのが大事です。`;
   }
 
   if (scene === "like") {
-    return `ストレートに好意を出すと重くなることがあります。
-“話していて楽しい”くらいが、一番自然に距離を縮めます。`;
+    return `“好き”より、“話していて楽しい”の方が自然に距離を縮めやすいです。`;
   }
 
-  return `この一言で印象が変わります。
-普通に返すだけで終わるか、次につながるかの差が出ます。`;
+  return `普通に返すだけで終わるか、次につながるかの差が出ます。`;
 }
 
 function getPaidHook(scene) {
@@ -234,26 +228,69 @@ function getPaidHook(scene) {
 ・距離を縮める言い方`;
 }
 
+function pickOne(arr) {
+  return arr[Math.floor(Math.random() * arr.length)];
+}
+
 function formatFreeOutput({ decision, reply, scene, style }) {
-  return `【結論】
+  const tip = getFreeTip({ scene });
+  const hook = getPaidHook(scene);
+  const styleLabel = getStyleLabel(style);
+
+  const patternA = `【結論】
 👉 ${decision.conclusion}
 
 【返信】
 👉 ${reply}
 
 💡ここで差が出ます
-👉 ${getFreeTip({ scene })}
+👉 ${tip}
 
 【今の返信タイプ】
-👉 ${getStyleLabel(style)}
+👉 ${styleLabel}
 
 ──
 この返信でも大きく外しません。
 でも、相手の温度を上げたいなら👇
 
-${getPaidHook(scene)}
+${hook}
 
 はプレミアムで見れます。`;
+
+  const patternB = `今の状態だと、
+無理に攻めるより「${styleLabel}」方向が安全です。
+
+そのまま送るなら👇
+👉 ${reply}
+
+ポイントはここです。
+👉 ${tip}
+
+──
+もっと自然な言い方や、
+相手が返しやすい一言は
+プレミアムで見れます。`;
+
+  const patternC = `これ、今のままだと
+ちょっと返し方で差が出ます。
+
+方向としては👇
+👉 ${decision.conclusion}
+
+返信はこれでOKです👇
+👉 ${reply}
+
+ただ、ここで一言変えるだけで
+印象がかなり変わります。
+
+💡${tip}
+
+──
+${hook}
+
+はプレミアムで見れます。`;
+
+  return pickOne([patternA, patternB, patternC]);
 }
 
 function formatPremiumOutput({ decision, replies }) {
@@ -384,14 +421,14 @@ function handleLogic(userId, input, plan = "free") {
   }
 
   if (safePlan === "free") {
-    let baseReply = getOneReply(scene, "free");
+    const baseReply = getOneReply(scene, "free");
 
     if (!baseReply) {
       return qualityFallbackReply(input);
     }
 
     const style = pickStyle({ scene, input });
-    let reply = composeReply(baseReply, style);
+    const reply = composeReply(baseReply, style);
 
     if (!reply || typeof reply !== "string") {
       return qualityFallbackReply(input);
