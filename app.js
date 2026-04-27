@@ -32,18 +32,10 @@ function isGreeting(text = "") {
   );
 }
 
-function pickOne(arr) {
-  return arr[Math.floor(Math.random() * arr.length)];
-}
-
-//
-// ✅ 智能问候
-//
 function greetingReply(text = "") {
   const t = normalize(text);
 
   let greeting = "こんにちは";
-
   if (t.includes("おはよう")) greeting = "おはよう";
   else if (t.includes("こんばんは")) greeting = "こんばんは";
 
@@ -55,9 +47,6 @@ function greetingReply(text = "") {
 最近ちょっと冷たいかも…みたいな感じでも大丈夫です。`;
 }
 
-//
-// ✅ 欢迎
-//
 function welcomeMessage() {
   return `はじめまして、返信くんです😊
 
@@ -72,15 +61,6 @@ function welcomeMessage() {
 まずは3回まで無料で使えます。`;
 }
 
-function freeLimitMessage() {
-  return `無料診断は3回までです。
-
-ここから先はプレミアムで確認できます。
-
-もう少し深く見たい場合は、
-プレミアムに進んでください。`;
-}
-
 function imageReply() {
   return `スクショありがとう😊
 
@@ -90,55 +70,42 @@ function imageReply() {
 すぐ一緒に考えます。`;
 }
 
-//
-// 🔥 软转化钩子（核心修复）
-//
-function premiumHook() {
-  const hooks = [
-    `——
-ここ、ちょっと判断が分かれるところです。
+function freeLimitMessage() {
+  return `ここ、ちょっと見誤るとそのまま距離が離れる流れです。
 
-返し方次第で、
-距離が近づくこともあれば、そのまま離れることもあります。
+さっきの返信も悪くないですが、
+あと一歩のところで印象が変わります。
 
-もう少し細かく見るなら、プレミアムで確認できます。`,
-
-    `——
-今のままでも悪くはないですが、
-少しズレると温度差が広がることがあります。
-
-相手の感じ方まで見るなら、
-プレミアムで確認できます。`,
-
-    `——
-この場面は、
-「何を送るか」よりも距離感の取り方が大事です。
-
-ここを外すと流れが変わりやすいので、
-もう少し詳しくはプレミアムで見れます。`,
-
-    `——
-一見シンプルですが、
-ここでの一言で印象が結構変わります。
-
-どう受け取られるかまで見るなら、
-プレミアムで確認できます。`,
-
-    `——
-今はまだ大きく崩れていませんが、
-ここでの動き方で今後が変わりやすいです。
-
-もう一歩踏み込んで見るなら、
-プレミアムで確認できます。`
-  ];
-
-  return pickOne(hooks);
+この先はプレミアムで確認できます。`;
 }
 
-//
-// 🔥 免费裁剪
-//
-function trimFreeOutput(text = "") {
+function trialHook(usageCount) {
+  // 1回目：売らない
+  if (usageCount === 0) {
+    return "";
+  }
+
+  // 2回目：軽い暗示。プレミアムとは言わない
+  if (usageCount === 1) {
+    return `
+
+——
+ここは少しだけ空気を読むと、
+返したあとの印象が変わりやすい場面です。`;
+  }
+
+  // 3回目：強めの引き。ここで初めてプレミアム
+  return `
+
+——
+ここで少しズレると、
+「重い」か「ちょうどいい」かの印象が分かれます。
+
+相手がどう受け取るかまで見るなら、
+プレミアムで確認できます。`;
+}
+
+function trimFreeOutput(text = "", usageCount = 0) {
   const clean = String(text || "").trim();
 
   if (!clean) {
@@ -146,9 +113,7 @@ function trimFreeOutput(text = "") {
 軽く返すのが良さそうです。
 
 👇 送るならこれで大丈夫
-「無理しないでね。また話せるときに話そ😊」
-
-${premiumHook()}`;
+「無理しないでね。また話せるときに話そ😊」${trialHook(usageCount)}`;
   }
 
   const lines = clean
@@ -172,9 +137,7 @@ ${premiumHook()}`;
     if (result.length >= 6) break;
   }
 
-  return result.join("\n") + `
-
-${premiumHook()}`;
+  return result.join("\n") + trialHook(usageCount);
 }
 
 async function handleTextMessage(userId, text) {
@@ -199,7 +162,7 @@ async function handleTextMessage(userId, text) {
   let result = aiResult;
 
   if (plan === "free") {
-    result = trimFreeOutput(aiResult);
+    result = trimFreeOutput(aiResult, usageCount);
   }
 
   if (plan === "free") {
@@ -243,26 +206,33 @@ app.post("/webhook", async (req, res) => {
           continue;
         }
 
-        await replyMessage(
-          replyToken,
-          "テキストで送ってもらえれば対応できます😊"
-        );
+        await replyMessage(replyToken, "テキストで送ってもらえれば対応できます😊");
       }
     } catch (err) {
       console.error("WEBHOOK ERROR:", err);
 
       try {
         if (event.replyToken) {
-          await replyMessage(
-            event.replyToken,
-            "ごめん、もう一度送ってみて🙏"
-          );
+          await replyMessage(event.replyToken, "ごめん、もう一度送ってみて🙏");
         }
       } catch {}
     }
   }
 
   res.sendStatus(200);
+});
+
+app.post("/api/chat", async (req, res) => {
+  try {
+    const { userId = "test_user", message } = req.body;
+    const result = await handleTextMessage(userId, message || "");
+    return res.json({ message: result });
+  } catch (err) {
+    console.error("API ERROR:", err);
+    return res.status(200).json({
+      message: "ごめん、もう一度送ってみて🙏"
+    });
+  }
 });
 
 const PORT = process.env.PORT || 3000;
