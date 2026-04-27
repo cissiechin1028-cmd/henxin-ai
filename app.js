@@ -87,6 +87,59 @@ function imageReply() {
 すぐ返信を作れます。`;
 }
 
+function trimFreeOutput(text = "") {
+  const clean = String(text || "").trim();
+
+  if (!clean) {
+    return `少し状況を見ながら、重くなりすぎない返し方がよさそう。
+
+送るならこれで大丈夫👇
+「無理しないでね。また話せるときに話そ😊」
+
+——
+この先👇
+・もっと自然な言い方
+・相手の本音の見方
+・一番いい送るタイミング
+
+はプレミアムで見れます。`;
+  }
+
+  const lines = clean
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  const result = [];
+
+  for (const line of lines) {
+    result.push(line);
+
+    if (
+      line.includes("」") ||
+      line.includes("返信するなら") ||
+      line.includes("送るなら") ||
+      line.includes("これで大丈夫")
+    ) {
+      break;
+    }
+
+    if (result.length >= 5) {
+      break;
+    }
+  }
+
+  return result.join("\n") + `
+
+——
+この先👇
+・もっと自然な言い方
+・相手の本音の見方
+・一番いい送るタイミング
+
+はプレミアムで見れます。`;
+}
+
 async function handleTextMessage(userId, text) {
   const input = trimText(text);
   const user = getUser(userId);
@@ -115,6 +168,12 @@ async function handleTextMessage(userId, text) {
     }
   });
 
+  let result = aiResult;
+
+  if (plan === "free") {
+    result = trimFreeOutput(aiResult);
+  }
+
   if (plan === "free") {
     updateUser(userId, {
       usageCount: usageCount + 1,
@@ -122,7 +181,7 @@ async function handleTextMessage(userId, text) {
     });
   }
 
-  return aiResult;
+  return result;
 }
 
 app.get("/", (req, res) => {
