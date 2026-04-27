@@ -2,6 +2,7 @@ const express = require("express");
 
 const { replyMessage } = require("./services/line");
 const { generateAIResponse } = require("./services/ai");
+const { generateProResponse } = require("./services/proEngine");
 const { getUser, updateUser } = require("./userStore");
 
 const app = express();
@@ -20,6 +21,7 @@ function normalize(text = "") {
 
 function isGreeting(text = "") {
   const t = normalize(text);
+
   return (
     t.includes("こんにちは") ||
     t.includes("こんばんは") ||
@@ -201,7 +203,11 @@ function trimFreeOutput(text = "", usageCount = 0, level = 1, scenario = "normal
 軽く返すのが良さそうです。
 
 👇 送るならこれで大丈夫
-「無理しないでね。また話せるときに話そ😊」${trialHook(usageCount, level, scenario)}`;
+「無理しないでね。また話せるときに話そ😊」${trialHook(
+      usageCount,
+      level,
+      scenario
+    )}`;
   }
 
   const lines = clean
@@ -240,6 +246,10 @@ async function handleTextMessage(userId, text) {
 
   const plan = user.plan || "free";
   const usageCount = user.usageCount || 0;
+
+  if (plan === "pro") {
+    return generateProResponse(input, scenario);
+  }
 
   if (plan === "free" && usageCount >= 3) {
     return limitMessage(scenario);
