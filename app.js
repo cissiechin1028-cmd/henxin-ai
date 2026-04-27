@@ -32,6 +32,33 @@ function isGreeting(text = "") {
   );
 }
 
+//
+// ✅ 第一步：场景等级判断（先加，不用）
+//
+function detectLevel(input = "") {
+  const t = String(input || "");
+
+  if (
+    /別れた|別れたい|復縁|浮気|裏切り|告白|会うべき|会いたい|関係を戻したい/.test(t)
+  ) {
+    return 3; // Pro级
+  }
+
+  if (
+    /冷たい|既読無視|未読無視|返信遅い|距離|そっけない|連絡減った/.test(t)
+  ) {
+    return 2; // Premium级
+  }
+
+  if (
+    /こんにちは|こんばんは|おはよう|テスト|はじめまして/.test(t)
+  ) {
+    return 0; // 打招呼
+  }
+
+  return 1; // 普通场景
+}
+
 function greetingReply(text = "") {
   const t = normalize(text);
 
@@ -80,12 +107,8 @@ function freeLimitMessage() {
 }
 
 function trialHook(usageCount) {
-  // 1回目：売らない
-  if (usageCount === 0) {
-    return "";
-  }
+  if (usageCount === 0) return "";
 
-  // 2回目：軽い暗示。プレミアムとは言わない
   if (usageCount === 1) {
     return `
 
@@ -94,7 +117,6 @@ function trialHook(usageCount) {
 返したあとの印象が変わりやすい場面です。`;
   }
 
-  // 3回目：強めの引き。ここで初めてプレミアム
   return `
 
 ——
@@ -144,6 +166,9 @@ async function handleTextMessage(userId, text) {
   const input = trimText(text);
   const user = getUser(userId);
 
+  // ✅ 第一步：先算 level（但不使用）
+  const level = detectLevel(input);
+
   if (!input) return greetingReply(input);
   if (isGreeting(input)) return greetingReply(input);
 
@@ -156,7 +181,12 @@ async function handleTextMessage(userId, text) {
 
   const aiResult = await generateAIResponse({
     input,
-    userState: { ...user, plan, usageCount }
+    userState: {
+      ...user,
+      plan,
+      usageCount,
+      level // ✅ 先传进去（后面会用）
+    }
   });
 
   let result = aiResult;
@@ -220,19 +250,6 @@ app.post("/webhook", async (req, res) => {
   }
 
   res.sendStatus(200);
-});
-
-app.post("/api/chat", async (req, res) => {
-  try {
-    const { userId = "test_user", message } = req.body;
-    const result = await handleTextMessage(userId, message || "");
-    return res.json({ message: result });
-  } catch (err) {
-    console.error("API ERROR:", err);
-    return res.status(200).json({
-      message: "ごめん、もう一度送ってみて🙏"
-    });
-  }
 });
 
 const PORT = process.env.PORT || 3000;
