@@ -1,5 +1,3 @@
-// app.js
-
 const express = require("express");
 
 const { replyMessage } = require("./services/line");
@@ -39,34 +37,33 @@ function pickOne(arr) {
   return arr[Math.floor(Math.random() * arr.length)];
 }
 
+//
+// ✅ 已优化 welcome（加好友）
+//
 function welcomeMessage() {
   return `はじめまして、返信くんです😊
 
 相手から来たLINEをそのまま送ってください。
 
-・返信に迷っている
-・既読無視されている
-・最近ちょっと冷たい
-・何て返せばいいかわからない
+うまく返せないときや、
+ちょっと距離を感じるときも大丈夫です。
 
-そんな時に、
-今送っていいかまで見て返信を作ります。
+今送っていいかも含めて、
+自然な返信を一緒に考えます。
 
 まずは3回まで無料で使えます。`;
 }
 
+//
+// ✅ 已优化 greeting（打招呼）
+//
 function greetingReply() {
   return `こんにちは😊
 
-相手とのLINEや、今の状況をそのまま送ってください。
+相手とのやり取り、そのまま送ってもらえれば一緒に見ます。
 
-例：
-「最近返信が冷たい」
-「既読無視されてる」
-「この返事どう返せばいい？」
-「相手から来た文面をコピペ」
-
-そのまま送れる返信を作ります。`;
+コピペでもいいし、
+最近ちょっと冷たいかも…みたいな感じでも大丈夫です。`;
 }
 
 function freeLimitMessage() {
@@ -92,64 +89,41 @@ function imageReply() {
 すぐ返信を作れます。`;
 }
 
+//
+// 🔥 付费钩子（随机）
+//
 function premiumHook() {
   const hooks = [
     `——
-ここで大事なのは、
-「何を送るか」より“どの温度で送るか”です。
+ここで少し返し方を変えるだけで、
+相手の反応は結構変わります。
 
 この先👇
-・相手が今どう受け取りそうか
 ・一番自然な言い方
-・送るタイミング
+・相手がどう受け取るか
+・今動くべきか
 
 はプレミアムで見れます。`,
 
     `——
-このまま返すだけでも大きく外しません。
-
-ただ、少し言い方を変えるだけで、
-「重い」ではなく「感じがいい」に変わります。
+このままでも大きく外しませんが、
+少しズレると距離が広がる可能性もあります。
 
 この先👇
-・もっと自然な返信
-・相手が返しやすい一言
-・今送るべきか
-
-はプレミアムで見れます。`,
-
-    `——
-ここで詰めすぎると、
-相手の温度が下がることがあります。
-
-でも、余白を残せば戻りやすいです。
-
-この先👇
-・距離を詰めすぎない言い方
 ・相手の本音の見方
-・次に送るべき一言
+・避けた方がいい一言
+・一番いいタイミング
 
 はプレミアムで見れます。`,
 
     `——
-今の状況は、
-返し方を少し間違えると“追ってる感”が出やすいです。
+ここはちょっとだけ空気を読むと、
+印象がかなり変わるポイントです。
 
 この先👇
-・重く見えない言い方
-・相手が返したくなる余白
-・一番いい送るタイミング
-
-はプレミアムで見れます。`,
-
-    `——
-ここは雑に返すより、
-少しだけ空気を読んだほうがいい場面です。
-
-この先👇
-・相手の温度に合う返信
-・やめた方がいい一言
-・次につながる返し方
+・相手が返しやすい言い方
+・重くならない距離感
+・次につながる一言
 
 はプレミアムで見れます。`
   ];
@@ -157,11 +131,15 @@ function premiumHook() {
   return pickOne(hooks);
 }
 
+//
+// 🔥 免费裁剪（关键）
+//
 function trimFreeOutput(text = "") {
   const clean = String(text || "").trim();
 
   if (!clean) {
-    return `少し状況を見ながら、重くなりすぎない返し方がよさそう。
+    return `少し様子を見ながら、
+軽く返すのが良さそうです。
 
 👇 送るならこれで大丈夫
 「無理しないでね。また話せるときに話そ😊」
@@ -181,7 +159,6 @@ ${premiumHook()}`;
 
     if (
       line.includes("」") ||
-      line.includes("返信するなら") ||
       line.includes("送るなら") ||
       line.includes("これで大丈夫")
     ) {
@@ -202,13 +179,8 @@ async function handleTextMessage(userId, text) {
   const input = trimText(text);
   const user = getUser(userId);
 
-  if (!input) {
-    return greetingReply();
-  }
-
-  if (isGreeting(input)) {
-    return greetingReply();
-  }
+  if (!input) return greetingReply();
+  if (isGreeting(input)) return greetingReply();
 
   const plan = user.plan || "free";
   const usageCount = user.usageCount || 0;
@@ -219,11 +191,7 @@ async function handleTextMessage(userId, text) {
 
   const aiResult = await generateAIResponse({
     input,
-    userState: {
-      ...user,
-      plan,
-      usageCount
-    }
+    userState: { ...user, plan, usageCount }
   });
 
   let result = aiResult;
@@ -275,41 +243,24 @@ app.post("/webhook", async (req, res) => {
 
         await replyMessage(
           replyToken,
-          "今はテキストの相談に対応しています。相手のメッセージを文字で送ってください😊"
+          "テキストで送ってもらえれば対応できます😊"
         );
       }
     } catch (err) {
-      console.error("WEBHOOK ERROR:", err.stack || err.message || err);
+      console.error("WEBHOOK ERROR:", err);
 
       try {
         if (event.replyToken) {
           await replyMessage(
             event.replyToken,
-            "ごめん、今うまく処理できなかった。もう一度送ってください。"
+            "ごめん、もう一度送ってみて🙏"
           );
         }
-      } catch (replyErr) {
-        console.error("ERROR REPLY FAILED:", replyErr.response?.data || replyErr.message);
-      }
+      } catch {}
     }
   }
 
-  return res.sendStatus(200);
-});
-
-app.post("/api/chat", async (req, res) => {
-  try {
-    const { userId = "test_user", message } = req.body;
-    const result = await handleTextMessage(userId, message || "");
-
-    return res.json({ message: result });
-  } catch (err) {
-    console.error("API ERROR:", err.stack || err.message || err);
-
-    return res.status(200).json({
-      message: "ごめん、今うまく判断できなかった。もう一度送ってください。"
-    });
-  }
+  res.sendStatus(200);
 });
 
 const PORT = process.env.PORT || 3000;
