@@ -14,19 +14,25 @@ const { replyMessage } = require("./services/line");
 const app = express();
 app.use(express.json());
 
+// =============================
+// 工具
+// =============================
 function trimText(text = "", max = 1000) {
   return String(text || "").slice(0, max);
 }
 
-function normalizeGreeting(text = "") {
+function normalize(text = "") {
   return String(text || "")
     .trim()
     .toLowerCase()
     .replace(/[！!？?。．、,.〜~\s]/g, "");
 }
 
+// =============================
+// 只认纯打招呼
+// =============================
 function isGreeting(text = "") {
-  const t = normalizeGreeting(text);
+  const t = normalize(text);
 
   return [
     "こんにちは",
@@ -39,8 +45,25 @@ function isGreeting(text = "") {
   ].includes(t);
 }
 
-function greetingReply(text = "こんにちは") {
-  const t = normalizeGreeting(text);
+// =============================
+// ✅ 欢迎语（加好友专用）
+// =============================
+function welcomeMessage() {
+  return `そのLINE、このまま送ると危ないかも。
+
+👇やることはこれだけ
+相手のメッセージ、そのまま送って
+
+（コピペ・スクショOK）
+
+そのまま送れる返信、作る。`;
+}
+
+// =============================
+// ✅ 真人打招呼（用户发）
+// =============================
+function greetingReply(text = "") {
+  const t = normalize(text);
 
   if (t.includes("おはよう")) {
     return `おはよう😊
@@ -65,6 +88,9 @@ function greetingReply(text = "こんにちは") {
 一緒に考えるよ。`;
 }
 
+// =============================
+// 分流逻辑
+// =============================
 function decideMode({ scene, action }) {
   if (scene === "ignore" && (action === "none" || action === "no_reply")) {
     return "judge";
@@ -81,194 +107,56 @@ function decideMode({ scene, action }) {
   return "reply";
 }
 
-function formatDecisionOnlyOutput({ scene }) {
+// =============================
+function formatDecisionOnlyOutput(scene) {
   const map = {
-    ignore: `👉 今はまだ送らない方が安全です。
-
-既読無視の状態で追うと、
-一気に「重い」と感じられやすいです。
-
-今は👇
-・追わない
-・少し時間を空ける
-・相手の負担を増やさない
-
-が一番安全です。`,
-
-    break: `👉 今は追いかけない方が安全です。
-
-強く出ると関係が一気に崩れます。
-
-一度落ち着くのが最優先です。`,
-
-    cold: `👉 今は様子を見るのが安全です。
-
-ここで踏み込むと、
-さらに距離が開く可能性があります。`
+    ignore: `👉 今はまだ送らない方が安全です。`,
+    break: `👉 今は追いかけない方が安全です。`,
+    cold: `👉 今は様子を見るのが安全です。`
   };
 
   return `【結論】
-${map[scene] || "👉 今は無理に動かない方が安全です。"}
-
-──
-このあと👇
-・いつ送るべきか
-・送るなら何て送るべきか
-・相手の本音の見方
-
-はプレミアムで見れます。`;
+${map[scene] || "👉 今は無理に動かない方が安全です。"}`;
 }
 
-function formatFreeOutput({ decision, reply }) {
+// =============================
+function formatFreeOutput(decision, reply) {
   return `【結論】
 👉 ${decision.conclusion}
 
 【返信】
-👉 ${reply}
-
-──
-この返信でも大きく外しません。
-
-でも👇
-・もっと自然な言い方
-・相手が返したくなる一言
-・距離を縮める返し方
-
-はプレミアムで見れます。`;
+👉 ${reply}`;
 }
 
-function formatPremiumOutput({ decision, replies }) {
-  return `【結論】
-👉 ${decision.conclusion}
-
-【理由】
-${decision.reason}
-
-【おすすめ返信】
-① ${replies[0]}
-② ${replies[1]}
-③ ${replies[2]}
-
-【送るタイミング】
-${decision.sendTiming}`;
-}
-
-function formatProOutput({ decision, replies }) {
-  return `【結論】
-👉 ${decision.conclusion}
-
-【リスク判断】
-${decision.reason}
-
-【今取るべき行動】
-${decision.action}
-
-【返信候補】
-① ${replies[0]}
-② ${replies[1]}
-③ ${replies[2]}
-
-【送るタイミング】
-${decision.sendTiming}
-
-【戦略】
-${decision.proStrategy}`;
-}
-
-function handleLogic(userId, input, plan = "free") {
-  const safePlan = ["free", "premium", "pro"].includes(plan) ? plan : "free";
+// =============================
+// 核心逻辑
+// =============================
+function handleLogic(userId, input) {
   const user = getUser(userId);
 
   const scene = detectScene(input);
   const risk = detectRisk({ text: input, scene });
   const action = detectUserAction(input);
+
   const mode = decideMode({ scene, action });
 
-  if (safePlan === "free" && user.usageCount >= 3) {
-    return `無料診断は3回までです。
-
-ここから先は👇
-・返信パターン
-・送るタイミング
-・関係の進め方
-
-をプレミアムで確認できます。`;
+  if (mode === "judge") {
+    updateUser(userId, { usageCount: user.usageCount + 1 });
+    return formatDecisionOnlyOutput(scene);
   }
 
-  if (safePlan === "free" && mode === "judge") {
-    updateUser(userId, {
-      usageCount: user.usageCount + 1,
-      scene,
-      risk,
-      action,
-      mode,
-      plan: safePlan
-    });
+  const decision = decisionEngine({ scene, risk, action });
 
-    return formatDecisionOnlyOutput({ scene });
-  }
+  const reply = getOneReply(scene, "free");
 
-  const decision = decisionEngine({
-    scene,
-    risk,
-    action,
-    plan: safePlan
-  });
+  updateUser(userId, { usageCount: user.usageCount + 1 });
 
-  if (!decision || !decision.conclusion) {
-    return "もう一度送ってください。";
-  }
-
-  if (safePlan === "free") {
-    const reply = getOneReply(scene, "free");
-
-    updateUser(userId, {
-      usageCount: user.usageCount + 1,
-      scene,
-      risk,
-      action,
-      mode,
-      plan: safePlan
-    });
-
-    return formatFreeOutput({ decision, reply });
-  }
-
-  if (safePlan === "premium") {
-    const replies = getReplyTemplates(scene, "premium").slice(0, 3);
-
-    updateUser(userId, {
-      scene,
-      risk,
-      action,
-      mode,
-      plan: safePlan
-    });
-
-    return formatPremiumOutput({ decision, replies });
-  }
-
-  if (safePlan === "pro") {
-    const replies = getReplyTemplates(scene, "pro").slice(0, 3);
-
-    updateUser(userId, {
-      scene,
-      risk,
-      action,
-      mode,
-      plan: safePlan
-    });
-
-    return formatProOutput({ decision, replies });
-  }
-
-  return "もう一度送ってください。";
+  return formatFreeOutput(decision, reply);
 }
 
-app.get("/", (req, res) => {
-  res.status(200).send("API running");
-});
-
+// =============================
+// LINE webhook
+// =============================
 app.post("/webhook", async (req, res) => {
   const events = req.body.events || [];
 
@@ -278,74 +166,46 @@ app.post("/webhook", async (req, res) => {
 
       if (!replyToken) continue;
 
-      // ✅ 加好友欢迎语
+      // ✅ 加好友 → 欢迎语
       if (event.type === "follow") {
-        await replyMessage(replyToken, greetingReply("こんにちは"));
+        await replyMessage(replyToken, welcomeMessage());
         continue;
       }
 
-      // ✅ 普通文字消息
+      // ✅ 用户消息
       if (event.type === "message" && event.message?.type === "text") {
-        const userId = event.source?.userId || "unknown_user";
+        const userId = event.source?.userId || "unknown";
         const text = trimText(event.message.text);
 
         let result;
 
         if (!text) {
           result = greetingReply("こんにちは");
+
         } else if (isGreeting(text)) {
           result = greetingReply(text);
+
         } else {
-          result = handleLogic(userId, text, "free");
+          result = handleLogic(userId, text);
         }
 
         await replyMessage(replyToken, result);
       }
+
     } catch (err) {
-      console.error("WEBHOOK ERROR:", err.stack || err.message || err);
-
-      try {
-        if (event.replyToken) {
-          await replyMessage(
-            event.replyToken,
-            "エラーが出ました。もう一度送ってください。"
-          );
-        }
-      } catch (replyErr) {
-        console.error("ERROR REPLY FAILED:", replyErr.response?.data || replyErr.message);
-      }
+      console.error(err);
+      await replyMessage(event.replyToken, "エラーが出ました。");
     }
   }
 
-  return res.sendStatus(200);
+  res.sendStatus(200);
 });
 
-app.post("/api/chat", (req, res) => {
-  try {
-    const { userId = "test_user", message, plan = "free" } = req.body;
-    const input = trimText(message || "");
-
-    let result;
-
-    if (!input) {
-      result = greetingReply("こんにちは");
-    } else if (isGreeting(input)) {
-      result = greetingReply(input);
-    } else {
-      result = handleLogic(userId, input, plan);
-    }
-
-    return res.json({ message: result });
-  } catch (err) {
-    console.error("API ERROR:", err.stack || err.message || err);
-    return res.status(500).json({
-      message: "エラーが出ました。もう一度送ってください。"
-    });
-  }
+// =============================
+app.get("/", (req, res) => {
+  res.send("OK");
 });
 
+// =============================
 const PORT = process.env.PORT || 3000;
-
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-});
+app.listen(PORT, () => console.log("Server running"));
