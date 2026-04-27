@@ -2,23 +2,15 @@
 
 const express = require("express");
 
-const detectScene = require("./utils/detectScene");
-const detectRisk = require("./utils/detectRisk");
-const detectUserAction = require("./utils/detectUserAction");
-const decisionEngine = require("./utils/decisionEngine");
-
-const { getOneReply, getReplyTemplates } = require("./replyTemplates");
-const { getUser, updateUser } = require("./userStore");
 const { replyMessage } = require("./services/line");
-
-const { pickStyle, getStyleLabel } = require("./styleEngine");
-const composeReply = require("./replyComposer");
+const { generateAIResponse } = require("./services/ai");
+const { getUser, updateUser } = require("./userStore");
 
 const app = express();
 app.use(express.json());
 
-function trimText(text = "", max = 1000) {
-  return String(text || "").slice(0, max);
+function trimText(text = "", max = 1200) {
+  return String(text || "").slice(0, max).trim();
 }
 
 function normalize(text = "") {
@@ -38,454 +30,99 @@ function isGreeting(text = "") {
     "おはようございます",
     "hi",
     "hello",
-    "hey"
+    "hey",
+    "はじめまして"
   ].includes(t);
 }
 
 function welcomeMessage() {
-  return `そのLINE、このまま送ると危ないかも。
+  return `はじめまして、返信くんです😊
 
-👇やることはこれだけ
-相手のメッセージ、そのまま送って
+相手から来たLINEをそのまま送ってください。
 
-（コピペ・スクショOK）
+・返信に迷っている
+・既読無視されている
+・最近ちょっと冷たい
+・何て返せばいいかわからない
 
-そのまま送れる返信、作る。`;
+そんな時に、
+今送っていいかまで見て返信を作ります。
+
+まずは3回まで無料で使えます。`;
 }
 
-function greetingReply(text = "") {
-  const t = normalize(text);
-
-  if (t.includes("おはよう")) {
-    return `おはよう😊
-何か話したいことや、相手とのやりとりがあれば教えてね。
-一緒に考えるよ。`;
-  }
-
-  if (t.includes("こんばんは")) {
-    return `こんばんは😊
-何か話したいことや、相手とのやりとりがあれば教えてね。
-一緒に考えるよ。`;
-  }
-
-  if (t.includes("こんにちは")) {
-    return `こんにちは😊
-何か話したいことや、相手とのやりとりがあれば教えてね。
-一緒に考えるよ。`;
-  }
-
+function greetingReply() {
   return `こんにちは😊
-何か話したいことや、相手とのやりとりがあれば教えてね。
-一緒に考えるよ。`;
+
+相手とのLINEや、今の状況をそのまま送ってください。
+
+例：
+「最近返信が冷たい」
+「既読無視されてる」
+「この返事どう返せばいい？」
+「相手から来た文面をコピペ」
+
+そのまま送れる返信を作ります。`;
 }
 
-function decideMode({ scene, action }) {
-  if (scene === "ignore" && (action === "none" || action === "no_reply")) {
-    return "judge";
-  }
+function freeLimitMessage() {
+  return `無料診断は3回までです。
 
-  if (scene === "break" && action !== "sent") {
-    return "judge";
-  }
+ここから先はプレミアムで確認できます👇
 
-  if (scene === "cold" && action !== "sent") {
-    return "judge";
-  }
-
-  return "reply";
-}
-
-function formatDecisionOnlyOutput({ scene }) {
-  if (scene === "ignore") {
-    return `【結論】
-👉 今はまだ送らない方が安全です。
-
-既読無視の状態で追うと、
-一気に「重い」と感じられやすいです。
-
-💡ここがポイント
-👉 返さなくてもいい空気を出すと、
-相手の方から戻ってきやすくなります。
-
-今は👇
-・追わない
-・少し時間を空ける
-・相手の負担を減らす
-
-これが一番安全です。
-
-──
-このあと👇
-・いつ送るべきか
-・送るなら何て送るか
+・もっと自然な返信
+・送るタイミング
 ・相手の心理
+・関係を壊さない返し方
 
-はプレミアムで見れます。`;
-  }
-
-  if (scene === "cold") {
-    return `【結論】
-👉 今は様子を見るのが安全です。
-
-ここで踏み込むと、
-さらに距離が開く可能性があります。
-
-💡ここで差が出ます
-👉 不安をぶつけると逆効果
-👉 軽く様子を見る方が関係は戻りやすいです
-
-今は👇
-・無理に詰めない
-・会話を軽く保つ
-
-が安全です。
-
-──
-・距離を縮める一言
-・自然な戻し方
-
-はプレミアムで見れます。`;
-  }
-
-  if (scene === "break") {
-    return `【結論】
-👉 今は追いかけない方が安全です。
-
-この状態で強く出ると、
-一気に関係が崩れる可能性があります。
-
-💡重要
-👉 今は“止める”ことが一番の戦略です
-
-──
-・復縁できる動き方
-・送るべきタイミング
-
-はプレミアムで見れます。`;
-  }
-
-  return `【結論】
-👉 今は無理に動かない方が安全です。`;
+プレミアムに進むと、返信の精度が上がります。`;
 }
 
-function getFreeTip({ scene }) {
-  if (scene === "explain") {
-    return `“忙しい中でも返してくれたこと”に触れると、ただ優しいだけじゃなく、印象に残りやすくなります。`;
-  }
+function imageReply() {
+  return `スクショありがとう😊
 
-  if (scene === "ignore") {
-    return `“返さなくても大丈夫”の空気を出すと、相手が戻ってきやすくなります。`;
-  }
+今は画像の中身を直接読む準備中です。
 
-  if (scene === "cold") {
-    return `不安をぶつけるより、“少し気になった”くらいで止める方が安全です。`;
-  }
-
-  if (scene === "break") {
-    return `短く、責めずに、話す余地だけ残すのが大事です。`;
-  }
-
-  if (scene === "like") {
-    return `“好き”より、“話していて楽しい”の方が自然に距離を縮めやすいです。`;
-  }
-
-  return `普通に返すだけで終わるか、次につながるかの差が出ます。`;
+相手のメッセージを文字でそのまま送ってくれたら、
+すぐ返信を作れます。`;
 }
 
-function getPaidHook(scene) {
-  if (scene === "explain") {
-    return `・もっと自然な受け止め方
-・相手がまた返しやすい言い方
-・距離を縮める一言`;
-  }
-
-  if (scene === "ignore") {
-    return `・重く見えない追い方
-・返事が来やすい一言
-・送るタイミング`;
-  }
-
-  if (scene === "cold") {
-    return `・温度を戻す言い方
-・距離を詰めすぎない一言
-・相手の本音の見方`;
-  }
-
-  if (scene === "break") {
-    return `・今送るべきか
-・追うべきか待つべきか
-・関係を壊さない一言`;
-  }
-
-  if (scene === "like") {
-    return `・好意が自然に伝わる言い方
-・相手が意識しやすい一言
-・距離を縮める返し`;
-  }
-
-  return `・もっと自然な言い方
-・相手が返しやすい言い方
-・距離を縮める言い方`;
-}
-
-function pickOne(arr) {
-  return arr[Math.floor(Math.random() * arr.length)];
-}
-
-function formatFreeOutput({ decision, reply, scene, style }) {
-  const tip = getFreeTip({ scene });
-  const hook = getPaidHook(scene);
-  const styleLabel = getStyleLabel(style);
-
-  const patternA = `【結論】
-👉 ${decision.conclusion}
-
-【返信】
-👉 ${reply}
-
-💡ここで差が出ます
-👉 ${tip}
-
-【今の返信タイプ】
-👉 ${styleLabel}
-
-──
-この返信でも大きく外しません。
-でも、相手の温度を上げたいなら👇
-
-${hook}
-
-はプレミアムで見れます。`;
-
-  const patternB = `今の状態だと、
-無理に攻めるより「${styleLabel}」方向が安全です。
-
-そのまま送るなら👇
-👉 ${reply}
-
-ポイントはここです。
-👉 ${tip}
-
-──
-もっと自然な言い方や、
-相手が返しやすい一言は
-プレミアムで見れます。`;
-
-  const patternC = `これ、今のままだと
-ちょっと返し方で差が出ます。
-
-方向としては👇
-👉 ${decision.conclusion}
-
-返信はこれでOKです👇
-👉 ${reply}
-
-ただ、ここで一言変えるだけで
-印象がかなり変わります。
-
-💡${tip}
-
-──
-${hook}
-
-はプレミアムで見れます。`;
-
-  return pickOne([patternA, patternB, patternC]);
-}
-
-function formatPremiumOutput({ decision, replies }) {
-  return `【結論】
-👉 ${decision.conclusion}
-
-【理由】
-${decision.reason}
-
-【おすすめ返信】
-① ${replies[0]}
-→ 自然で安全
-
-② ${replies[1]}
-→ 相手が返しやすい
-
-③ ${replies[2]}
-→ 少し距離を縮める
-
-【送るタイミング】
-${decision.sendTiming}
-
-──
-💡どれを送るのが一番いいか、
-相手の反応まで読むならPROがおすすめです。`;
-}
-
-function formatProOutput({ decision, replies }) {
-  return `【結論】
-👉 ${decision.conclusion}
-
-【リスク判断】
-${decision.reason}
-
-【今取るべき行動】
-${decision.action}
-
-【返信候補】
-① ${replies[0]}
-② ${replies[1]}
-③ ${replies[2]}
-
-【送るタイミング】
-${decision.sendTiming}
-
-【戦略】
-${decision.proStrategy}`;
-}
-
-function qualityFallbackReply(text = "") {
-  const scene = detectScene(text);
-
-  if (scene === "ignore") {
-    return formatDecisionOnlyOutput({ scene: "ignore" });
-  }
-
-  if (scene === "cold") {
-    return formatDecisionOnlyOutput({ scene: "cold" });
-  }
-
-  if (scene === "break") {
-    return formatDecisionOnlyOutput({ scene: "break" });
-  }
-
-  if (scene === "explain") {
-    return `【結論】
-👉 今は責めずに、やさしく受け止めるのが安全です。
-
-【返信】
-👉 忙しい中でも教えてくれてありがとう。無理しないでね😊
-
-💡ここで差が出ます
-👉 長く返すより、相手の負担を減らす一言の方が印象に残りやすいです。`;
-  }
-
-  return `【結論】
-👉 今は短く自然に返すのが安全です。
-
-【返信】
-👉 そっか、教えてくれてありがとう。無理しないでね😊
-
-💡ここで差が出ます
-👉 重く返すより、相手が返しやすい余白を残すのが大事です。`;
-}
-
-function handleLogic(userId, input, plan = "free") {
-  const safePlan = ["free", "premium", "pro"].includes(plan) ? plan : "free";
+async function handleTextMessage(userId, text) {
+  const input = trimText(text);
   const user = getUser(userId);
 
-  const scene = detectScene(input);
-  const risk = detectRisk({ text: input, scene });
-  const action = detectUserAction(input);
-  const mode = decideMode({ scene, action });
-
-  if (safePlan === "free" && user.usageCount >= 3) {
-    return `無料診断は3回までです。
-
-ここから先は👇
-・返信パターン
-・送るタイミング
-・関係の進め方
-
-をプレミアムで確認できます。`;
+  if (!input) {
+    return greetingReply();
   }
 
-  if (safePlan === "free" && mode === "judge") {
-    updateUser(userId, {
-      usageCount: user.usageCount + 1,
-      scene,
-      risk,
-      action,
-      mode,
-      plan: safePlan
-    });
-
-    return formatDecisionOnlyOutput({ scene });
+  if (isGreeting(input)) {
+    return greetingReply();
   }
 
-  const decision = decisionEngine({
-    scene,
-    risk,
-    action,
-    plan: safePlan
+  const plan = user.plan || "free";
+  const usageCount = user.usageCount || 0;
+
+  if (plan === "free" && usageCount >= 3) {
+    return freeLimitMessage();
+  }
+
+  const aiResult = await generateAIResponse({
+    input,
+    userState: {
+      ...user,
+      plan,
+      usageCount
+    }
   });
 
-  if (!decision || !decision.conclusion) {
-    return qualityFallbackReply(input);
-  }
-
-  if (safePlan === "free") {
-    const baseReply = getOneReply(scene, "free");
-
-    if (!baseReply) {
-      return qualityFallbackReply(input);
-    }
-
-    const style = pickStyle({ scene, input });
-    const reply = composeReply(baseReply, style);
-
-    if (!reply || typeof reply !== "string") {
-      return qualityFallbackReply(input);
-    }
-
+  if (plan === "free") {
     updateUser(userId, {
-      usageCount: user.usageCount + 1,
-      scene,
-      risk,
-      action,
-      mode,
-      plan: safePlan
-    });
-
-    return formatFreeOutput({
-      decision,
-      reply,
-      scene,
-      style
+      usageCount: usageCount + 1,
+      plan
     });
   }
 
-  if (safePlan === "premium") {
-    const replies = getReplyTemplates(scene, "premium").slice(0, 3);
-
-    updateUser(userId, {
-      scene,
-      risk,
-      action,
-      mode,
-      plan: safePlan
-    });
-
-    return formatPremiumOutput({
-      decision,
-      replies
-    });
-  }
-
-  if (safePlan === "pro") {
-    const replies = getReplyTemplates(scene, "pro").slice(0, 3);
-
-    updateUser(userId, {
-      scene,
-      risk,
-      action,
-      mode,
-      plan: safePlan
-    });
-
-    return formatProOutput({
-      decision,
-      replies
-    });
-  }
-
-  return qualityFallbackReply(input);
+  return aiResult;
 }
 
 app.get("/", (req, res) => {
@@ -498,7 +135,6 @@ app.post("/webhook", async (req, res) => {
   for (const event of events) {
     try {
       const replyToken = event.replyToken;
-
       if (!replyToken) continue;
 
       if (event.type === "follow") {
@@ -506,34 +142,24 @@ app.post("/webhook", async (req, res) => {
         continue;
       }
 
-      if (event.type === "message" && event.message?.type === "text") {
+      if (event.type === "message") {
         const userId = event.source?.userId || "unknown_user";
-        const text = trimText(event.message.text);
 
-        let result = "";
-
-        try {
-          if (!text) {
-            result = greetingReply("こんにちは");
-          } else if (isGreeting(text)) {
-            result = greetingReply(text);
-          } else {
-            result = handleLogic(userId, text, "free");
-          }
-
-          if (!result || typeof result !== "string") {
-            result = qualityFallbackReply(text);
-          }
-
+        if (event.message?.type === "text") {
+          const result = await handleTextMessage(userId, event.message.text);
           await replyMessage(replyToken, result);
-        } catch (err) {
-          console.error("MESSAGE HANDLE ERROR:", err.stack || err.message || err);
-
-          const fallback = qualityFallbackReply(text);
-          await replyMessage(replyToken, fallback);
+          continue;
         }
 
-        continue;
+        if (event.message?.type === "image") {
+          await replyMessage(replyToken, imageReply());
+          continue;
+        }
+
+        await replyMessage(
+          replyToken,
+          "今はテキストの相談に対応しています。相手のメッセージを文字で送ってください😊"
+        );
       }
     } catch (err) {
       console.error("WEBHOOK ERROR:", err.stack || err.message || err);
@@ -542,7 +168,7 @@ app.post("/webhook", async (req, res) => {
         if (event.replyToken) {
           await replyMessage(
             event.replyToken,
-            "エラーが出ました。もう一度送ってください。"
+            "ごめん、今うまく処理できなかった。もう一度送ってください。"
           );
         }
       } catch (replyErr) {
@@ -554,30 +180,17 @@ app.post("/webhook", async (req, res) => {
   return res.sendStatus(200);
 });
 
-app.post("/api/chat", (req, res) => {
+app.post("/api/chat", async (req, res) => {
   try {
-    const { userId = "test_user", message, plan = "free" } = req.body;
-    const input = trimText(message || "");
-
-    let result = "";
-
-    if (!input) {
-      result = greetingReply("こんにちは");
-    } else if (isGreeting(input)) {
-      result = greetingReply(input);
-    } else {
-      result = handleLogic(userId, input, plan);
-    }
-
-    if (!result || typeof result !== "string") {
-      result = qualityFallbackReply(input);
-    }
+    const { userId = "test_user", message } = req.body;
+    const result = await handleTextMessage(userId, message || "");
 
     return res.json({ message: result });
   } catch (err) {
     console.error("API ERROR:", err.stack || err.message || err);
+
     return res.status(200).json({
-      message: qualityFallbackReply(req.body?.message || "")
+      message: "ごめん、今うまく判断できなかった。もう一度送ってください。"
     });
   }
 });
