@@ -61,6 +61,10 @@ function detectScenario(input = "") {
     return "ignore";
   }
 
+  if (/告白|好きって伝えたい|好きと伝えたい|好きって言いたい|誘いたい|デート誘いたい|距離を縮めたい|脈あり|脈なし|いい感じ/.test(t)) {
+    return "flirt";
+  }
+
   if (/冷たい|そっけない|返信遅い|連絡減った|距離|温度差/.test(t)) {
     return "cold";
   }
@@ -71,9 +75,17 @@ function detectScenario(input = "") {
 function detectLevel(input = "") {
   const scenario = detectScenario(input);
 
-  if (scenario === "reunion" || scenario === "cheating") return 3;
-  if (scenario === "ignore" || scenario === "cold") return 2;
-  if (isGreeting(input) || isLightMessage(input)) return 0;
+  if (scenario === "reunion" || scenario === "cheating" || scenario === "ignore") {
+    return 3;
+  }
+
+  if (scenario === "cold" || scenario === "flirt") {
+    return 2;
+  }
+
+  if (isGreeting(input) || isLightMessage(input)) {
+    return 0;
+  }
 
   return 1;
 }
@@ -126,7 +138,7 @@ function limitMessage(scenario) {
   if (scenario === "reunion") {
     return `ここから先は、返信よりも「動き方」の判断が大事な場面です。
 
-焦って連絡すると戻る流れが崩れることもあります。
+ここで焦ると、戻る流れが崩れることもあります。
 
 復縁の進め方はProで確認できます。`;
   }
@@ -137,6 +149,24 @@ function limitMessage(scenario) {
 問い詰めるか、少し引くかで相手の出方が変わります。
 
 出方の見極めはProで確認できます。`;
+  }
+
+  if (scenario === "ignore") {
+    return `ここから先は、送るか待つかの判断がかなり大事です。
+
+追うタイミングを間違えると、
+そのまま距離が広がることもあります。
+
+詳しく見るならProで確認できます。`;
+  }
+
+  if (scenario === "flirt") {
+    return `ここから先は、言い方で印象がかなり変わる場面です。
+
+“いい感じ”に進むか、“重い”と思われるかは、
+伝え方で分かれやすいです。
+
+自然な言い方はプレミアムで確認できます。`;
   }
 
   return `ここから先は、もう少し言い方を整えた方がいい場面です。
@@ -152,7 +182,7 @@ function extractCoreReply(text = "") {
     return {
       judge: "今は軽く返すのが自然です。",
       reply: "「無理しないでね。また落ち着いたら話そう😊」",
-      caution: ""
+      caution: "優しくしすぎると、“後回しでも大丈夫”と思われることがあります。"
     };
   }
 
@@ -160,7 +190,9 @@ function extractCoreReply(text = "") {
     .split("\n")
     .map((l) => l.trim())
     .filter(Boolean)
-    .filter((l) => !l.includes("プレミアム") && !l.includes("Pro"));
+    .filter((l) => !l.includes("プレミアム") && !l.includes("Pro"))
+    .filter((l) => !l.includes("【") && !l.includes("】"))
+    .filter((l) => !/^①|^②|^③|^1\.|^2\.|^3\./.test(l));
 
   let judge = "";
   let reply = "";
@@ -169,10 +201,12 @@ function extractCoreReply(text = "") {
   for (const line of lines) {
     if (!judge && !line.includes("👇") && !line.includes("⚠️") && !line.includes("「")) {
       judge = line;
+      continue;
     }
 
     if (!reply && line.includes("「") && line.includes("」")) {
       reply = line;
+      continue;
     }
 
     if (
@@ -193,8 +227,80 @@ function extractCoreReply(text = "") {
   return { judge, reply, caution };
 }
 
+function defaultRisk(level, scenario) {
+  if (scenario === "reunion") {
+    return "ここで焦って動くと、戻る流れが崩れることがあります。";
+  }
+
+  if (scenario === "cheating") {
+    return "感情のまま問い詰めると、相手が防御に入って本音が見えにくくなります。";
+  }
+
+  if (scenario === "ignore") {
+    return "ここで追いすぎると、“重い”と思われて距離が広がることがあります。";
+  }
+
+  if (scenario === "cold") {
+    return "ここで詰めすぎると、相手の温度がさらに下がることがあります。";
+  }
+
+  if (scenario === "flirt") {
+    return "言い方が重くなると、“いい感じ”より先に相手が構えてしまうことがあります。";
+  }
+
+  if (level === 2) {
+    return "ここで少しズレると、距離がそのまま広がることがあります。";
+  }
+
+  return "優しくしすぎると、“後回しでも大丈夫”と思われることがあります。";
+}
+
+function bridgeLine(level, scenario) {
+  if (level === 3) {
+    if (scenario === "reunion") {
+      return `
+
+ここでの動き方で、
+戻る流れと終わる流れが分かれやすいです。
+
+詳しく見るならProで確認できます。`;
+    }
+
+    if (scenario === "cheating") {
+      return `
+
+ここからは、問い詰めるかどうかより、
+どう動けば自分が不利にならないかが大事です。
+
+詳しく見るならProで確認できます。`;
+    }
+
+    if (scenario === "ignore") {
+      return `
+
+送るか待つかで、
+相手の受け取り方がかなり変わる場面です。
+
+詳しく見るならProで確認できます。`;
+    }
+  }
+
+  if (scenario === "flirt") {
+    return `
+
+もう少し自然な伝え方まで見るなら、
+プレミアムで確認できます。`;
+  }
+
+  return `
+
+もう少し自然な言い方まで見るなら、
+プレミアムで確認できます。`;
+}
+
 function buildFreeMessage(aiText, usageCount, level, scenario) {
   const { judge, reply, caution } = extractCoreReply(aiText);
+  const risk = caution || defaultRisk(level, scenario);
 
   if (usageCount === 0) {
     return `${judge}
@@ -204,45 +310,27 @@ ${reply}`;
   }
 
   if (usageCount === 1) {
-    const safeCaution =
-      caution || "優しくしすぎると、相手に“後回しでも大丈夫”と思われることもあります。";
-
     return `${judge}
+
+強く出すと、相手に負担になる可能性があります。
 
 👇 送るなら
 ${reply}
 
 ⚠️ ここだけ注意
-${safeCaution}`;
+${risk}`;
   }
 
   if (usageCount === 2) {
-    const safeCaution =
-      caution || "ここで少しズレると、距離がそのまま広がることもあります。";
-
-    if (level === 3) {
-      return `${judge}
-
-👇 送るなら
-${reply}
-
-⚠️ ここだけ注意
-${safeCaution}
-
-ここから先は、返信より“動き方”の判断が大事です。
-詳しく見るならProで確認できます。`;
-    }
-
     return `${judge}
 
+強く出すと、相手に負担になる可能性があります。
+
 👇 送るなら
 ${reply}
 
 ⚠️ ここだけ注意
-${safeCaution}
-
-もう少し自然な言い方まで見るなら、
-プレミアムで確認できます。`;
+${risk}${bridgeLine(level, scenario)}`;
   }
 
   return `${judge}
