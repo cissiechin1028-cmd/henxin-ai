@@ -9,11 +9,11 @@ function isGreeting(text) {
 }
 
 function isThanksOnly(text) {
-  return /^(ありがとう|ありがとうございます|助かります|助かりました|了解|わかりました|分かりました|お願いします|お願い)$/i.test(text);
+  return /^(ありがとう|ありがとうございます|助かります|了解|わかりました)$/i.test(text);
 }
 
 function hasSituationWords(text) {
-  return /返信|既読|未読|冷たい|距離|別れ|復縁|浮気|怪しい|喧嘩|ブロック|好き|告白|誘い|デート|会いたい|連絡|LINE|脈あり|脈なし|不安|彼氏|彼女|元彼|元カノ|相手/.test(text);
+  return /返信|既読|未読|冷たい|距離|別れ|復縁|浮気|怪しい|喧嘩|ブロック|好き|告白|誘い|デート|会いたい|連絡|LINE|脈あり|脈なし/.test(text);
 }
 
 function looksLikePartnerMessage(text) {
@@ -21,17 +21,22 @@ function looksLikePartnerMessage(text) {
 
   if (t.length <= 2) return false;
 
-  // 相手が送ってきそうな短文
-  if (/^(最近バタバタして|忙しい|ごめん|また連絡する|今忙しい|考えさせて|距離置きたい|別れたい|無理かも|予定わかったら連絡する|寝てた|仕事だった|了解|うん|そうだね|大丈夫|ありがとう|ごめんね)/.test(t)) {
+  // 👉 强制识别：冷淡 / 拒绝类
+  if (/疲れた|連絡しないで|距離置きたい|もう無理|一人にして|考えたい/.test(t)) {
     return true;
   }
 
-  // 句読点や会話っぽい終わり方
-  if (/(だよ|だね|かな|かも|ごめん|笑|w|！|？|\?|😊|🙂|💦|🙇|🙏)$/.test(t) && !hasSituationWords(t)) {
+  // 👉 常见对方回复
+  if (/^(最近バタバタして|忙しい|ごめん|また連絡する|今忙しい|考えさせて|了解|うん|そうだね)/.test(t)) {
     return true;
   }
 
-  // カギカッコ内の文面
+  // 👉 句尾判断（像对话）
+  if (/(だよ|だね|かな|かも|ごめん|笑|！|？|😊|🙂)$/.test(t) && !hasSituationWords(t)) {
+    return true;
+  }
+
+  // 👉 带引号
   if (/「.+」/.test(t)) return true;
 
   return false;
@@ -42,7 +47,7 @@ function isSituationDescription(text) {
 
   if (hasSituationWords(t)) return true;
 
-  if (/どう返せば|なんて返せば|返信したい|返事したい|送っていい|これどう|どう思う|脈あり|脈なし/.test(t)) {
+  if (/どう返せば|なんて返せば|返信したい|どう思う/.test(t)) {
     return true;
   }
 
@@ -54,10 +59,16 @@ function classifyMessage(text) {
 
   if (!t) return "empty";
 
+  // 👉 用户明确说是对方消息
+  if (/相手から|相手のメッセージ|これは相手/.test(t)) {
+    return "partner_message";
+  }
+
   if (isGreeting(t)) return "greeting";
 
   if (isThanksOnly(t)) return "thanks";
 
+  // 👉 优先判断对方消息
   if (looksLikePartnerMessage(t)) return "partner_message";
 
   if (isSituationDescription(t)) return "situation";
@@ -66,8 +77,5 @@ function classifyMessage(text) {
 }
 
 module.exports = {
-  classifyMessage,
-  isGreeting,
-  isSituationDescription,
-  looksLikePartnerMessage
+  classifyMessage
 };
