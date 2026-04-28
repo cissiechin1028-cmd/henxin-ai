@@ -26,10 +26,23 @@ function isGreeting(text = "") {
     t.includes("こんにちは") ||
     t.includes("こんばんは") ||
     t.includes("おはよう") ||
+    t.includes("お疲れ様") ||
+    t.includes("おつかれ") ||
     t.includes("hi") ||
     t.includes("hello") ||
     t.includes("hey") ||
     t.includes("はじめまして")
+  );
+}
+
+function isLightMessage(text = "") {
+  const t = normalize(text);
+
+  return (
+    t.includes("お疲れ様") ||
+    t.includes("おつかれ") ||
+    t.includes("ありがとう") ||
+    t.includes("了解")
   );
 }
 
@@ -60,13 +73,19 @@ function detectLevel(input = "") {
 
   if (scenario === "reunion" || scenario === "cheating") return 3;
   if (scenario === "ignore" || scenario === "cold") return 2;
-  if (isGreeting(input) || /テスト|なんでもない/.test(String(input || ""))) return 0;
+  if (isGreeting(input) || isLightMessage(input)) return 0;
 
   return 1;
 }
 
 function greetingReply(text = "") {
   const t = normalize(text);
+
+  if (t.includes("お疲れ様") || t.includes("おつかれ")) {
+    return `お疲れ様です😊
+
+相手とのやり取り、そのまま送ってもらえれば一緒に見ます。`;
+  }
 
   let greeting = "こんにちは";
   if (t.includes("おはよう")) greeting = "おはよう";
@@ -105,167 +124,131 @@ function imageReply() {
 
 function limitMessage(scenario) {
   if (scenario === "reunion") {
-    return `ここから先は、動き方でかなり変わる場面です。
+    return `ここから先は、返信よりも「動き方」の判断が大事な場面です。
 
-復縁は「何を送るか」より、
-今が冷却期なのか、再接触していい時期なのかの判断が大事です。
+焦って連絡すると戻る流れが崩れることもあります。
 
-この先の流れはProで確認できます。`;
+復縁の進め方はProで確認できます。`;
   }
 
   if (scenario === "cheating") {
-    return `ここは感情だけで動くと、
-相手の本音が見えなくなることがあります。
+    return `ここから先は、感情だけで動かない方がいい場面です。
 
-今は「問い詰めるか」より、
-どう動けば自分が不利にならないかが大事です。
+問い詰めるか、少し引くかで相手の出方が変わります。
 
-この先の判断はProで確認できます。`;
+出方の見極めはProで確認できます。`;
   }
 
-  return `ここから先は、もう少し深く見た方がいい場面です。
+  return `ここから先は、もう少し言い方を整えた方がいい場面です。
 
-返し方ひとつで、
-距離が縮まるか、そのまま離れるかが変わることがあります。
-
-この先はプレミアムで確認できます。`;
+相手が返しやすい自然な言い方は、
+プレミアムで確認できます。`;
 }
 
-function trialHook(usageCount, level, scenario) {
-  if (usageCount === 0) return "";
-
-  if (usageCount === 1) {
-    return `
-
-——
-ここは少しだけ空気を読むと、
-返したあとの印象が変わりやすい場面です。`;
-  }
-
-  if (usageCount === 2) {
-    if (level === 3) {
-      if (scenario === "reunion") {
-        return `
-
-——
-ここからの動き方で、
-「戻る流れ」と「終わる流れ」が分かれやすいです。
-
-復縁の進め方はProで詳しく見れます。`;
-      }
-
-      if (scenario === "cheating") {
-        return `
-
-——
-ここで感情のまま動くと、
-相手が防御に入って本音が見えにくくなることがあります。
-
-出方の見極めはProで詳しく見れます。`;
-      }
-
-      return `
-
-——
-ここからの動き方で、
-結果が大きく変わる場面です。
-
-この先はProで詳しく見れます。`;
-    }
-
-    if (level === 2) {
-      return `
-
-——
-ここで少しズレると、
-距離がそのまま広がる流れになることもあります。
-
-この先はプレミアムで見れます。`;
-    }
-
-    return `
-
-——
-このままでも大きく外しませんが、
-少し整えると印象が変わる可能性があります。
-
-この先はプレミアムで見れます。`;
-  }
-
-  return "";
-}
-
-function cleanLine(line = "") {
-  return String(line || "")
-    .trim()
-    .replace(/^①\s*/, "")
-    .replace(/^②\s*/, "")
-    .replace(/^③\s*/, "")
-    .replace(/^④\s*/, "")
-    .replace(/^⑤\s*/, "")
-    .replace(/^1\.\s*/, "")
-    .replace(/^2\.\s*/, "")
-    .replace(/^3\.\s*/, "")
-    .replace(/^4\.\s*/, "")
-    .replace(/^5\.\s*/, "");
-}
-
-function trimFreeOutput(text = "", usageCount = 0, level = 1, scenario = "normal") {
+function extractCoreReply(text = "") {
   const clean = String(text || "").trim();
 
   if (!clean) {
-    return `少し様子を見ながら、
-軽く返すのが良さそうです。
-
-👇 送るなら
-「無理しないでね。また話せるときに話そ😊」${trialHook(
-      usageCount,
-      level,
-      scenario
-    )}`;
+    return {
+      judge: "今は軽く返すのが自然です。",
+      reply: "「無理しないでね。また落ち着いたら話そう😊」",
+      caution: ""
+    };
   }
 
   const lines = clean
     .split("\n")
-    .map((line) => cleanLine(line))
-    .filter(Boolean);
+    .map((l) => l.trim())
+    .filter(Boolean)
+    .filter((l) => !l.includes("プレミアム") && !l.includes("Pro"));
 
-  const result = [];
-  let sawReplyTitle = false;
-  let sawReplyText = false;
+  let judge = "";
+  let reply = "";
+  let caution = "";
 
   for (const line of lines) {
-    result.push(line);
+    if (!judge && !line.includes("👇") && !line.includes("⚠️") && !line.includes("「")) {
+      judge = line;
+    }
+
+    if (!reply && line.includes("「") && line.includes("」")) {
+      reply = line;
+    }
 
     if (
-      line.includes("👇") ||
-      line.includes("送るなら") ||
-      line.includes("返信")
+      !caution &&
+      !line.includes("👇") &&
+      !line.includes("⚠️") &&
+      !line.includes("「") &&
+      judge &&
+      line !== judge
     ) {
-      sawReplyTitle = true;
-      continue;
-    }
-
-    if (sawReplyTitle && line.includes("」")) {
-      sawReplyText = true;
-      break;
-    }
-
-    if (!sawReplyTitle && line.includes("」")) {
-      sawReplyText = true;
-      break;
-    }
-
-    if (result.length >= 9) {
-      break;
+      caution = line;
     }
   }
 
-  if (!sawReplyText) {
-    result.push("「無理しないでね。また落ち着いたら話そう😊」");
+  if (!judge) judge = "今は軽く返すのが自然です。";
+  if (!reply) reply = "「無理しないでね。また落ち着いたら話そう😊」";
+
+  return { judge, reply, caution };
+}
+
+function buildFreeMessage(aiText, usageCount, level, scenario) {
+  const { judge, reply, caution } = extractCoreReply(aiText);
+
+  if (usageCount === 0) {
+    return `${judge}
+
+👇 送るなら
+${reply}`;
   }
 
-  return result.join("\n") + trialHook(usageCount, level, scenario);
+  if (usageCount === 1) {
+    const safeCaution =
+      caution || "優しくしすぎると、相手に“後回しでも大丈夫”と思われることもあります。";
+
+    return `${judge}
+
+👇 送るなら
+${reply}
+
+⚠️ ここだけ注意
+${safeCaution}`;
+  }
+
+  if (usageCount === 2) {
+    const safeCaution =
+      caution || "ここで少しズレると、距離がそのまま広がることもあります。";
+
+    if (level === 3) {
+      return `${judge}
+
+👇 送るなら
+${reply}
+
+⚠️ ここだけ注意
+${safeCaution}
+
+ここから先は、返信より“動き方”の判断が大事です。
+詳しく見るならProで確認できます。`;
+    }
+
+    return `${judge}
+
+👇 送るなら
+${reply}
+
+⚠️ ここだけ注意
+${safeCaution}
+
+もう少し自然な言い方まで見るなら、
+プレミアムで確認できます。`;
+  }
+
+  return `${judge}
+
+👇 送るなら
+${reply}`;
 }
 
 async function handleTextMessage(userId, text) {
@@ -303,7 +286,7 @@ async function handleTextMessage(userId, text) {
   let result = aiResult;
 
   if (plan === "free") {
-    result = trimFreeOutput(aiResult, usageCount, level, scenario);
+    result = buildFreeMessage(aiResult, usageCount, level, scenario);
   }
 
   if (plan === "free") {
