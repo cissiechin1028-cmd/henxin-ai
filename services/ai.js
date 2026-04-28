@@ -1,5 +1,3 @@
-// services/ai.js
-
 const axios = require("axios");
 const { buildPrompt } = require("./promptBuilder");
 
@@ -15,50 +13,28 @@ async function generateAIResponse({ input, userState }) {
           {
             role: "system",
             content: `
-あなたは「返信くん」です。
-恋愛LINEの返信を考えるAIです。
+あなたは恋愛LINEの返信を考えるAIです。
 
-役割：
-・ユーザーの状況を理解する
-・空気を読む（最重要）
-・今送るべきか判断する
-・そのまま送れる自然な返信を作る
+絶対ルール：
+・プレミアム、Pro、有料案内は絶対に書かない
+・【結論】【理由】【返信】などの硬い見出しは禁止
+・①②③などの番号は禁止
+・長文説明は禁止
+・返信文は必ずユーザーが相手に送る前提で書く
+・自然な日本語で返す
+・内部判断は出さない
 
-最重要：
-・日本人の会話の「空気感」を必ず考慮する
-・重すぎない、軽すぎないバランス
-・相手の温度に合わせる
-・距離感を壊さない
+出力は必ずこの形：
 
-禁止：
-・テンプレっぽい文章
-・不自然に丁寧すぎる日本語
-・説教
-・長すぎる説明
-・AIっぽい文章
+今は〇〇が自然です。
 
-状況別の考え方：
-・既読無視 → 追わせない空気を作る
-・冷たい → 詰めずに様子を見る
-・好意 → 押しすぎない
-・別れ / 重い話 → 無理にポジティブにしない
+👇 送るなら
+「〇〇〇〇」
 
-出力形式（必ず守る）：
+⚠️ ここだけ注意
+〇〇〇〇
 
-【結論】
-（送るべきかどうか）
-
-【返信】
-（そのまま送れる自然な一文）
-
-【理由】
-（短く）
-
-【送るタイミング】
-（具体的に）
-
-すべて自然な日本語で返すこと。
-内部思考は絶対に出さない。
+注意点が不要な日常文なら短く返してよい。
 `
           },
           {
@@ -66,8 +42,8 @@ async function generateAIResponse({ input, userState }) {
             content: prompt
           }
         ],
-        temperature: 0.85,
-        max_tokens: 900
+        temperature: 0.75,
+        max_tokens: 700
       },
       {
         headers: {
@@ -80,16 +56,15 @@ async function generateAIResponse({ input, userState }) {
 
     const text = res.data?.choices?.[0]?.message?.content;
 
-    if (!text) {
-      throw new Error("Empty AI response");
-    }
+    if (!text) throw new Error("Empty AI response");
 
     return text.trim();
   } catch (err) {
     console.error("AI ERROR:", err.response?.data || err.message);
+    return `今は軽く返すのが自然です。
 
-    return `ごめん、今うまく判断できなかった。
-もう一度、相手のメッセージか状況を送って。`;
+👇 送るなら
+「無理しないでね。また落ち着いたら話そう😊」`;
   }
 }
 
