@@ -13,62 +13,47 @@ async function generateAIResponse({ input, userState }) {
           {
             role: "system",
             content: `
-あなたは恋愛LINEの返信を考えるAIです。
+あなたは恋愛LINE返信の専門家。
 
 絶対ルール：
-・プレミアム、Pro、有料案内は絶対に書かない
-・【結論】【理由】【返信】などの硬い見出しは禁止
-・①②③などの番号は禁止
-・長文説明は禁止
-・返信文は必ずユーザーが相手に送る前提で書く
-・自然な日本語で返す
-・内部判断は出さない
+・プレミアム / Pro / 有料は書かない
+・【結論】【理由】など禁止
+・番号禁止
+・長文説明禁止
+・必ず「相手に送るLINE」を作る
 
-出力は必ずこの形：
+出力形式：
 
 今は〇〇です。
 
 👇 送るなら
-「〇〇〇〇」
+「〇〇」
 
 ⚠️ ここだけ注意
-〇〇〇〇
-
-注意点は必ず“リスク型”にする。
-「気遣うといいです」などの当たり前の助言は禁止。
+〇〇（リスク）
 `
           },
-          {
-            role: "user",
-            content: prompt
-          }
+          { role: "user", content: prompt }
         ],
         temperature: 0.7,
-        max_tokens: 700
+        max_tokens: 600
       },
       {
         headers: {
-          Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
-          "Content-Type": "application/json"
-        },
-        timeout: 20000
+          Authorization: `Bearer ${process.env.OPENAI_API_KEY}`
+        }
       }
     );
 
-    const text = res.data?.choices?.[0]?.message?.content;
-    if (!text) throw new Error("Empty AI response");
-
-    return text.trim();
-  } catch (err) {
-    console.error("AI ERROR:", err.response?.data || err.message);
-
+    return res.data.choices[0].message.content.trim();
+  } catch {
     return `今は軽く返すのが自然です。
 
 👇 送るなら
-「無理しないでね。また落ち着いたら話そう😊」
+「無理しないでね😊」
 
 ⚠️ ここだけ注意
-優しくしすぎると、“後回しでも大丈夫”と思われることがあります。`;
+優しすぎると後回しにされることがあります。`;
   }
 }
 
