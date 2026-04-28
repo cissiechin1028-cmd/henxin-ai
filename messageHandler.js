@@ -1,224 +1,90 @@
-// messageHandler.js
-
 const { generateAIResponse } = require("./services/ai");
 const { generateProResponse } = require("./services/proEngine");
-const { classifyMessage } = require("./services/messageClassifier");
-const { detectScenario } = require("./services/scenarioDetector");
-const { detectRiskLevel, getRiskJudge } = require("./services/riskLevel");
-const {
-  getUser,
-  updateUser,
-  incrementReplyUsage,
-  incrementCriticalUsage
-} = require("./userStore");
 
-const FREE_REPLY_LIMIT = 3;
+let users = {};
 
-function buildGreetingReply() {
-  return `こんにちは😊
-
-相手から来たLINEや、今の状況をそのまま送ってください。
-
-たとえば、
-
-「最近返信が冷たい」
-「既読無視されてる」
-「この返事どう返せばいい？」
-「相手から来た文面をそのまま貼る」
-
-そのまま送れる返信を作ります。`;
+// 🔴 高危判断
+function isCritical(text = "") {
+  return /復縁|別れ|無理|浮気|怪しい|距離置きたい|連絡しないで/.test(text);
 }
 
-function buildThanksReply() {
-  return `こちらこそです😊
-
-相手から新しく来たLINEや、
-今の状況が変わったらそのまま送ってください。`;
+// 🧠 场景判断（简单版）
+function detectScenario(text) {
+  if (/浮気|怪しい/.test(text)) return "cheating";
+  if (/復縁|別れ/.test(text)) return "reunion";
+  if (/既読/.test(text)) return "ignore";
+  if (/好き|告白|誘いたい/.test(text)) return "flirt";
+  if (/冷たい|距離/.test(text)) return "cold";
+  return "normal";
 }
 
-function buildSituationReply(text, scenario, riskLevel) {
-  const judge = getRiskJudge(riskLevel, scenario);
+// 🧠 免费输出结构（强制）
+function buildFreeReply(aiText) {
+  const lines = aiText.split("\n").filter(Boolean);
+  let reply = lines.find(l => l.includes("「")) || "「最近どう？無理してない？」";
 
-  if (riskLevel >= 4) {
-    return `${judge}
-
-ここで長文や強い言い方をすると、
-相手の気持ちがさらに離れやすくなります。
-
-相手から来た文面があれば、
-そのまま貼ってください。
-
-その文面に合わせて、
-重く見えない返し方を作ります。`;
-  }
-
-  if (scenario === "ignore") {
-    return `${judge}
-
-ここで何度も送ると、
-「返さなきゃ」という負担だけが残りやすいです。
-
-相手から最後に来た文面があれば、
-そのまま送ってください。
-
-今送っていい一文に整えます。`;
-  }
-
-  if (scenario === "cold") {
-    return `${judge}
-
-原因を聞きすぎるより、
-まずは相手の温度を見た方が安全です。
-
-相手から来た文面があれば、
-そのまま貼ってください。
-
-自然に返せる形にします。`;
-  }
-
-  if (scenario === "reunion") {
-    return `${judge}
-
-いきなり気持ちを伝えるより、
-まずは相手の警戒を下げる返し方が必要です。
-
-相手との直近のLINEがあれば、
-そのまま送ってください。
-
-復縁感が出すぎない文に整えます。`;
-  }
-
-  if (scenario === "cheating") {
-    return `${judge}
-
-まだ確定していない段階で責めると、
-相手が本音を隠しやすくなります。
-
-相手の文面や直近のやり取りを送ってください。
-
-問い詰めずに反応を見られる返し方を作ります。`;
-  }
-
-  return `${judge}
-
-相手から来た文面があれば、
-そのまま送ってください。
-
-相手に送れる形に整えます。`;
-}
-
-function buildUnclearReply() {
-  return `これは、
-
-相手から来たLINEですか？
-それとも、今の状況説明ですか？
-
-相手に返したい文面なら、
-そのままコピペして送ってください。
-
-状況説明なら、
-「最近返信が冷たい」みたいに送ってくれれば大丈夫です。`;
-}
-
-function buildLimitReply(scenario, riskLevel) {
-  if (riskLevel >= 3) {
-    return `ここからは、返し方を間違えると関係が動きやすい場面です。
-
-今の状況では、
-「何を送るか」だけでなく、
-「いつ送るか」「どこまで踏み込むか」も大事です。`;
-  }
-
-  return `ここからは、言い方の細かい温度感が大事です。
-
-相手に重く見えない形で整える必要があります。`;
-}
-
-function cleanAIText(aiText, riskLevel, scenario) {
-  let text = String(aiText || "").trim();
-
-  text = text.replace(/詳しく見るならProで確認できます。?/g, "");
-  text = text.replace(/自然な言い方はプレミアムで確認できます。?/g, "");
-  text = text.replace(/Pro/g, "");
-  text = text.replace(/プレミアム/g, "");
-  text = text.replace(/有料/g, "");
-
-  if (!text.includes("👇 送るなら")) {
-    return `${getRiskJudge(riskLevel, scenario)}
+  return `今は、少し様子を見るのが自然です。
 
 👇 送るなら
-「無理しないでね。落ち着いたらまた話そ😊」
+${reply}
 
 ⚠️ ここだけ注意
-ここで寂しさを強く出すと、相手に負担として伝わりやすいです。`;
-  }
-
-  return text.trim();
+重くなると距離が広がりやすいです。`;
 }
 
 async function handleMessage(userId, text) {
-  const input = String(text || "").trim();
-  const user = getUser(userId);
+  if (!users[userId]) {
+    users[userId] = {
+      count: 0,
+      plan: "free"
+    };
+  }
 
-  const inputType = classifyMessage(input);
-  const scenario = detectScenario(input);
-  const riskLevel = detectRiskLevel(input, scenario);
+  const user = users[userId];
 
-  updateUser(userId, {
-    lastInputType: inputType,
-    lastScenario: scenario,
-    lastRiskLevel: riskLevel
+  // 💰 已付费用户
+  if (user.plan === "pro") {
+    const scenario = detectScenario(text);
+    return generateProResponse(text, scenario);
+  }
+
+  // 🔴 高危优先截流（不算次数）
+  if (isCritical(text)) {
+    return `今は動き方を間違えやすい状態です。
+
+👇 送るなら
+「少し時間置いた方がいいかもね」
+
+ここからの動き方で結果が大きく変わります。
+
+👉 Pro（月額¥980）で詳しく見れます`;
+  }
+
+  // 🟡 免费次数用完（第4次）
+  if (user.count >= 3) {
+    return `無料での返信はここまでです。
+
+ここからは、状況に合わせた進め方が必要になります。
+
+👇 送るなら
+「無理しないでね」
+
+👉 Pro（月額¥980）で詳しい進め方が見れます`;
+  }
+
+  // 🟢 正常免费回复
+  const scenario = detectScenario(text);
+
+  const ai = await generateAIResponse({
+    input: text,
+    userState: { scenario }
   });
 
-  if (inputType === "empty") {
-    return buildGreetingReply();
-  }
+  const result = buildFreeReply(ai);
 
-  if (inputType === "greeting") {
-    return buildGreetingReply();
-  }
+  user.count += 1;
 
-  if (inputType === "thanks") {
-    return buildThanksReply();
-  }
-
-  if (inputType === "situation") {
-    if (riskLevel >= 3) {
-      incrementCriticalUsage(userId);
-    }
-
-    return buildSituationReply(input, scenario, riskLevel);
-  }
-
-  if (inputType === "unclear") {
-    return buildUnclearReply();
-  }
-
-  if (inputType === "partner_message") {
-    if (user.plan === "pro") {
-      return generateProResponse(input, scenario);
-    }
-
-    if (user.replyUsageCount >= FREE_REPLY_LIMIT) {
-      return buildLimitReply(scenario, riskLevel);
-    }
-
-    const aiText = await generateAIResponse({
-      input,
-      userState: {
-        inputType,
-        scenario,
-        riskLevel,
-        usageCount: user.replyUsageCount
-      }
-    });
-
-    incrementReplyUsage(userId);
-
-    return cleanAIText(aiText, riskLevel, scenario);
-  }
-
-  return buildUnclearReply();
+  return result;
 }
 
 module.exports = { handleMessage };
