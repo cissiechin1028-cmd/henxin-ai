@@ -26,7 +26,7 @@ async function generateAIResponse({ input, userState }) {
 
 出力は必ずこの形：
 
-今は〇〇が自然です。
+今は〇〇です。
 
 👇 送るなら
 「〇〇〇〇」
@@ -34,7 +34,8 @@ async function generateAIResponse({ input, userState }) {
 ⚠️ ここだけ注意
 〇〇〇〇
 
-注意点が不要な日常文なら短く返してよい。
+注意点は必ず“リスク型”にする。
+「気遣うといいです」などの当たり前の助言は禁止。
 `
           },
           {
@@ -42,7 +43,7 @@ async function generateAIResponse({ input, userState }) {
             content: prompt
           }
         ],
-        temperature: 0.75,
+        temperature: 0.7,
         max_tokens: 700
       },
       {
@@ -55,16 +56,19 @@ async function generateAIResponse({ input, userState }) {
     );
 
     const text = res.data?.choices?.[0]?.message?.content;
-
     if (!text) throw new Error("Empty AI response");
 
     return text.trim();
   } catch (err) {
     console.error("AI ERROR:", err.response?.data || err.message);
+
     return `今は軽く返すのが自然です。
 
 👇 送るなら
-「無理しないでね。また落ち着いたら話そう😊」`;
+「無理しないでね。また落ち着いたら話そう😊」
+
+⚠️ ここだけ注意
+優しくしすぎると、“後回しでも大丈夫”と思われることがあります。`;
   }
 }
 
