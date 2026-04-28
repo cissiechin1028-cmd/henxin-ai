@@ -195,6 +195,21 @@ function trialHook(usageCount, level, scenario) {
   return "";
 }
 
+function cleanLine(line = "") {
+  return String(line || "")
+    .trim()
+    .replace(/^①\s*/, "")
+    .replace(/^②\s*/, "")
+    .replace(/^③\s*/, "")
+    .replace(/^④\s*/, "")
+    .replace(/^⑤\s*/, "")
+    .replace(/^1\.\s*/, "")
+    .replace(/^2\.\s*/, "")
+    .replace(/^3\.\s*/, "")
+    .replace(/^4\.\s*/, "")
+    .replace(/^5\.\s*/, "");
+}
+
 function trimFreeOutput(text = "", usageCount = 0, level = 1, scenario = "normal") {
   const clean = String(text || "").trim();
 
@@ -202,7 +217,7 @@ function trimFreeOutput(text = "", usageCount = 0, level = 1, scenario = "normal
     return `少し様子を見ながら、
 軽く返すのが良さそうです。
 
-👇 送るならこれで大丈夫
+👇 送るなら
 「無理しないでね。また話せるときに話そ😊」${trialHook(
       usageCount,
       level,
@@ -212,23 +227,42 @@ function trimFreeOutput(text = "", usageCount = 0, level = 1, scenario = "normal
 
   const lines = clean
     .split("\n")
-    .map((line) => line.trim())
+    .map((line) => cleanLine(line))
     .filter(Boolean);
 
   const result = [];
+  let sawReplyTitle = false;
+  let sawReplyText = false;
 
   for (const line of lines) {
     result.push(line);
 
     if (
-      line.includes("」") ||
+      line.includes("👇") ||
       line.includes("送るなら") ||
-      line.includes("これで大丈夫")
+      line.includes("返信")
     ) {
+      sawReplyTitle = true;
+      continue;
+    }
+
+    if (sawReplyTitle && line.includes("」")) {
+      sawReplyText = true;
       break;
     }
 
-    if (result.length >= 6) break;
+    if (!sawReplyTitle && line.includes("」")) {
+      sawReplyText = true;
+      break;
+    }
+
+    if (result.length >= 9) {
+      break;
+    }
+  }
+
+  if (!sawReplyText) {
+    result.push("「無理しないでね。また落ち着いたら話そう😊」");
   }
 
   return result.join("\n") + trialHook(usageCount, level, scenario);
