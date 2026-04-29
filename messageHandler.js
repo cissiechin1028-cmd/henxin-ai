@@ -3,6 +3,10 @@ const { generateProResponse } = require("./services/proEngine");
 
 let users = {};
 
+// =====================
+// 判定函数
+// =====================
+
 function isGreeting(text = "") {
   return /^(こんにちは|こんばんは|おはよう|おはようございます|お疲れ様|お疲れ様です|はじめまして|hi|hello)$/i.test(
     String(text).trim()
@@ -62,8 +66,21 @@ function detectScenario(text = "") {
   return "normal";
 }
 
-function buildGreetingReply() {
-  return `こんにちは😊
+// =====================
+// 输出模板
+// =====================
+
+function buildGreetingReply(input = "") {
+  const t = String(input).trim();
+
+  let greeting = "こんにちは😊";
+
+  if (/こんばんは/.test(t)) greeting = "こんばんは😊";
+  if (/おはよう/.test(t)) greeting = "おはようございます😊";
+  if (/お疲れ様/.test(t)) greeting = "お疲れ様です😊";
+  if (/はじめまして/.test(t)) greeting = "はじめまして😊";
+
+  return `${greeting}
 
 相手から来たLINEや、
 今の状況をそのまま送ってください。
@@ -117,6 +134,10 @@ function buildFreeLimitPaywall() {
 👉 Pro（月額¥980）で詳しい進め方が見れます`;
 }
 
+// =====================
+// 主流程
+// =====================
+
 async function generateFreeResult(input, user) {
   if (user.count >= 3) {
     return buildFreeLimitPaywall();
@@ -148,10 +169,12 @@ async function handleMessage(userId, text) {
 
   const user = users[userId];
 
+  // ① 打招呼
   if (isGreeting(input)) {
-    return buildGreetingReply();
+    return buildGreetingReply(input);
   }
 
+  // ② 反问确认流程
   if (user.pendingClarify) {
     const originalText = user.pendingText;
 
@@ -175,21 +198,25 @@ async function handleMessage(userId, text) {
 ② 今の状況説明`;
   }
 
+  // ③ Pro用户
   if (user.plan === "pro") {
     const scenario = detectScenario(input);
     return generateProResponse(input, scenario);
   }
 
+  // ④ 高危
   if (isCritical(input)) {
     return buildCriticalPaywall();
   }
 
+  // ⑤ 不明确 → 反问
   if (isAmbiguous(input)) {
     user.pendingClarify = true;
     user.pendingText = input;
     return buildClarifyReply();
   }
 
+  // ⑥ 正常免费
   return generateFreeResult(input, user);
 }
 
