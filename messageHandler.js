@@ -3,10 +3,6 @@ const { generateProResponse } = require("./services/proEngine");
 
 let users = {};
 
-// =====================
-// 判定函数
-// =====================
-
 function isGreeting(text = "") {
   return /^(こんにちは|こんばんは|おはよう|おはようございます|お疲れ様|お疲れ様です|はじめまして|hi|hello)$/i.test(
     String(text).trim()
@@ -20,7 +16,7 @@ function isCritical(text = "") {
 }
 
 function isClearlySituation(text = "") {
-  return /最近|なんか|気がする|されてる|どうすれば|どうしたら|脈あり|脈なし|返信こない|返事こない|既読無視|未読無視|冷たい|距離感じる/.test(
+  return /最近|なんか|気がする|感じる|距離|冷たい|そっけない|返信こない|返事こない|既読無視|未読無視|どうすれば|どうしたら/.test(
     String(text)
   );
 }
@@ -30,15 +26,11 @@ function isClearlyPartnerMessage(text = "") {
 
   if (/「.+」/.test(t)) return true;
 
-  if (
-    /^(ごめん|忙しい|今忙しい|また連絡する|了解|うん|そうだね|大丈夫|ありがとう|ごめんね)/.test(t)
-  ) {
+  if (/^(ごめん|忙しい|今忙しい|また連絡する|了解|うん|そうだね|大丈夫|ありがとう|ごめんね)/.test(t)) {
     return true;
   }
 
-  if (
-    /疲れた|もういい|今は一人にして|考えさせて|しばらく連絡しないで|距離置きたい/.test(t)
-  ) {
+  if (/疲れた|もういい|今は一人にして|考えさせて|しばらく連絡しないで|距離置きたい/.test(t)) {
     return true;
   }
 
@@ -66,15 +58,10 @@ function detectScenario(text = "") {
   return "normal";
 }
 
-// =====================
-// 输出模板
-// =====================
-
 function buildGreetingReply(input = "") {
   const t = String(input).trim();
 
   let greeting = "こんにちは😊";
-
   if (/こんばんは/.test(t)) greeting = "こんばんは😊";
   if (/おはよう/.test(t)) greeting = "おはようございます😊";
   if (/お疲れ様/.test(t)) greeting = "お疲れ様です😊";
@@ -94,55 +81,41 @@ function buildClarifyReply() {
 ① 相手から来たLINE
 ② 今の状況説明
 
-そのまま番号で教えてください。`;
+番号で教えてください。`;
 }
 
-function buildFreeReply(aiText) {
-  const lines = String(aiText || "").split("\n").filter(Boolean);
-  const reply =
-    lines.find((l) => l.includes("「")) ||
-    "「最近どう？無理してない？」";
-
-  return `今は、少し様子を見るのが自然です。
+function buildCriticalReply() {
+  return `今は、動き方を間違えると距離が固定されやすい状態です。
 
 👇 送るなら
-${reply}
+「少し落ち着いたら、また話せたら嬉しい」
 
 ⚠️ ここだけ注意
-重くなると距離が広がりやすいです。`;
+ここで気持ちを強く出すと、
+相手が一気に身構える可能性があります。
+
+ここから先は、
+やりがちな判断ミスや、
+送るタイミング・選択肢によって
+流れが崩れやすい部分です。
+
+必要であれば、続きも確認できます。`;
 }
 
-function buildCriticalPaywall() {
-  return `今は動き方を間違えやすい状態です。
+function buildLimitReply(aiText) {
+  return `${aiText}
 
-👇 送るなら
-「少し時間置いた方がいいかもね」
+無料版ではここまで表示しています。
 
-ここからの動き方で結果が大きく変わります。
+ここから先は、
+やりがちな判断ミスや、
+送るタイミング・選択肢によって
+流れが崩れやすい部分です。
 
-👉 Pro（月額¥980）で詳しく見れます`;
+必要であれば、続きも確認できます。`;
 }
 
-function buildFreeLimitPaywall() {
-  return `無料での返信はここまでです。
-
-ここからは、状況に合わせた進め方が必要になります。
-
-👇 送るなら
-「無理しないでね」
-
-👉 Pro（月額¥980）で詳しい進め方が見れます`;
-}
-
-// =====================
-// 主流程
-// =====================
-
-async function generateFreeResult(input, user) {
-  if (user.count >= 3) {
-    return buildFreeLimitPaywall();
-  }
-
+async function generateFree(input, user) {
   const scenario = detectScenario(input);
 
   const ai = await generateAIResponse({
@@ -152,7 +125,11 @@ async function generateFreeResult(input, user) {
 
   user.count += 1;
 
-  return buildFreeReply(ai);
+  if (user.count >= 3) {
+    return buildLimitReply(ai);
+  }
+
+  return ai;
 }
 
 async function handleMessage(userId, text) {
@@ -169,28 +146,26 @@ async function handleMessage(userId, text) {
 
   const user = users[userId];
 
-  // ① 打招呼
   if (isGreeting(input)) {
     return buildGreetingReply(input);
   }
 
-  // ② 反问确认流程
   if (user.pendingClarify) {
-    const originalText = user.pendingText;
+    const original = user.pendingText;
 
     user.pendingClarify = false;
     user.pendingText = null;
 
     if (input === "1" || input.includes("相手")) {
-      return generateFreeResult(originalText, user);
+      return generateFree(original, user);
     }
 
     if (input === "2" || input.includes("状況")) {
-      return generateFreeResult(originalText, user);
+      return generateFree(original, user);
     }
 
     user.pendingClarify = true;
-    user.pendingText = originalText;
+    user.pendingText = original;
 
     return `①か②で教えてください。
 
@@ -198,26 +173,22 @@ async function handleMessage(userId, text) {
 ② 今の状況説明`;
   }
 
-  // ③ Pro用户
   if (user.plan === "pro") {
     const scenario = detectScenario(input);
     return generateProResponse(input, scenario);
   }
 
-  // ④ 高危
   if (isCritical(input)) {
-    return buildCriticalPaywall();
+    return buildCriticalReply();
   }
 
-  // ⑤ 不明确 → 反问
   if (isAmbiguous(input)) {
     user.pendingClarify = true;
     user.pendingText = input;
     return buildClarifyReply();
   }
 
-  // ⑥ 正常免费
-  return generateFreeResult(input, user);
+  return generateFree(input, user);
 }
 
 module.exports = { handleMessage };
