@@ -99,11 +99,22 @@ function updateContext(user, input, inputType, scenario, advice = null) {
   }
 }
 
+/** ✅ 改动1：打招呼恢复（こんにちは→こんにちは、こんばんは→こんばんは 等） */
 function buildGreetingReply(input = "") {
-  return `こんにちは😊
+  const t = String(input).trim();
+
+  let greeting = "こんにちは😊";
+  if (/こんばんは/.test(t)) greeting = "こんばんは😊";
+  if (/おはよう/.test(t)) greeting = "おはようございます😊";
+  if (/お疲れ様/.test(t)) greeting = "お疲れ様です😊";
+  if (/はじめまして/.test(t)) greeting = "はじめまして😊";
+
+  return `${greeting}
 
 相手から来たLINEや、
-今の状況をそのまま送ってください。`;
+今の状況をそのまま送ってください。
+
+そのまま使える返信を作ります。`;
 }
 
 function buildClarifyReply() {
@@ -237,8 +248,9 @@ async function handleMessage(userId, text) {
     return generateProResponse(input, scenario);
   }
 
+  /** ✅ 改动2：高危也走免费（不直接拦） */
   if (isCritical(input)) {
-    return buildCriticalReply(input, inputType, scenario);
+    return generateFree(input, user, inputType);
   }
 
   if (inputType === "unknown") {
