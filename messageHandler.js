@@ -99,7 +99,6 @@ function updateContext(user, input, inputType, scenario, advice = null) {
   }
 }
 
-/** ✅ 改动1：打招呼恢复（こんにちは→こんにちは、こんばんは→こんばんは 等） */
 function buildGreetingReply(input = "") {
   const t = String(input).trim();
 
@@ -233,12 +232,44 @@ async function handleMessage(userId, text) {
     user.pendingClarify = false;
     user.pendingText = null;
 
-    if (input === "1") return generateFree(original, user, "partner");
-    if (input === "2") return generateFree(original, user, "situation");
+    const normalized = input.toLowerCase();
+
+    if (
+      normalized === "1" ||
+      normalized === "①" ||
+      normalized === "a" ||
+      normalized === "ａ" ||
+      input.includes("相手") ||
+      input.includes("LINE") ||
+      input.includes("ライン") ||
+      input.includes("原文") ||
+      input.includes("文面")
+    ) {
+      return generateFree(original, user, "partner");
+    }
+
+    if (
+      normalized === "2" ||
+      normalized === "②" ||
+      normalized === "b" ||
+      normalized === "ｂ" ||
+      input.includes("状況") ||
+      input.includes("説明") ||
+      input.includes("自分") ||
+      input.includes("私") ||
+      input.includes("俺") ||
+      input.includes("感じ")
+    ) {
+      return generateFree(original, user, "situation");
+    }
 
     user.pendingClarify = true;
     user.pendingText = original;
-    return "①か②で教えてください。";
+
+    return `①か②で教えてください。
+
+① 相手から来たLINE
+② 今の状況説明`;
   }
 
   const inputType = detectInputType(input, user.context);
@@ -248,7 +279,6 @@ async function handleMessage(userId, text) {
     return generateProResponse(input, scenario);
   }
 
-  /** ✅ 改动2：高危也走免费（不直接拦） */
   if (isCritical(input)) {
     return generateFree(input, user, inputType);
   }
