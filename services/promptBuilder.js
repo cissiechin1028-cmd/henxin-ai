@@ -1,12 +1,25 @@
 function buildPrompt({ input, userState }) {
   const scenario = userState.scenario || "normal";
+  const inputType = userState.inputType || "unknown";
+  const context = userState.context || {};
 
   return `
 ユーザー入力：
 ${input}
 
+入力タイプ：
+${inputType}
+
 シナリオ：
 ${scenario}
+
+前回までの文脈：
+・前回の入力タイプ：${context.lastInputType || "なし"}
+・前回のシナリオ：${context.lastScenario || "なし"}
+・前回の相手LINE：${context.lastPartnerMessage || "なし"}
+・前回の状況説明：${context.lastSituation || "なし"}
+・ユーザーの目的：${context.userGoal || "なし"}
+・前回のアドバイス：${context.lastAdvice || "なし"}
 
 あなたの仕事：
 ユーザーに一般論を説明するのではなく、
@@ -22,6 +35,27 @@ ${scenario}
 
 ⚠️ ここだけ注意
 〇〇
+
+入力タイプ別ルール：
+
+partner：
+相手から来たLINEへの返信を作る。
+相手にそのまま送れる自然な一文にする。
+
+situation：
+ユーザーの状況説明として扱う。
+相手に送るならどういう軽い一文が安全かを作る。
+状況説明を相手の原文として扱わない。
+
+intent：
+ユーザーの目的として扱う。
+相手の原文として扱わない。
+いきなり気持ちをぶつける返信は禁止。
+
+followup：
+前回までの文脈を使って答える。
+毎回ゼロから分析し直さない。
+前回の続きとして自然に返す。
 
 重要：
 ・内容は毎回ユーザー入力に合わせて変える
