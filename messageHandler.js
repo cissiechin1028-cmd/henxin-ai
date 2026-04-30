@@ -182,6 +182,8 @@ Pro（月額¥980）で詳しく見れます。`;
 function buildLimitReply(aiText) {
   return `${aiText}
 
+無料版ではここまで表示しています。
+
 ここから先は、
 やりがちな判断ミスや、
 送るタイミング・他の選択肢を一つでも間違えると、
@@ -192,7 +194,9 @@ Pro（月額¥980）で詳しく見れます。`;
 
 async function generateFree(input, user, forcedType = null) {
   if (user.count >= FREE_LIMIT) {
-    return buildLimitReply("今は、無理に踏み込まず様子を見るのが安全です。");
+    return buildLimitReply(
+      user.context.lastAdvice || "今は、これ以上踏み込まず慎重に動くべき状態です。"
+    );
   }
 
   const inputType = forcedType || detectInputType(input, user.context);
@@ -222,8 +226,27 @@ async function handleMessage(userId, text) {
 
   const user = users[userId];
 
+  // テスト用リセット
+  if (input === "__reset__") {
+    users[userId] = createUser();
+    return "リセットしました";
+  }
+
   if (isGreeting(input)) {
     return buildGreetingReply(input);
+  }
+
+  if (user.plan === "pro") {
+    const inputType = detectInputType(input, user.context);
+    const scenario = detectScenario(input);
+    updateContext(user, input, inputType, scenario);
+    return generateProResponse(input, scenario);
+  }
+
+  if (user.count >= FREE_LIMIT) {
+    return buildLimitReply(
+      user.context.lastAdvice || "今は、これ以上踏み込まず慎重に動くべき状態です。"
+    );
   }
 
   if (user.pendingClarify) {
@@ -273,15 +296,6 @@ async function handleMessage(userId, text) {
   }
 
   const inputType = detectInputType(input, user.context);
-  const scenario = detectScenario(input);
-
-  if (user.plan === "pro") {
-    return generateProResponse(input, scenario);
-  }
-
-  if (isCritical(input)) {
-    return generateFree(input, user, inputType);
-  }
 
   if (inputType === "unknown") {
     user.pendingClarify = true;
