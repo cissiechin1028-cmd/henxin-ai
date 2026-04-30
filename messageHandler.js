@@ -99,7 +99,7 @@ function buildCriticalReply() {
 送るタイミング・選択肢によって
 流れが崩れやすい部分です。
 
-必要であれば、続きも確認できます。`;
+Pro（月額¥980）で続きを確認できます。`;
 }
 
 function buildLimitReply(aiText) {
@@ -112,7 +112,7 @@ function buildLimitReply(aiText) {
 送るタイミング・選択肢によって
 流れが崩れやすい部分です。
 
-必要であれば、続きも確認できます。`;
+Pro（月額¥980）で続きを確認できます。`;
 }
 
 async function generateFree(input, user) {
