@@ -51,27 +51,37 @@ function isCritical(text = "") {
 function detectInputType(text = "", context = {}) {
   const t = String(text).trim();
 
+  if (!t) return "unknown";
+
   if (/「.+」/.test(t)) return "partner";
 
   if (
-    /^(ごめん|もういい|疲れた|今は無理|しばらく連絡しないで)/.test(t)
+    /^(ごめん|もういい|疲れた|今は無理|しばらく連絡しないで|連絡しないで|距離置きたい|別れたい)/.test(t)
   ) {
     return "partner";
   }
 
-  if (/したい|どうすれば|復縁|戻りたい/.test(t)) {
+  if (/したい|どうすれば|どうしたら|復縁|戻りたい|やり直したい|告白|誘いたい/.test(t)) {
     return "intent";
-  }
-
-  if (/最近|なんか|気がする|感じる|距離|冷たい|返信|怪しい/.test(t)) {
-    return "situation";
   }
 
   if (
     context.lastInput &&
-    /返事|返信|次|どうする|どうしたら|待つ|送る|いつ/.test(t)
+    /返事|返信|次|どうする|どうしたら|どうしよ|待つ|送る|いつ|その後/.test(t)
   ) {
     return "followup";
+  }
+
+  if (/[？?]$/.test(t)) {
+    return "situation";
+  }
+
+  if (t.length <= 10) {
+    return "situation";
+  }
+
+  if (/最近|なんか|気がする|感じる|っぽい|距離|冷たい|返信|返事|既読|未読|怪しい|テンション|不安|微妙|無理|疲れた|やばい/.test(t)) {
+    return "situation";
   }
 
   return "unknown";
@@ -226,7 +236,6 @@ async function handleMessage(userId, text) {
 
   const user = users[userId];
 
-  // テスト用リセット
   if (input === "__reset__") {
     users[userId] = createUser();
     return "リセットしました";
@@ -286,13 +295,10 @@ async function handleMessage(userId, text) {
       return generateFree(original, user, "situation");
     }
 
-    user.pendingClarify = true;
-    user.pendingText = original;
+    user.pendingClarify = false;
+    user.pendingText = null;
 
-    return `①か②で教えてください。
-
-① 相手から来たLINE
-② 今の状況説明`;
+    return generateFree(original, user, "situation");
   }
 
   const inputType = detectInputType(input, user.context);
