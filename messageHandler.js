@@ -30,7 +30,7 @@ function isGreeting(text = "") {
 }
 
 function detectScenario(text = "") {
-  const t = String(text);
+  const t = String(text).trim();
 
   if (/浮気|怪しい|他に誰か|隠して|嘘/.test(t)) return "cheating";
   if (/復縁|戻りたい|やり直したい/.test(t)) return "reunion";
@@ -40,12 +40,6 @@ function detectScenario(text = "") {
   if (/冷たい|距離|そっけない|テンション低い/.test(t)) return "cold";
 
   return "normal";
-}
-
-function isCritical(text = "") {
-  return /復縁|戻りたい|やり直したい|別れ|別れたい|もう無理|浮気|怪しい|距離置きたい|連絡しないで|しばらく連絡しないで/.test(
-    String(text)
-  );
 }
 
 function detectInputType(text = "", context = {}) {
@@ -61,7 +55,7 @@ function detectInputType(text = "", context = {}) {
     return "partner";
   }
 
-  if (/したい|どうすれば|どうしたら|復縁|戻りたい|やり直したい|告白|誘いたい/.test(t)) {
+  if (/復縁したい|戻りたい|やり直したい|告白したい|誘いたい/.test(t)) {
     return "intent";
   }
 
@@ -72,15 +66,13 @@ function detectInputType(text = "", context = {}) {
     return "followup";
   }
 
-  if (/[？?]$/.test(t)) {
-    return "situation";
-  }
+  if (/[？?]$/.test(t)) return "situation";
 
-  if (t.length <= 10) {
-    return "situation";
-  }
+  if (t.length <= 10) return "situation";
 
-  if (/最近|なんか|気がする|感じる|っぽい|距離|冷たい|返信|返事|既読|未読|怪しい|テンション|不安|微妙|無理|疲れた|やばい/.test(t)) {
+  if (
+    /最近|なんか|気がする|感じる|っぽい|距離|冷たい|返信|返事|既読|未読|怪しい|テンション|不安|微妙|無理|疲れた|やばい/.test(t)
+  ) {
     return "situation";
   }
 
@@ -133,60 +125,6 @@ function buildClarifyReply() {
 ② 今の状況説明
 
 番号で教えてください。`;
-}
-
-function buildCriticalReply(input, inputType, scenario) {
-  if (inputType === "intent" || scenario === "reunion") {
-    return `今は、気持ちをそのまま出すほど相手が身構えやすい状態です。
-
-👇 送るなら
-「今すぐ戻りたいわけじゃないけど、少しだけ話せたら嬉しい」
-
-⚠️ ここだけ注意
-ここで想いを強く出すと、
-相手が本音を隠したまま距離を取る流れに入りやすくなります。
-
-ここから先は、
-やりがちな判断ミスや、
-送る順番・タイミング・他の選択肢を一つでも間違えると、
-関係が戻らない方向に固定されやすい段階です。
-
-Pro（月額¥980）で詳しく見れます。`;
-  }
-
-  if (scenario === "cheating") {
-    return `今は、問い詰めるほど本音が見えにくくなる状態です。
-
-👇 送るなら
-「最近ちょっと様子違う気がして。何かあった？」
-
-⚠️ ここだけ注意
-ここで疑いをそのままぶつけると、
-相手が防御に入り、本音を隠したまま距離を取る流れに入りやすくなります。
-
-ここから先は、
-やりがちな聞き方のミスや、
-反応の見方・次の一手を間違えると、
-見極められないまま関係が崩れる可能性がある段階です。
-
-Pro（月額¥980）で詳しく見れます。`;
-  }
-
-  return `今は、動き方を間違えると関係が崩れやすい状態です。
-
-👇 送るなら
-「少し落ち着いたら、また話せたら嬉しい」
-
-⚠️ ここだけ注意
-ここで踏み込みすぎると、
-一気に距離が広がる可能性があります。
-
-ここから先は、
-やりがちな判断ミスや、
-タイミング・選択肢を間違えると
-流れが崩れやすい段階です。
-
-Pro（月額¥980）で詳しく見れます。`;
 }
 
 function buildLimitReply(aiText) {
@@ -294,9 +232,6 @@ async function handleMessage(userId, text) {
     ) {
       return generateFree(original, user, "situation");
     }
-
-    user.pendingClarify = false;
-    user.pendingText = null;
 
     return generateFree(original, user, "situation");
   }
