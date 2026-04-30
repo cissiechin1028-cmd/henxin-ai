@@ -42,12 +42,6 @@ function detectScenario(text = "") {
   return "normal";
 }
 
-function isStopContact(text = "") {
-  return /もういい|疲れた|連絡しないで|しばらく連絡しないで|距離置きたい|一人にして|今は無理/.test(
-    String(text)
-  );
-}
-
 function isCritical(text = "") {
   return /復縁|戻りたい|やり直したい|別れ|別れたい|もう無理|浮気|怪しい|距離置きたい|連絡しないで|しばらく連絡しないで/.test(
     String(text)
@@ -57,38 +51,30 @@ function isCritical(text = "") {
 function detectInputType(text = "", context = {}) {
   const t = String(text).trim();
 
-  if (!t) return "unknown";
-
   if (/「.+」/.test(t)) return "partner";
 
   if (
-    /^(ごめん|忙しい|今忙しい|また連絡する|了解|うん|そうだね|大丈夫|ありがとう|ごめんね|もういい|疲れた|今は無理|しばらく連絡しないで)/.test(t)
+    /^(ごめん|もういい|疲れた|今は無理|しばらく連絡しないで)/.test(t)
   ) {
     return "partner";
   }
 
-  if (/復縁したい|戻りたい|やり直したい|どうすれば戻れる|どうしたら戻れる/.test(t)) {
+  if (/したい|どうすれば|復縁|戻りたい/.test(t)) {
     return "intent";
   }
 
-  if (/したい|どうすれば|どうしたら|送っていい|返せばいい|誘いたい|告白したい/.test(t)) {
-    return "intent";
-  }
-
-  if (/最近|なんか|気がする|感じる|されてる|かも|距離|冷たい|そっけない|返信|返事|既読|未読|怪しい/.test(t)) {
+  if (/最近|なんか|気がする|感じる|距離|冷たい|返信|怪しい/.test(t)) {
     return "situation";
   }
 
   if (
     context.lastInput &&
-    /返事|返信|来なかった|次|どうする|どうしたら|待つ|送る|いつ|その後|もし/.test(t)
+    /返事|返信|次|どうする|どうしたら|待つ|送る|いつ/.test(t)
   ) {
     return "followup";
   }
 
-  if (t.length <= 25) return "unknown";
-
-  return "situation";
+  return "unknown";
 }
 
 function updateContext(user, input, inputType, scenario, advice = null) {
@@ -114,20 +100,10 @@ function updateContext(user, input, inputType, scenario, advice = null) {
 }
 
 function buildGreetingReply(input = "") {
-  const t = String(input).trim();
-
-  let greeting = "こんにちは😊";
-  if (/こんばんは/.test(t)) greeting = "こんばんは😊";
-  if (/おはよう/.test(t)) greeting = "おはようございます😊";
-  if (/お疲れ様/.test(t)) greeting = "お疲れ様です😊";
-  if (/はじめまして/.test(t)) greeting = "はじめまして😊";
-
-  return `${greeting}
+  return `こんにちは😊
 
 相手から来たLINEや、
-今の状況をそのまま送ってください。
-
-そのまま使える返信を作ります。`;
+今の状況をそのまま送ってください。`;
 }
 
 function buildClarifyReply() {
@@ -141,51 +117,39 @@ function buildClarifyReply() {
 
 function buildCriticalReply(input, inputType, scenario) {
   if (inputType === "intent" || scenario === "reunion") {
-    return `今は、復縁したい気持ちをそのまま出すほど、相手が身構えやすい状態です。
+    return `今は、気持ちをそのまま出すほど相手が身構えやすい状態です。
 
 👇 送るなら
 「今すぐ戻りたいわけじゃないけど、少しだけ話せたら嬉しい」
 
 ⚠️ ここだけ注意
-ここで気持ちを強く出すと、
-相手が警戒しやすくなります。
+ここで想いを強く出すと、
+相手が本音を隠したまま距離を取る流れに入りやすくなります。
 
 ここから先は、
-送る内容よりも「順番」と「タイミング」で結果が変わる部分です。
+やりがちな判断ミスや、
+送る順番・タイミング・他の選択肢を一つでも間違えると、
+関係が戻らない方向に固定されやすい段階です。
 
-Pro（月額¥980）で続きを確認できます。`;
-  }
-
-  if (isStopContact(input)) {
-    return `今は、これ以上やり取りしたくない状態です。
-
-👇 送るなら
-「わかった。今はこれ以上送らないね」
-
-⚠️ ここだけ注意
-ここで理由を聞いたり、謝りすぎたりすると、
-“まだ追ってくる”と思われやすいです。
-
-ここから先は、
-いつ送るか、どこまで待つかで流れが変わる部分です。
-
-Pro（月額¥980）で続きを確認できます。`;
+Pro（月額¥980）で詳しく見れます。`;
   }
 
   if (scenario === "cheating") {
-    return `今は、問い詰めるほど相手の本音が見えにくくなる状態です。
+    return `今は、問い詰めるほど本音が見えにくくなる状態です。
 
 👇 送るなら
 「最近ちょっと様子違う気がして。何かあった？」
 
 ⚠️ ここだけ注意
 ここで疑いをそのままぶつけると、
-相手が防御に入りやすくなります。
+相手が防御に入り、本音を隠したまま距離を取る流れに入りやすくなります。
 
 ここから先は、
-聞き方や次の反応の見方で判断が分かれる部分です。
+やりがちな聞き方のミスや、
+反応の見方・次の一手を間違えると、
+見極められないまま関係が崩れる可能性がある段階です。
 
-Pro（月額¥980）で続きを確認できます。`;
+Pro（月額¥980）で詳しく見れます。`;
   }
 
   return `今は、動き方を間違えると関係が崩れやすい状態です。
@@ -197,23 +161,28 @@ Pro（月額¥980）で続きを確認できます。`;
 ここで踏み込みすぎると、
 一気に距離が広がる可能性があります。
 
-Pro（月額¥980）で続きを確認できます。`;
+ここから先は、
+やりがちな判断ミスや、
+タイミング・選択肢を間違えると
+流れが崩れやすい段階です。
+
+Pro（月額¥980）で詳しく見れます。`;
 }
 
-function buildLimitReply() {
-  return `無料版ではここまで表示しています。
+function buildLimitReply(aiText) {
+  return `${aiText}
 
 ここから先は、
 やりがちな判断ミスや、
-送るタイミング・選択肢によって
-流れが崩れやすい部分です。
+送るタイミング・他の選択肢を一つでも間違えると、
+相手が本音を隠したまま距離を取る流れに入りやすい段階です。
 
-Pro（月額¥980）で続きを確認できます。`;
+Pro（月額¥980）で詳しく見れます。`;
 }
 
 async function generateFree(input, user, forcedType = null) {
   if (user.count >= FREE_LIMIT) {
-    return buildLimitReply();
+    return buildLimitReply("今は、無理に踏み込まず様子を見るのが安全です。");
   }
 
   const inputType = forcedType || detectInputType(input, user.context);
@@ -253,33 +222,22 @@ async function handleMessage(userId, text) {
     user.pendingClarify = false;
     user.pendingText = null;
 
-    if (input === "1" || input.includes("相手")) {
-      return generateFree(original, user, "partner");
-    }
-
-    if (input === "2" || input.includes("状況")) {
-      return generateFree(original, user, "situation");
-    }
+    if (input === "1") return generateFree(original, user, "partner");
+    if (input === "2") return generateFree(original, user, "situation");
 
     user.pendingClarify = true;
     user.pendingText = original;
-
-    return `①か②で教えてください。
-
-① 相手から来たLINE
-② 今の状況説明`;
+    return "①か②で教えてください。";
   }
 
   const inputType = detectInputType(input, user.context);
   const scenario = detectScenario(input);
 
   if (user.plan === "pro") {
-    updateContext(user, input, inputType, scenario);
     return generateProResponse(input, scenario);
   }
 
   if (isCritical(input)) {
-    updateContext(user, input, inputType, scenario);
     return buildCriticalReply(input, inputType, scenario);
   }
 
