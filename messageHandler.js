@@ -19,13 +19,11 @@ function createUser() {
   };
 }
 
-/* 打招呼识别 */
 function isGreeting(text = "") {
   const t = String(text).trim().toLowerCase();
   return /^(おはよう|こんにちは|こんばんは|お疲れ|はじめまして|hello|hi|早安|你好|晚上好)/.test(t);
 }
 
-/* 打招呼回复 */
 function buildGreetingReply(input = "") {
   const t = String(input).trim();
 
@@ -51,7 +49,11 @@ function buildGreetingReply(input = "") {
 そのまま使える返信を作ります。`;
 }
 
-/* 场景识别 */
+function isContinueRequest(text = "") {
+  const t = String(text).trim();
+  return /^(続き|つづき)$/.test(t);
+}
+
 function detectScenario(text = "") {
   const t = String(text);
 
@@ -65,7 +67,6 @@ function detectScenario(text = "") {
   return "normal";
 }
 
-/* 输入类型识别（稳定版） */
 function detectInputType(text = "", context = {}) {
   const t = String(text).trim();
 
@@ -81,24 +82,18 @@ function detectInputType(text = "", context = {}) {
     return "intent";
   }
 
-  if (
-    context.lastInput &&
-    /返事|どうする|次|どうしよ/.test(t)
-  ) {
+  if (context.lastInput && /返事|どうする|次|どうしよ/.test(t)) {
     return "followup";
   }
 
-  /* 情绪词 */
   if (/どうしよ|微妙|無理|疲れた|不安/.test(t)) {
     return "situation";
   }
 
-  /* 正常状况：必须放在短句 unknown 前面 */
   if (/最近|なんか|気がする|感じる|距離|冷たい|怪しい/.test(t)) {
     return "situation";
   }
 
-  /* 短句默认 unknown（避免乱判） */
   if (t.length <= 10) return "unknown";
 
   return "unknown";
@@ -112,10 +107,10 @@ function updateContext(user, input, type, scenario, advice = null) {
 }
 
 function buildClarifyReply() {
-  return `これはどちらですか？
+  return `これ、どっちですか？
 
 ① 相手から来たLINE
-② 今の状況説明`;
+② 今の状況`;
 }
 
 function buildLimitReply(text) {
@@ -126,7 +121,28 @@ function buildLimitReply(text) {
 続きはPro（月額¥980）で確認できます。`;
 }
 
-/* AI生成 */
+function attachContinueHint(text, count) {
+  if (count === 1) {
+    return text;
+  }
+
+  if (count === 2) {
+    return `${text}
+
+気になる場合は「続き」と送ると、
+もう少し詳しく見れます。`;
+  }
+
+  if (count === 3) {
+    return `${text}
+
+このままだと判断がズレやすいので、
+「続き」と送ると本音と次の動きまで出せます。`;
+  }
+
+  return text;
+}
+
 async function generateFree(input, user, forcedType = null) {
   if (user.count >= FREE_LIMIT) {
     return buildLimitReply(
@@ -149,10 +165,9 @@ async function generateFree(input, user, forcedType = null) {
   user.count++;
   updateContext(user, input, inputType, scenario, ai);
 
-  return ai;
+  return attachContinueHint(ai, user.count);
 }
 
-/* 主逻辑 */
 async function handleMessage(userId, text) {
   const input = String(text || "").trim();
 
@@ -165,6 +180,23 @@ async function handleMessage(userId, text) {
   if (input === "__reset__") {
     users[userId] = createUser();
     return "リセットしました";
+  }
+
+  if (isContinueRequest(input)) {
+    if (!user.context.lastAdvice) {
+      return `先に、相手から来たLINEか今の状況を送ってください。
+
+その後に「続き」と送ると、さらに詳しく見れます。`;
+    }
+
+    return generateAIResponse({
+      input,
+      userState: {
+        inputType: "followup",
+        scenario: user.context.lastScenario || "normal",
+        context: user.context
+      }
+    });
   }
 
   if (isGreeting(input)) {
