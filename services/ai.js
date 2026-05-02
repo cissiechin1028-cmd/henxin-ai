@@ -2,6 +2,11 @@ const axios = require("axios");
 const { buildPrompt, formatFreeReply } = require("./promptBuilder");
 
 async function generateAIResponse({ input, userState }) {
+  // 👇 必须最先拦截「続き」，不要进入 buildPrompt
+  if (input === "続き" || input === "つづき") {
+    return await generateProDirect(userState);
+  }
+
   const prompt = buildPrompt({ input, userState });
 
   try {
@@ -15,41 +20,25 @@ async function generateAIResponse({ input, userState }) {
             content: `
 あなたは恋愛LINE返信の専門家です。
 
-絶対ルール：
-・日本語だけで返す
-・中国語を出さない
+ルール：
+・日本語のみ
+・中国語は禁止
 ・Pro、プレミアム、有料、課金という言葉は禁止
-・長文説明は禁止
-・一般論は禁止
-・説教は禁止
+・長文禁止
+・一般論禁止
+・説教禁止
+・自然な日本語
+・判断を必ず入れる
 ・優しいだけの回答は禁止
 ・テンプレートの使い回しは禁止
-・毎回違う言い回しにする
 
-出力形式は、ユーザープロンプトで指定された形式を最優先すること。
-
-重要ルール：
-・入力タイプ（partner / situation / intent / followup）に必ず従う
-・partner → 相手にそのまま送る返信を作る
-・situation → 状況を元に返信を作る（原文扱い禁止）
-・intent → 気持ちを直接ぶつける返信は禁止
-・followup → 前回の文脈を必ず踏まえる（毎回リセット禁止）
-
-・最初に必ず「今どう動くべきか」の判断を書く
-・返信案は短く自然に
+重要：
+・ユーザープロンプトの出力形式を最優先する
+・入力タイプに従う
+・相手を責めない
 ・追いすぎない
-・責めない
 ・卑屈にならない
-・注意点は必ず「それをするとどう悪化するか」まで書く
-・不安を煽りすぎない
 ・でも避雷点ははっきり言う
-
-トーン：
-・冷静
-・少し距離がある
-・押しつけない
-・売り込みっぽくしない
-・自然な日本語
 `
           },
           {
@@ -70,12 +59,13 @@ async function generateAIResponse({ input, userState }) {
 
     const aiResponse = res.data.choices[0].message.content.trim();
 
+    // FreeはPro部分を隠す
     return formatFreeReply(aiResponse);
   } catch (err) {
     console.error("OPENAI ERROR:", err.response?.data || err.message);
 
     return `【結論】
-今は、無理に踏み込まず余白を残すのが安全です。
+今は、無理に踏み込むと相手がさらに距離を置きやすい状態です。
 
 ---
 
@@ -90,12 +80,91 @@ B（少し攻める）
 ---
 
 ⚠️ 注意
-ここで理由を聞いたり状況を詰めると、相手が一気に距離を取りやすいです。
+ここで理由を聞いたり追いかけると、相手がさらに離れやすいです。
 
 ---
 
-※この先の流れ（どう動くか・相手の本音）は下で詳しく見れます`;
+※この先の流れと本音を見るには「続き」と送ってください`;
   }
+}
+
+async function generateProDirect(userState) {
+  const context = userState?.context || {};
+
+  const prompt = `
+ユーザーは直前のやり取りの「続き」を求めています。
+
+前回までの文脈：
+・前回の入力タイプ：${context.lastInputType || "なし"}
+・前回のシナリオ：${context.lastScenario || "なし"}
+・前回の相手LINE：${context.lastPartnerMessage || "なし"}
+・前回の状況説明：${context.lastSituation || "なし"}
+・ユーザーの目的：${context.userGoal || "なし"}
+・前回のアドバイス：${context.lastAdvice || "なし"}
+
+【タスク】
+・直前の内容を前提にする
+・①②などの確認質問は絶対にしない
+・Free部分を繰り返さない
+・すぐに続きを出す
+・日本語だけで答える
+・長くしすぎない
+・一般論ではなく、この場面の判断を書く
+
+【出力形式】
+
+【本音】
+相手は今、〇〇の可能性が高いです。
+
+【この後どうする？】
+・〇〇する
+・〇〇はまだしない
+・〇〇のタイミングで送る
+
+【やりがちNG】
+ここで〇〇すると、〇〇になりやすいです。
+`;
+
+  const res = await axios.post(
+    "https://api.openai.com/v1/chat/completions",
+    {
+      model: "gpt-4.1-mini",
+      messages: [
+        {
+          role: "system",
+          content: `
+あなたは恋愛LINE返信の専門家です。
+
+ルール：
+・日本語のみ
+・中国語は禁止
+・確認質問は禁止
+・①②を聞かない
+・Pro、プレミアム、有料、課金という言葉は禁止
+・一般論禁止
+・説教禁止
+・短く具体的に
+・相手の心理を決めつけすぎない
+・でも曖昧に逃げない
+`
+        },
+        {
+          role: "user",
+          content: prompt
+        }
+      ],
+      temperature: 0.65,
+      max_tokens: 500
+    },
+    {
+      headers: {
+        Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+        "Content-Type": "application/json"
+      }
+    }
+  );
+
+  return res.data.choices[0].message.content.trim();
 }
 
 module.exports = { generateAIResponse };
