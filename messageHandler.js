@@ -19,11 +19,13 @@ function createUser() {
   };
 }
 
+/* 打招呼识别 */
 function isGreeting(text = "") {
   const t = String(text).trim().toLowerCase();
   return /^(おはよう|こんにちは|こんばんは|お疲れ|はじめまして|hello|hi|早安|你好|晚上好)/.test(t);
 }
 
+/* 打招呼回复 */
 function buildGreetingReply(input = "") {
   const t = String(input).trim();
 
@@ -49,11 +51,13 @@ function buildGreetingReply(input = "") {
 そのまま使える返信を作ります。`;
 }
 
+/* 続き识别 */
 function isContinueRequest(text = "") {
   const t = String(text).trim();
   return /^(続き|つづき)$/.test(t);
 }
 
+/* 场景识别 */
 function detectScenario(text = "") {
   const t = String(text);
 
@@ -67,6 +71,7 @@ function detectScenario(text = "") {
   return "normal";
 }
 
+/* 输入类型识别（稳定版） */
 function detectInputType(text = "", context = {}) {
   const t = String(text).trim();
 
@@ -82,18 +87,24 @@ function detectInputType(text = "", context = {}) {
     return "intent";
   }
 
-  if (context.lastInput && /返事|どうする|次|どうしよ/.test(t)) {
+  if (
+    context.lastInput &&
+    /返事|どうする|次|どうしよ/.test(t)
+  ) {
     return "followup";
   }
 
+  /* 情绪词 */
   if (/どうしよ|微妙|無理|疲れた|不安/.test(t)) {
     return "situation";
   }
 
+  /* 正常状况：必须放在短句 unknown 前面 */
   if (/最近|なんか|気がする|感じる|距離|冷たい|怪しい/.test(t)) {
     return "situation";
   }
 
+  /* 短句默认 unknown（避免乱判） */
   if (t.length <= 10) return "unknown";
 
   return "unknown";
@@ -113,21 +124,27 @@ function buildClarifyReply() {
 ② 今の状況`;
 }
 
-function buildLimitReply(text) {
-  return `${text}
+function buildLimitReply() {
+  return `無料版で使える3回分はここまでです。
 
-無料版ではここまで表示しています。
+この先の詳しい判断や、
+相手の本音・次の動き方はProで確認できます。
 
-続きはPro（月額¥980）で確認できます。`;
+Pro（月額¥980）で続きを見る`;
 }
 
 function attachContinueHint(text, count) {
   if (count === 1) {
-    return text;
+    return `${text}
+
+他の状況や、次にどう返すかもそのまま送ってください。`;
   }
 
   if (count === 2) {
     return `${text}
+
+他にも気になる点や、
+次にどう動くかもそのまま送ってください。
 
 気になる場合は「続き」と送ると、
 もう少し詳しく見れます。`;
@@ -136,18 +153,19 @@ function attachContinueHint(text, count) {
   if (count === 3) {
     return `${text}
 
-このままだと判断がズレやすいので、
-「続き」と送ると本音と次の動きまで出せます。`;
+今の情報でもある程度は見れていますが、
+
+相手の本音やこの先の流れまで含めると、
+「続き」と送るともう少し精度が上がります。`;
   }
 
   return text;
 }
 
+/* AI生成 */
 async function generateFree(input, user, forcedType = null) {
   if (user.count >= FREE_LIMIT) {
-    return buildLimitReply(
-      user.context.lastAdvice || "今は慎重に動くべき段階です。"
-    );
+    return buildLimitReply();
   }
 
   const inputType = forcedType || detectInputType(input, user.context);
@@ -168,6 +186,7 @@ async function generateFree(input, user, forcedType = null) {
   return attachContinueHint(ai, user.count);
 }
 
+/* 主逻辑 */
 async function handleMessage(userId, text) {
   const input = String(text || "").trim();
 
@@ -182,6 +201,7 @@ async function handleMessage(userId, text) {
     return "リセットしました";
   }
 
+  // 「続き」は最優先で処理。①②確認より先。
   if (isContinueRequest(input)) {
     if (!user.context.lastAdvice) {
       return `先に、相手から来たLINEか今の状況を送ってください。
@@ -208,9 +228,7 @@ async function handleMessage(userId, text) {
   }
 
   if (user.count >= FREE_LIMIT) {
-    return buildLimitReply(
-      user.context.lastAdvice || "今は慎重に動くべき段階です。"
-    );
+    return buildLimitReply();
   }
 
   if (user.pendingClarify) {
