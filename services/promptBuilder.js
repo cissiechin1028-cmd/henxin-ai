@@ -157,19 +157,19 @@ breakup：
 `;
 }
 
-function cutFreeReply(aiText) {
-  if (!aiText) return "";
+function formatFreeReply(aiResponse) {
+  if (!aiResponse) return "";
 
-  const cutIndex = aiText.indexOf("＝＝＝＝＝＝＝＝＝＝");
+  const cutIndex = aiResponse.indexOf("＝＝＝＝＝＝＝＝＝＝");
 
   if (cutIndex !== -1) {
-    return aiText.slice(0, cutIndex).trim();
+    return aiResponse.slice(0, cutIndex).trim();
   }
 
-  return aiText.trim();
+  return aiResponse.trim();
 }
 
 module.exports = {
   buildPrompt,
-  cutFreeReply,
+  formatFreeReply,
 };
