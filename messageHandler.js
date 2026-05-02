@@ -93,12 +93,13 @@ function detectInputType(text = "", context = {}) {
     return "situation";
   }
 
-  /* 短句默认 unknown（避免乱判） */
-  if (t.length <= 10) return "unknown";
-
-  if (/最近|なんか|気がする|距離|冷たい|怪しい/.test(t)) {
+  /* 正常状况：必须放在短句 unknown 前面 */
+  if (/最近|なんか|気がする|感じる|距離|冷たい|怪しい/.test(t)) {
     return "situation";
   }
+
+  /* 短句默认 unknown（避免乱判） */
+  if (t.length <= 10) return "unknown";
 
   return "unknown";
 }
