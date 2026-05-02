@@ -2,7 +2,6 @@ const { generateAIResponse } = require("./services/ai");
 const { generateProResponse } = require("./services/proEngine");
 
 let users = {};
-
 const FREE_LIMIT = 3;
 
 function createUser() {
@@ -15,71 +14,89 @@ function createUser() {
       lastInput: null,
       lastInputType: null,
       lastScenario: null,
-      lastPartnerMessage: null,
-      lastSituation: null,
-      userGoal: null,
       lastAdvice: null
     }
   };
 }
 
+/* 打招呼识别 */
 function isGreeting(text = "") {
-  return /^(こんにちは|こんばんは|おはよう|お疲れ様|お疲れ様です|はじめまして)$/i.test(
-    String(text).trim()
-  );
+  const t = String(text).trim().toLowerCase();
+  return /^(おはよう|こんにちは|こんばんは|お疲れ|はじめまして|hello|hi|早安|你好|晚上好)/.test(t);
 }
 
-/* 🔥 场景识别（不动） */
-function detectScenario(text = "") {
-  const t = String(text).trim();
+/* 打招呼回复 */
+function buildGreetingReply(input = "") {
+  const t = String(input).trim();
 
-  if (/浮気|怪しい|他に誰か|嘘/.test(t)) return "cheating";
-  if (/復縁|戻りたい|やり直したい/.test(t)) return "reunion";
-  if (/別れ|別れたい|もう無理/.test(t)) return "breakup";
-  if (/既読|未読|返信こない|無視/.test(t)) return "ignore";
-  if (/告白|好き|誘いたい/.test(t)) return "flirt";
-  if (/冷たい|距離|テンション低い/.test(t)) return "cold";
+  let greeting = "";
+
+  if (/おはよう|早安|morning/i.test(t)) {
+    greeting = "おはようございます😊";
+  } else if (/こんばんは|evening|晚上好/i.test(t)) {
+    greeting = "こんばんは😊";
+  } else if (/お疲れ|辛苦/i.test(t)) {
+    greeting = "お疲れ様です😊";
+  } else if (/はじめまして|nice/i.test(t)) {
+    greeting = "はじめまして😊";
+  } else {
+    greeting = "こんにちは😊";
+  }
+
+  return `${greeting}
+
+相手から来たLINEや、
+今の状況をそのまま送ってください。
+
+そのまま使える返信を作ります。`;
+}
+
+/* 场景识别 */
+function detectScenario(text = "") {
+  const t = String(text);
+
+  if (/浮気|怪しい/.test(t)) return "cheating";
+  if (/復縁|戻りたい/.test(t)) return "reunion";
+  if (/別れ|もう無理/.test(t)) return "breakup";
+  if (/返信こない|無視/.test(t)) return "ignore";
+  if (/告白|誘いたい/.test(t)) return "flirt";
+  if (/冷たい|距離/.test(t)) return "cold";
 
   return "normal";
 }
 
-/* 🔥 输入类型识别（这里只做“最小修复”） */
+/* 输入类型识别（稳定版） */
 function detectInputType(text = "", context = {}) {
   const t = String(text).trim();
 
   if (!t) return "unknown";
 
-  /* 对方原话 */
   if (/「.+」/.test(t)) return "partner";
-  if (/^(ごめん|もういい|疲れた|今は無理|連絡しないで|距離置きたい|別れたい)/.test(t)) {
+
+  if (/^(ごめん|もういい|疲れた|今は無理|連絡しないで|別れたい)/.test(t)) {
     return "partner";
   }
 
-  /* 意图 */
-  if (/復縁したい|戻りたい|やり直したい|告白したい|誘いたい/.test(t)) {
+  if (/復縁したい|戻りたい|告白したい|誘いたい/.test(t)) {
     return "intent";
   }
 
-  /* 跟进 */
   if (
     context.lastInput &&
-    /返事|どうする|どうしたら|次|どうしよ/.test(t)
+    /返事|どうする|次|どうしよ/.test(t)
   ) {
     return "followup";
   }
 
-  /* 🔥 关键修复（只改这里） */
-  if (/どうしよ|どうしよう|微妙|無理|疲れた|不安/.test(t)) {
+  /* 情绪词 */
+  if (/どうしよ|微妙|無理|疲れた|不安/.test(t)) {
     return "situation";
   }
 
-  /* ❌ 不再把短句直接当 situation */
+  /* 短句默认 unknown（避免乱判） */
   if (t.length <= 10) return "unknown";
 
-  /* 正常状况 */
-  if (
-    /最近|なんか|気がする|感じる|距離|冷たい|返信|不安|怪しい/.test(t)
-  ) {
+  if (/最近|なんか|気がする|距離|冷たい|怪しい/.test(t)) {
     return "situation";
   }
 
@@ -90,34 +107,14 @@ function updateContext(user, input, type, scenario, advice = null) {
   user.context.lastInput = input;
   user.context.lastInputType = type;
   user.context.lastScenario = scenario;
-
-  if (type === "partner") user.context.lastPartnerMessage = input;
-  if (type === "situation") user.context.lastSituation = input;
-  if (type === "intent") user.context.userGoal = input;
   if (advice) user.context.lastAdvice = advice;
-}
-
-function buildGreetingReply(input = "") {
-  const t = input.trim();
-
-  let g = "こんにちは😊";
-  if (/こんばんは/.test(t)) g = "こんばんは😊";
-
-  return `${g}
-
-相手から来たLINEや、
-今の状況をそのまま送ってください。
-
-そのまま使える返信を作ります。`;
 }
 
 function buildClarifyReply() {
   return `これはどちらですか？
 
 ① 相手から来たLINE
-② 今の状況説明
-
-番号で教えてください。`;
+② 今の状況説明`;
 }
 
 function buildLimitReply(text) {
@@ -125,15 +122,10 @@ function buildLimitReply(text) {
 
 無料版ではここまで表示しています。
 
-ここから先は、
-やりがちな判断ミスや、
-送るタイミング・他の選択肢を一つでも間違えると、
-相手が本音を隠したまま距離を取る流れに入りやすい段階です。
-
-Pro（月額¥980）で詳しく見れます。`;
+続きはPro（月額¥980）で確認できます。`;
 }
 
-/* 🔥 free生成（单 return，不叠加） */
+/* AI生成 */
 async function generateFree(input, user, forcedType = null) {
   if (user.count >= FREE_LIMIT) {
     return buildLimitReply(
@@ -141,25 +133,25 @@ async function generateFree(input, user, forcedType = null) {
     );
   }
 
-  const type = forcedType || detectInputType(input, user.context);
+  const inputType = forcedType || detectInputType(input, user.context);
   const scenario = detectScenario(input);
 
   const ai = await generateAIResponse({
     input,
     userState: {
-      inputType: type,
+      inputType,
       scenario,
       context: user.context
     }
   });
 
   user.count++;
-  updateContext(user, input, type, scenario, ai);
+  updateContext(user, input, inputType, scenario, ai);
 
   return ai;
 }
 
-/* 🔥 主逻辑（不会重复问 / 不叠加） */
+/* 主逻辑 */
 async function handleMessage(userId, text) {
   const input = String(text || "").trim();
 
@@ -179,10 +171,7 @@ async function handleMessage(userId, text) {
   }
 
   if (user.plan === "pro") {
-    const type = detectInputType(input, user.context);
-    const scenario = detectScenario(input);
-    updateContext(user, input, type, scenario);
-    return generateProResponse(input, scenario);
+    return generateProResponse(input);
   }
 
   if (user.count >= FREE_LIMIT) {
@@ -191,11 +180,9 @@ async function handleMessage(userId, text) {
     );
   }
 
-  /* 处理①② */
   if (user.pendingClarify) {
     const original = user.pendingText;
     user.pendingClarify = false;
-    user.pendingText = null;
 
     if (/^(1|①|a)$/i.test(input)) {
       return generateFree(original, user, "partner");
@@ -210,7 +197,6 @@ async function handleMessage(userId, text) {
 
   const type = detectInputType(input, user.context);
 
-  /* 🔥 unknown才问一次 */
   if (type === "unknown") {
     user.pendingClarify = true;
     user.pendingText = input;
