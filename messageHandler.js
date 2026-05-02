@@ -57,21 +57,44 @@ function isContinueRequest(text = "") {
   return /^(続き|つづき)$/.test(t);
 }
 
-/* 场景识别 */
+/* 🔥 场景识别（完整版强化） */
 function detectScenario(text = "") {
-  const t = String(text);
+  const t = String(text).trim();
 
-  if (/浮気|怪しい/.test(t)) return "cheating";
-  if (/復縁|戻りたい/.test(t)) return "reunion";
-  if (/別れ|もう無理/.test(t)) return "breakup";
-  if (/返信こない|無視/.test(t)) return "ignore";
-  if (/告白|誘いたい/.test(t)) return "flirt";
-  if (/冷たい|距離/.test(t)) return "cold";
+  // 出轨/第三者
+  if (/浮気|不倫|怪しい|他に.*いる|誰かいる|ほかに.*いる|別の人|女いる|男いる|スマホ隠す|通知隠す|嘘|裏切り|信用できない/.test(t)) {
+    return "cheating";
+  }
+
+  // 分手/崩溃
+  if (/別れ|もう無理|終わり|冷めた|距離置きたい|連絡しないで|疲れた|もういい/.test(t)) {
+    return "breakup";
+  }
+
+  // 复合
+  if (/復縁|戻りたい|やり直したい|元彼|元カノ/.test(t)) {
+    return "reunion";
+  }
+
+  // 无视
+  if (/返信こない|既読無視|未読無視|連絡こない/.test(t)) {
+    return "ignore";
+  }
+
+  // 冷淡
+  if (/冷たい|距離|温度差|最近変|連絡減った/.test(t)) {
+    return "cold";
+  }
+
+  // 暧昧/推进
+  if (/告白|誘いたい|会いたい|脈あり|距離縮めたい/.test(t)) {
+    return "flirt";
+  }
 
   return "normal";
 }
 
-/* 输入类型识别（稳定版） */
+/* 输入类型识别（不动） */
 function detectInputType(text = "", context = {}) {
   const t = String(text).trim();
 
@@ -87,24 +110,18 @@ function detectInputType(text = "", context = {}) {
     return "intent";
   }
 
-  if (
-    context.lastInput &&
-    /返事|どうする|次|どうしよ/.test(t)
-  ) {
+  if (context.lastInput && /返事|どうする|次|どうしよ/.test(t)) {
     return "followup";
   }
 
-  /* 情绪词 */
   if (/どうしよ|微妙|無理|疲れた|不安/.test(t)) {
     return "situation";
   }
 
-  /* 正常状况：必须放在短句 unknown 前面 */
-  if (/最近|なんか|気がする|感じる|距離|冷たい|怪しい/.test(t)) {
+  if (/最近|なんか|気がする|距離|冷たい|怪しい/.test(t)) {
     return "situation";
   }
 
-  /* 短句默认 unknown（避免乱判） */
   if (t.length <= 10) return "unknown";
 
   return "unknown";
@@ -117,6 +134,7 @@ function updateContext(user, input, type, scenario, advice = null) {
   if (advice) user.context.lastAdvice = advice;
 }
 
+/* 确认 */
 function buildClarifyReply() {
   return `これ、どっちですか？
 
@@ -124,6 +142,7 @@ function buildClarifyReply() {
 ② 今の状況`;
 }
 
+/* 🔥 限制（不带旧回答） */
 function buildLimitReply() {
   return `無料版で使える3回分はここまでです。
 
@@ -133,6 +152,7 @@ function buildLimitReply() {
 Pro（月額¥980）で続きを見る`;
 }
 
+/* 🔥 节奏控制 */
 function attachContinueHint(text, count) {
   if (count === 1) {
     return `${text}
@@ -201,14 +221,7 @@ async function handleMessage(userId, text) {
     return "リセットしました";
   }
 
-  // 「続き」は最優先で処理。①②確認より先。
   if (isContinueRequest(input)) {
-    if (!user.context.lastAdvice) {
-      return `先に、相手から来たLINEか今の状況を送ってください。
-
-その後に「続き」と送ると、さらに詳しく見れます。`;
-    }
-
     return generateAIResponse({
       input,
       userState: {
@@ -235,11 +248,11 @@ async function handleMessage(userId, text) {
     const original = user.pendingText;
     user.pendingClarify = false;
 
-    if (/^(1|①|a)$/i.test(input)) {
+    if (/^(1|①)$/i.test(input)) {
       return generateFree(original, user, "partner");
     }
 
-    if (/^(2|②|b)$/i.test(input)) {
+    if (/^(2|②)$/i.test(input)) {
       return generateFree(original, user, "situation");
     }
 
