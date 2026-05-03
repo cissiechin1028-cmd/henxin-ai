@@ -1,14 +1,46 @@
-function buildPrompt({ input }) {
+function buildPrompt({ input, userState }) {
+  const inputType = userState?.inputType || "unknown";
+  const scenario = userState?.scenario || "normal";
+  const context = userState?.context || {};
+
   return `
 ユーザー入力：
 ${input}
 
-【ルール】
+入力タイプ：
+${inputType}
+
+シナリオ：
+${scenario}
+
+【最重要ルール】
 ・日本語のみ
 ・短く
 ・1つだけ答える
 ・A/B禁止
 ・【結論】禁止
+・質問で返すのは禁止
+・ユーザーに考えさせるのは禁止
+・説明させるのは禁止
+・疑問文（？）で終わる返信は禁止
+
+【入力タイプ別ルール】
+
+■ partner（相手の原文）
+・そのまま返せる返信を作る
+・自然な会話
+
+■ situation（状況）
+・ユーザー入力は相手の発言ではない
+・そのまま返すのは禁止
+・必ず「相手に送れるLINE」に変換する
+・質問で返すのは禁止
+
+良い例：
+「最近ちょっと気になることがあって。無理に話さなくていいけど、少しだけ聞けたら嬉しい」
+
+悪い例：
+「どうしてそう感じたのか、教えてくれる？」
 
 【停止接触ルール】
 「しばらく連絡しないで」などは
@@ -17,7 +49,7 @@ ${input}
 例：
 「わかった。少し時間を置くね」
 
-【出力】
+【出力形式】
 
 今は、〇〇すると、相手が〇〇しやすいタイミングです。
 
@@ -33,14 +65,22 @@ ${input}
 
 ＝＝＝＝＝＝＝＝＝＝
 【Proパート】
-（省略）
+
+【この後どうする？】
+・〇〇する
+・〇〇はまだしない
+・〇〇のタイミングで送る
+
+【送るなら】
+「〇〇」
+
+【言い換え】
+「〇〇」
+
+【タイミング】
+・〇〇
+
+やりがち【NG】
+ここで〇〇すると、〇〇になりやすいです。
 `;
 }
-
-function formatFreeReply(text) {
-  if (!text) return "";
-  const i = text.indexOf("＝＝＝＝＝＝＝＝＝＝");
-  return i !== -1 ? text.slice(0, i).trim() : text.trim();
-}
-
-module.exports = { buildPrompt, formatFreeReply };
