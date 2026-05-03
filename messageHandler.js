@@ -10,38 +10,31 @@ const {
 
 const FREE_LIMIT = 3;
 
-/* =========================
-   打招呼识别
-========================= */
+/* ================= 打招呼 ================= */
+
 function isGreeting(text = "") {
   const t = String(text).trim().toLowerCase();
 
-  return /^(おはよう|おはようございます|こんにちは|こんばんは|お疲れ様|お疲れ様です|はじめまして|よろしく|よろしくお願いします|hello|hi)$/i.test(
+  return /^(おはよう|おはようございます|こんにちは|こんばんは|お疲れ様|お疲れ様です|hello|hi)$/i.test(
     t
   );
 }
 
-/* =========================
-   打招呼内容匹配
-========================= */
 function detectGreetingWord(text = "") {
   const t = String(text).trim();
 
-  if (/おはよう|おはようございます/.test(t)) return "おはようございます";
+  if (/おはよう/.test(t)) return "おはようございます";
   if (/こんばんは/.test(t)) return "こんばんは";
   if (/こんにちは/.test(t)) return "こんにちは";
-  if (/お疲れ|お疲れ様/.test(t)) return "お疲れ様です";
+  if (/お疲れ/.test(t)) return "お疲れ様です";
 
   return "こんにちは";
 }
 
-/* =========================
-   打招呼回复
-========================= */
 function buildGreetingReply(text = "") {
-  const greeting = detectGreetingWord(text);
+  const g = detectGreetingWord(text);
 
-  return `${greeting}😊
+  return `${g}😊
 
 相手から来たLINEや、
 今の状況をそのまま送ってください。
@@ -49,9 +42,8 @@ function buildGreetingReply(text = "") {
 そのまま使える返信を作ります。`;
 }
 
-/* =========================
-   输入类型判断
-========================= */
+/* ================= 输入类型 ================= */
+
 function detectInputType(text = "", user = {}) {
   const t = String(text).trim();
 
@@ -59,21 +51,9 @@ function detectInputType(text = "", user = {}) {
 
   if (/「.+」/.test(t)) return "partner";
 
-  if (/どう返せば|なんて返せば|返信したい|相談|不安/.test(t)) {
-    return "situation";
-  }
+  if (/どう返せば|相談|不安/.test(t)) return "situation";
 
-  if (/復縁したい|告白したい|誘いたい/.test(t)) {
-    return "situation";
-  }
-
-  if (/返信|既読|未読|冷たい|距離|別れ|復縁|浮気|怪しい/.test(t)) {
-    return "situation";
-  }
-
-  if (user.lastInput && /^(続き|次|どうする)$/i.test(t)) {
-    return "followup";
-  }
+  if (user.lastInput && /^(続き|次)$/i.test(t)) return "followup";
 
   if (t.length <= 2) return "unknown";
 
@@ -82,9 +62,8 @@ function detectInputType(text = "", user = {}) {
   return "situation";
 }
 
-/* =========================
-   Clarify
-========================= */
+/* ================= UI ================= */
+
 function buildClarifyReply() {
   return `これ、どっちですか？
 
@@ -92,27 +71,18 @@ function buildClarifyReply() {
 ② 今の状況`;
 }
 
-/* =========================
-   付费提示（软）
-========================= */
 function buildSoftLimitReply() {
   return `ここから先は、
-送る内容だけでなく「送るタイミング」も大事です。
-
-この先では、
 
 ・今送るべきか
-・何時間空けるべきか
-・送るならどの一言が安全か
+・どれくらい待つべきか
+・どの一言が安全か
 
 まで確認できます。
 
 続きを見る`;
 }
 
-/* =========================
-   付费提示（硬）
-========================= */
 function buildHardPaywallReply() {
   return `この先では、
 
@@ -126,32 +96,25 @@ function buildHardPaywallReply() {
 続きを見る`;
 }
 
-/* =========================
-   Hint
-========================= */
-function attachContinueHint(text, count) {
-  if (count === 1) return text;
-
+function attachHint(text, count) {
   if (count === 2) {
     return `${text}
 
-※この状況は、次の一言で相手の温度が変わりやすいです。
-「続き」と送ると、次に送るべき一言まで見れます。`;
+※この状況は、次の一言で相手の温度が変わりやすいです。`;
   }
 
   if (count === 3) {
     return `${text}
 
 ここから先は、
-“いつ送るか”で結果が変わりやすいです。`;
+“タイミング”で結果が変わりやすい段階です。`;
   }
 
   return text;
 }
 
-/* =========================
-   免费生成
-========================= */
+/* ================= 核心生成 ================= */
+
 async function generateFree(userId, input, forcedType = null) {
   const user = getUser(userId);
 
@@ -178,8 +141,8 @@ async function generateFree(userId, input, forcedType = null) {
     }
   });
 
-  const updatedUser = incrementReplyUsage(userId);
-  const count = updatedUser.usageCount;
+  const updated = incrementReplyUsage(userId);
+  const count = updated.usageCount;
 
   updateUser(userId, {
     lastInput: input,
@@ -188,18 +151,17 @@ async function generateFree(userId, input, forcedType = null) {
     lastAdvice: ai
   });
 
-  /* 第3次开始带 Pro */
+  /* ⭐ 第3次：强制带 Pro */
   if (count === 3) {
     const pro = generateProResponse(input, scenario);
-    return attachContinueHint(ai + "\n\n＝＝＝＝＝＝＝＝＝＝\n" + pro, count);
+    return attachHint(ai + "\n\n＝＝＝＝＝＝＝＝＝＝\n" + pro, count);
   }
 
-  return attachContinueHint(ai, count);
+  return attachHint(ai, count);
 }
 
-/* =========================
-   主逻辑
-========================= */
+/* ================= 主逻辑 ================= */
+
 async function handleMessage(userId, text) {
   const input = String(text || "").trim();
 
@@ -217,20 +179,25 @@ async function handleMessage(userId, text) {
     return buildGreetingReply(input);
   }
 
-  /* 第4次 */
-  if (user.usageCount === FREE_LIMIT) {
-    updateUser(userId, {
-      usageCount: user.usageCount + 1
-    });
+  /* ⭐ 続き：不再免费给 Pro，直接进入付费提示 */
+  if (/^(続き|つづき)$/i.test(input)) {
     return buildSoftLimitReply();
   }
 
-  /* 第5次以后 */
-  if (user.usageCount > FREE_LIMIT) {
+  /* ⭐ 第4次才付费 */
+  if (user.usageCount === FREE_LIMIT + 1) {
+    updateUser(userId, {
+      usageCount: user.usageCount + 1
+    });
+
+    return buildSoftLimitReply();
+  }
+
+  if (user.usageCount > FREE_LIMIT + 1) {
     return buildHardPaywallReply();
   }
 
-  /* Clarify */
+  /* clarify */
   if (user.pendingClarify) {
     const original = user.pendingText || input;
 
@@ -241,10 +208,6 @@ async function handleMessage(userId, text) {
 
     if (/^(1|①)$/i.test(input)) {
       return generateFree(userId, original, "partner");
-    }
-
-    if (/^(2|②)$/i.test(input)) {
-      return generateFree(userId, original, "situation");
     }
 
     return generateFree(userId, original, "situation");
