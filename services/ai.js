@@ -18,7 +18,6 @@ async function generateAIResponse({ input, userState }) {
 ルール：
 ・日本語のみ
 ・中国語は禁止
-・Pro、プレミアム、有料、課金という言葉は禁止
 ・長文禁止
 ・一般論禁止
 ・説教禁止
@@ -58,23 +57,17 @@ async function generateAIResponse({ input, userState }) {
   } catch (err) {
     console.error("OPENAI ERROR:", err.response?.data || err.message);
 
-    return `【結論】
-今は、無理に踏み込むと相手がさらに距離を置きやすい状態です。
+    return `今は、無理に踏み込むと距離が広がりやすい状態です。
 
 ---
 
 送るなら👇
-
-A（安全）
 「無理しないでね。落ち着いたらまた話そう」
-
-B（少し攻める）
-「今は無理に聞かないけど、落ち着いたら少しだけ話せたら嬉しい」
 
 ---
 
 ⚠️ 注意
-ここで理由を聞いたり追いかけると、相手がさらに離れやすいです。`;
+ここで理由を聞くと、相手がさらに距離を取りやすくなります。`;
   }
 }
 
