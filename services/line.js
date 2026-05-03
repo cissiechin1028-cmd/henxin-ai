@@ -1,5 +1,3 @@
-// services/line.js
-
 const axios = require("axios");
 
 async function replyMessage(replyToken, text) {
@@ -11,15 +9,15 @@ async function replyMessage(replyToken, text) {
         messages: [
           {
             type: "text",
-            text: String(text).slice(0, 4500),
-          },
-        ],
+            text: String(text).slice(0, 4500)
+          }
+        ]
       },
       {
         headers: {
           Authorization: `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}`,
-          "Content-Type": "application/json",
-        },
+          "Content-Type": "application/json"
+        }
       }
     );
 
