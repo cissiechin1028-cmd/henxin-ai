@@ -17,8 +17,22 @@ function isGreeting(text = "") {
   return /^(おはよう|おはようございます|こんにちは|こんばんは|お疲れ様|お疲れ様です|はじめまして|よろしく|よろしくお願いします|hello|hi|早安|你好|晚上好)$/i.test(t);
 }
 
-function buildGreetingReply() {
-  return `こんにちは😊
+function detectGreetingReplyWord(text = "") {
+  const t = String(text).trim();
+
+  if (/おはよう|早安/.test(t)) return "おはようございます";
+  if (/こんばんは|晚上好/.test(t)) return "こんばんは";
+  if (/お疲れ/.test(t)) return "お疲れ様です";
+  if (/よろしく/.test(t)) return "よろしくお願いします";
+  if (/你好|こんにちは|hello|hi|はじめまして/i.test(t)) return "こんにちは";
+
+  return "こんにちは";
+}
+
+function buildGreetingReply(text = "") {
+  const greeting = detectGreetingReplyWord(text);
+
+  return `${greeting}😊
 
 相手から来たLINEや、
 今の状況をそのまま送ってください。
@@ -185,7 +199,7 @@ async function handleMessage(userId, text) {
   let user = getUser(userId);
 
   if (isGreeting(input)) {
-    return buildGreetingReply();
+    return buildGreetingReply(input);
   }
 
   if (/^(開通|購入|支払い|続きを見る)$/i.test(input)) {
