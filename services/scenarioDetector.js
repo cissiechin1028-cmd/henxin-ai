@@ -1,5 +1,3 @@
-// services/scenarioDetector.js
-
 function detectScenario(text = "") {
   const t = String(text);
 
@@ -7,7 +5,7 @@ function detectScenario(text = "") {
     return "cheating";
   }
 
-  if (/別れたい|別れよう|距離置きたい|もう無理|好きじゃない|冷めた|終わり|さよなら/.test(t)) {
+  if (/別れたい|別れよう|距離置きたい|もう無理|好きじゃない|冷めた|終わり|さよなら|連絡しないで/.test(t)) {
     return "breakup";
   }
 
@@ -15,7 +13,7 @@ function detectScenario(text = "") {
     return "reunion";
   }
 
-  if (/既読|未読|無視|返信ない|返事ない|スルー/.test(t)) {
+  if (/既読|未読|無視|返信ない|返事ない|返信こない|スルー/.test(t)) {
     return "ignore";
   }
 
