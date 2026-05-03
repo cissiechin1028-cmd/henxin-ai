@@ -1,5 +1,4 @@
 const { generateAIResponse } = require("./services/ai");
-const { generateProResponse } = require("./services/proEngine");
 const { detectScenario } = require("./services/scenarioDetector");
 const {
   getUser,
@@ -9,13 +8,12 @@ const {
 } = require("./userStore");
 
 const FREE_LIMIT = 3;
+const PRO_URL = process.env.PRO_URL || "";
 
 function isGreeting(text = "") {
   const t = String(text).trim().toLowerCase();
 
-  return /^(おはよう|おはようございます|こんにちは|こんばんは|お疲れ様|お疲れ様です|hello|hi)$/i.test(
-    t
-  );
+  return /^(おはよう|おはようございます|こんにちは|こんばんは|お疲れ様|お疲れ様です|hello|hi)$/i.test(t);
 }
 
 function detectGreetingWord(text = "") {
@@ -37,7 +35,11 @@ function buildGreetingReply(text = "") {
 相手から来たLINEや、
 今の状況をそのまま送ってください。
 
-そのまま使える返信を作ります。`;
+そのまま使える返信を作ります。
+
+例：
+「最近忙しいって言われた」
+「彼から『少し距離置きたい』って来た」`;
 }
 
 function detectInputType(text = "", user = {}) {
@@ -47,9 +49,13 @@ function detectInputType(text = "", user = {}) {
 
   if (/「.+」/.test(t)) return "partner";
 
-  if (/どう返せば|相談|不安/.test(t)) return "situation";
+  if (/どう返せば|なんて返せば|返信したい|相談|不安|どうしよ|どうすれば/.test(t)) {
+    return "situation";
+  }
 
-  if (user.lastInput && /^(続き|次)$/i.test(t)) return "followup";
+  if (user.lastInput && /^(次|どうする|返事)$/i.test(t)) {
+    return "followup";
+  }
 
   if (t.length <= 2) return "unknown";
 
@@ -62,11 +68,15 @@ function buildClarifyReply() {
   return `これ、どっちですか？
 
 ① 相手から来たLINE
-② 今の状況`;
+② 今の状況
+
+番号で送ってください。`;
 }
 
 function buildSoftLimitReply() {
-  return `ここから先は、
+  return `ここから先は、開通後に見れます。
+
+開通すると、
 
 ・今送るべきか
 ・どれくらい待つべきか
@@ -74,34 +84,55 @@ function buildSoftLimitReply() {
 
 まで確認できます。
 
-続きは開通後に見れます。`;
+開通する場合は、
+「開通」と送ってください。`;
 }
 
 function buildHardPaywallReply() {
   return `続きは開通後にご案内できます。
 
-この先では、
+開通する場合は、
+「開通」と送ってください。`;
+}
 
-・相手の温度感
-・次にどう動くか
-・送るタイミング
-・そのまま使える返信
+function buildOpenGuideReply() {
+  if (PRO_URL) {
+    return `開通はこちらからできます👇
 
-まで確認できます。`;
+${PRO_URL}
+
+開通後、もう一度メッセージを送ってください。`;
+  }
+
+  return `開通リンクは現在準備中です。
+
+少し時間を置いてから、
+もう一度「開通」と送ってください。`;
 }
 
 function attachHint(text, count) {
+  if (count === 1) {
+    return `${text}
+
+次に迷ったら、
+相手の返事をそのまま送ってください。`;
+  }
+
   if (count === 2) {
     return `${text}
 
-※この状況は、次の一言で相手の温度が変わりやすいです。`;
+続けて見る場合は、
+今の不安や相手の返事をそのまま送ってください。`;
   }
 
   if (count === 3) {
     return `${text}
 
 ここから先は、
-“タイミング”で結果が変わりやすい段階です。`;
+「今送るべきか」「どれくらい待つべきか」まで見れます。
+
+続きを見る場合は、
+「続き」と送ってください。`;
   }
 
   return text;
@@ -143,11 +174,6 @@ async function generateFree(userId, input, forcedType = null) {
     lastAdvice: ai
   });
 
-  if (count === 3) {
-    const pro = generateProResponse(input, scenario);
-    return attachHint(ai + "\n\n＝＝＝＝＝＝＝＝＝＝\n" + pro, count);
-  }
-
   return attachHint(ai, count);
 }
 
@@ -167,26 +193,24 @@ async function handleMessage(userId, text) {
     return buildGreetingReply(input);
   }
 
-  if (/^(続き|つづき)$/i.test(input)) {
-    if (user.paywallShown) {
-      return buildHardPaywallReply();
-    }
+  if (/^(開通|申し込み|申込|支払い|決済|購入|どう開通しますか|どう開通します？)$/i.test(input)) {
+    return buildOpenGuideReply();
+  }
 
+  if (/^(続き|つづき)$/i.test(input)) {
     updateUser(userId, {
-      paywallShown: true,
-      usageCount: Math.max(user.usageCount, FREE_LIMIT + 2)
+      paywallShown: true
     });
 
     return buildSoftLimitReply();
   }
 
-  if (user.usageCount >= FREE_LIMIT + 2) {
-    return buildHardPaywallReply();
-  }
+  if (user.usageCount >= FREE_LIMIT) {
+    if (user.paywallShown) {
+      return buildHardPaywallReply();
+    }
 
-  if (user.usageCount === FREE_LIMIT + 1) {
     updateUser(userId, {
-      usageCount: user.usageCount + 1,
       paywallShown: true
     });
 
