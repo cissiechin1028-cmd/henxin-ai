@@ -1,4 +1,5 @@
 const { generateAIResponse } = require("./services/ai");
+const { generateProResponse } = require("./services/proEngine");
 const { detectScenario } = require("./services/scenarioDetector");
 const {
   getUser,
@@ -10,24 +11,14 @@ const {
 const FREE_LIMIT = 3;
 const PRO_URL = process.env.PRO_URL || "";
 
-/* ========= 打招呼 ========= */
-
 function isGreeting(text = "") {
   const t = String(text).trim().toLowerCase();
-  return /^(おはよう|おはようございます|こんにちは|こんばんは|お疲れ様|お疲れ様です|hello|hi)$/i.test(t);
+
+  return /^(おはよう|おはようございます|こんにちは|こんばんは|お疲れ様|お疲れ様です|はじめまして|よろしく|よろしくお願いします|hello|hi|早安|你好|晚上好)$/i.test(t);
 }
 
-function detectGreetingWord(text = "") {
-  if (/おはよう/.test(text)) return "おはようございます";
-  if (/こんばんは/.test(text)) return "こんばんは";
-  if (/こんにちは/.test(text)) return "こんにちは";
-  if (/お疲れ/.test(text)) return "お疲れ様です";
-  return "こんにちは";
-}
-
-function buildGreetingReply(text = "") {
-  const g = detectGreetingWord(text);
-  return `${g}😊
+function buildGreetingReply() {
+  return `こんにちは😊
 
 相手から来たLINEや、
 今の状況をそのまま送ってください。
@@ -35,59 +26,73 @@ function buildGreetingReply(text = "") {
 そのまま使える返信を作ります。`;
 }
 
-/* ========= 输入类型 ========= */
+function detectInputType(text = "", user = {}) {
+  const t = String(text).trim();
 
-function detectInputType(text = "") {
-  if (/「.+」/.test(text)) return "partner";
-  if (/どう返せば|相談|不安|どうすれば/.test(text)) return "situation";
+  if (!t) return "unknown";
+
+  if (/「.+」/.test(t)) return "partner";
+
+  if (/相手から|相手のメッセージ|相手に言われた|彼から|彼女から/.test(t)) {
+    return "situation";
+  }
+
+  if (/どう返せば|なんて返せば|返信したい|返事したい|どう思う|相談|どうしよ|不安/.test(t)) {
+    return "situation";
+  }
+
+  if (/復縁したい|戻りたい|告白したい|誘いたい|会いたい/.test(t)) {
+    return "situation";
+  }
+
+  if (/返信|既読|未読|無視|冷たい|距離|別れ|復縁|浮気|怪しい|喧嘩|ブロック|好き|告白|誘い|デート|連絡|LINE|脈あり|脈なし/.test(t)) {
+    return "situation";
+  }
+
+  if (user.lastInput && /^(続き|つづき|次|どうする|返事)$/i.test(t)) {
+    return "followup";
+  }
+
+  if (t.length <= 2) return "unknown";
+
+  if (t.length <= 20) return "partner";
+
   return "situation";
 }
 
-/* ========= 引导 ========= */
+function buildClarifyReply() {
+  return `これ、どっちですか？
 
-function attachHint(text, count) {
-  if (count === 1) {
-    return `${text}
-
-👉 相手の返事をそのまま送ると、次の一手も出せます。`;
-  }
-
-  if (count === 2) {
-    return `${text}
-
-👉 このままの流れでどう動くべきかも見れます。`;
-  }
-
-  if (count === 3) {
-    return `${text}
-
-ここから先は、
-「送るタイミング」と「次の一手」で結果が変わりやすいです。
-
-👉 続きを見る場合は「続き」と送ってください。`;
-  }
-
-  return text;
+① 相手から来たLINE
+② 今の状況`;
 }
 
-/* ========= 付费 ========= */
+function buildSoftLimitReply() {
+  return `ここから先は、
+送る内容だけでなく「送るタイミング」も大事です。
 
-function buildSoftPaywall() {
-  return `ここから先は有料になります。
+この先では、
 
 ・今送るべきか
-・どれくらい待つべきか
-・次に送る一言
+・何時間空けるべきか
+・送るならどの一言が安全か
 
 まで確認できます。
 
-👉 「開通」と送ると進めます。`;
+続きを見る`;
 }
 
-function buildHardPaywall() {
-  return `続きは開通後に見れます。
+function buildHardPaywallReply() {
+  return `この先では、
 
-👉 「開通」と送ってください。`;
+・相手の温度感
+・次にどう動くか
+・送るタイミング
+・そのまま使える返信
+
+まで確認できます。
+
+続きを見る`;
 }
 
 function buildOpenGuide() {
@@ -97,89 +102,155 @@ ${PRO_URL}
 
 開通後、もう一度メッセージを送ってください。`;
   }
+
   return `開通リンクは準備中です。`;
 }
 
-/* ========= 核心 ========= */
+function attachContinueHint(text, count) {
+  if (count === 1) {
+    return text;
+  }
 
-async function generateFree(userId, input) {
+  if (count === 2) {
+    return `${text}
+
+※この状況は、次の一言で相手の温度が変わりやすいです。
+「続き」と送ると、次に送るべき一言まで見れます。`;
+  }
+
+  if (count === 3) {
+    return `${text}
+
+ここから先は、送る内容よりも
+“いつ送るか”で結果が変わりやすいです。
+
+続きを見る`;
+  }
+
+  return text;
+}
+
+async function generateFree(userId, input, forcedType = null) {
   const user = getUser(userId);
+
+  let inputType = forcedType || detectInputType(input, user);
+
+  if (inputType === "followup") {
+    inputType = user.lastInputType || "situation";
+    input = user.lastInput || input;
+  }
 
   const scenario = detectScenario(input);
 
   const ai = await generateAIResponse({
     input,
     userState: {
-      inputType: detectInputType(input),
+      inputType,
       scenario,
-      context: {}
+      context: {
+        lastInput: user.lastInput,
+        lastInputType: user.lastInputType,
+        lastScenario: user.lastScenario,
+        lastAdvice: user.lastAdvice,
+        lastRiskLevel: user.lastRiskLevel
+      }
     }
   });
 
-  const updated = incrementReplyUsage(userId);
-  const count = updated.usageCount;
+  const updatedUser = incrementReplyUsage(userId);
+  const nextCount = updatedUser.usageCount;
 
   updateUser(userId, {
-    lastInput: input
+    lastInput: input,
+    lastInputType: inputType,
+    lastScenario: scenario,
+    lastAdvice: ai
   });
 
-  return attachHint(ai, count);
+  return attachContinueHint(ai, nextCount);
 }
-
-/* ========= 主逻辑 ========= */
 
 async function handleMessage(userId, text) {
   const input = String(text || "").trim();
-  if (!input) return "内容を送ってください";
 
-  const user = getUser(userId);
+  if (!input) {
+    return buildClarifyReply();
+  }
 
-  /* reset */
   if (input === "__reset__") {
     resetUser(userId);
     return "リセットしました";
   }
 
-  /* 打招呼 */
+  let user = getUser(userId);
+
   if (isGreeting(input)) {
-    return buildGreetingReply(input);
+    return buildGreetingReply();
   }
 
-  /* 开通 */
-  if (/^(開通|購入|支払い)$/i.test(input)) {
+  if (/^(開通|購入|支払い|続きを見る)$/i.test(input)) {
     return buildOpenGuide();
   }
 
-  /* ⭐ 新问题 → 自动解锁 */
+  const isFollowup = /^(続き|つづき|次|どうする|返事)$/i.test(input);
+
   if (
     user.lastInput &&
     input !== user.lastInput &&
-    !/^(続き|つづき)$/i.test(input)
+    !isFollowup
   ) {
     updateUser(userId, {
       usageCount: 0,
       paywall: false
     });
+
+    user = getUser(userId);
   }
 
-  /* ⭐ 続き触发收费 */
-  if (/^(続き|つづき)$/i.test(input)) {
-    updateUser(userId, { paywall: true });
-    return buildSoftPaywall();
+  if (user.pendingClarify) {
+    const original = user.pendingText || input;
+
+    updateUser(userId, {
+      pendingClarify: false,
+      pendingText: null
+    });
+
+    if (/^(1|①)$/i.test(input)) {
+      return generateFree(userId, original, "partner");
+    }
+
+    if (/^(2|②)$/i.test(input)) {
+      return generateFree(userId, original, "situation");
+    }
+
+    return generateFree(userId, original, "situation");
   }
 
-  /* ⭐ 已进入付费区 */
-  if (user.paywall) {
-    return buildHardPaywall();
+  if (user.usageCount === FREE_LIMIT) {
+    updateUser(userId, {
+      usageCount: user.usageCount + 1,
+      paywall: true
+    });
+
+    return buildSoftLimitReply();
   }
 
-  /* ⭐ 正常免费流程 */
-  if (user.usageCount >= FREE_LIMIT) {
-    updateUser(userId, { paywall: true });
-    return buildSoftPaywall();
+  if (user.usageCount > FREE_LIMIT || user.paywall) {
+    return buildHardPaywallReply();
   }
 
-  return generateFree(userId, input);
+  const type = detectInputType(input, user);
+
+  if (type === "unknown") {
+    updateUser(userId, {
+      pendingClarify: true,
+      pendingText: input
+    });
+
+    return buildClarifyReply();
+  }
+
+  return generateFree(userId, input, type);
 }
 
 module.exports = { handleMessage };
