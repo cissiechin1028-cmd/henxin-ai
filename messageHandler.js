@@ -160,54 +160,61 @@ function buildLimitReply() {
 Pro（月額¥980）で続きを見る`;
 }
 
-function buildSoftLimitReply(input = "") {
-  if (/どうすればいい|どうしたらいい|どうする|次/.test(input)) {
-    return `今は、無理に踏み込まず少し距離を保つのが安全です。
+function buildSoftLimitReply() {
+  return `今は、無理に動くより一度落ち着いて見た方が安全です。
 
-焦って動くと関係が悪化しやすいので、
-まずは相手の反応を見ながら、余白を残すのが大切です。
+無料版で使える3回分はここまでです。
 
 この先の具体的な動き方や、
-相手の本音はProで確認できます。
+送るタイミングはProで確認できます。
 
 Pro（月額¥980）で続きを見る`;
-  }
+}
 
-  return buildLimitReply();
+function buildHardPaywallReply() {
+  return `この先はProでご案内しています。
+
+・相手の本音
+・次にどう動くか
+・送るタイミング
+・そのまま使える返信
+
+を確認できます。
+
+Pro（月額¥980）で続きを見る`;
 }
 
 function attachContinueHint(text, count) {
   if (count === 1) {
-    return `${text}
-
-他の状況や、次にどう返すかもそのまま送ってください。`;
+    return text;
   }
 
   if (count === 2) {
     return `${text}
 
-他にも気になる点や、
-次にどう動くかもそのまま送ってください。
-
-気になる場合は「続き」と送ると、
-もう少し詳しく見れます。`;
+※気になる場合は「続き」と送ると、もう少し詳しく見れます。`;
   }
 
   if (count === 3) {
     return `${text}
 
 今の情報でも方向は見えていますが、
+出し方次第で結果が変わりやすい段階です。
 
-相手の本音やこの先の流れまで含めると、
-「続き」と送るともう少し精度が上がります。`;
+「続き」でこの後の動きも見れます。`;
   }
 
   return text;
 }
 
 async function generateFree(input, user, forcedType = null) {
-  if (user.count >= FREE_LIMIT) {
-    return buildSoftLimitReply(input);
+  if (user.count === FREE_LIMIT) {
+    user.count++;
+    return buildSoftLimitReply();
+  }
+
+  if (user.count > FREE_LIMIT) {
+    return buildHardPaywallReply();
   }
 
   const inputType = forcedType || detectInputType(input, user.context);
@@ -237,7 +244,7 @@ async function handleMessage(userId, text) {
 
   const user = users[userId];
 
-  if (input === "__reset__") {
+  if (input.trim() === "__reset__") {
     users[userId] = createUser();
     return "リセットしました";
   }
@@ -273,8 +280,13 @@ async function handleMessage(userId, text) {
     );
   }
 
-  if (user.count >= FREE_LIMIT) {
-    return buildSoftLimitReply(input);
+  if (user.count === FREE_LIMIT) {
+    user.count++;
+    return buildSoftLimitReply();
+  }
+
+  if (user.count > FREE_LIMIT) {
+    return buildHardPaywallReply();
   }
 
   if (user.pendingClarify) {
