@@ -10,8 +10,6 @@ const {
 
 const FREE_LIMIT = 3;
 
-/* ================= 打招呼 ================= */
-
 function isGreeting(text = "") {
   const t = String(text).trim().toLowerCase();
 
@@ -42,8 +40,6 @@ function buildGreetingReply(text = "") {
 そのまま使える返信を作ります。`;
 }
 
-/* ================= 输入类型 ================= */
-
 function detectInputType(text = "", user = {}) {
   const t = String(text).trim();
 
@@ -62,8 +58,6 @@ function detectInputType(text = "", user = {}) {
   return "situation";
 }
 
-/* ================= UI ================= */
-
 function buildClarifyReply() {
   return `これ、どっちですか？
 
@@ -80,20 +74,20 @@ function buildSoftLimitReply() {
 
 まで確認できます。
 
-続きを見る`;
+続きは開通後に見れます。`;
 }
 
 function buildHardPaywallReply() {
-  return `この先では、
+  return `続きは開通後にご案内できます。
+
+この先では、
 
 ・相手の温度感
 ・次にどう動くか
 ・送るタイミング
 ・そのまま使える返信
 
-まで確認できます。
-
-続きを見る`;
+まで確認できます。`;
 }
 
 function attachHint(text, count) {
@@ -112,8 +106,6 @@ function attachHint(text, count) {
 
   return text;
 }
-
-/* ================= 核心生成 ================= */
 
 async function generateFree(userId, input, forcedType = null) {
   const user = getUser(userId);
@@ -151,7 +143,6 @@ async function generateFree(userId, input, forcedType = null) {
     lastAdvice: ai
   });
 
-  /* ⭐ 第3次：强制带 Pro */
   if (count === 3) {
     const pro = generateProResponse(input, scenario);
     return attachHint(ai + "\n\n＝＝＝＝＝＝＝＝＝＝\n" + pro, count);
@@ -159,8 +150,6 @@ async function generateFree(userId, input, forcedType = null) {
 
   return attachHint(ai, count);
 }
-
-/* ================= 主逻辑 ================= */
 
 async function handleMessage(userId, text) {
   const input = String(text || "").trim();
@@ -174,30 +163,36 @@ async function handleMessage(userId, text) {
 
   const user = getUser(userId);
 
-  /* 打招呼 */
   if (isGreeting(input)) {
     return buildGreetingReply(input);
   }
 
-  /* ⭐ 続き：不再免费给 Pro，直接进入付费提示 */
   if (/^(続き|つづき)$/i.test(input)) {
-    return buildSoftLimitReply();
-  }
+    if (user.paywallShown) {
+      return buildHardPaywallReply();
+    }
 
-  /* ⭐ 第4次才付费 */
-  if (user.usageCount === FREE_LIMIT + 1) {
     updateUser(userId, {
-      usageCount: user.usageCount + 1
+      paywallShown: true,
+      usageCount: Math.max(user.usageCount, FREE_LIMIT + 2)
     });
 
     return buildSoftLimitReply();
   }
 
-  if (user.usageCount > FREE_LIMIT + 1) {
+  if (user.usageCount >= FREE_LIMIT + 2) {
     return buildHardPaywallReply();
   }
 
-  /* clarify */
+  if (user.usageCount === FREE_LIMIT + 1) {
+    updateUser(userId, {
+      usageCount: user.usageCount + 1,
+      paywallShown: true
+    });
+
+    return buildSoftLimitReply();
+  }
+
   if (user.pendingClarify) {
     const original = user.pendingText || input;
 
