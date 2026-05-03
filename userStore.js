@@ -1,20 +1,33 @@
-// userStore.js
-
 const users = {};
+
+function createUser() {
+  return {
+    usageCount: 0,
+    replyUsageCount: 0,
+    criticalUsageCount: 0,
+    plan: "free",
+
+    pendingClarify: false,
+    pendingText: null,
+
+    lastInput: null,
+    lastInputType: null,
+    lastScenario: null,
+    lastAdvice: null,
+    lastRiskLevel: 1
+  };
+}
 
 function getUser(userId) {
   if (!users[userId]) {
-    users[userId] = {
-      usageCount: 0,
-      replyUsageCount: 0,
-      criticalUsageCount: 0,
-      plan: "free",
-      lastInputType: null,
-      lastScenario: null,
-      lastRiskLevel: 1
-    };
+    users[userId] = createUser();
   }
 
+  return users[userId];
+}
+
+function resetUser(userId) {
+  users[userId] = createUser();
   return users[userId];
 }
 
@@ -54,6 +67,7 @@ function incrementCriticalUsage(userId) {
 
 module.exports = {
   getUser,
+  resetUser,
   updateUser,
   incrementReplyUsage,
   incrementCriticalUsage
