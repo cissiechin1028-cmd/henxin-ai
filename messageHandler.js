@@ -1,31 +1,21 @@
 const { generateAIResponse } = require("./services/ai");
 const { generateProResponse } = require("./services/proEngine");
+const { detectScenario } = require("./services/scenarioDetector");
+const {
+  getUser,
+  resetUser,
+  updateUser,
+  incrementReplyUsage
+} = require("./userStore");
 
-let users = {};
 const FREE_LIMIT = 3;
 
-function createUser() {
-  return {
-    count: 0,
-    plan: "free",
-    pendingClarify: false,
-    pendingText: null,
-    context: {
-      lastInput: null,
-      lastInputType: null,
-      lastScenario: null,
-      lastAdvice: null
-    }
-  };
-}
-
-/* 打招呼识别 */
 function isGreeting(text = "") {
   const t = String(text).trim().toLowerCase();
-  return /^(おはよう|こんにちは|こんばんは|お疲れ|はじめまして|hello|hi|早安|你好|晚上好)/.test(t);
+
+  return /^(おはよう|おはようございます|こんにちは|こんばんは|お疲れ様|お疲れ様です|はじめまして|よろしく|よろしくお願いします|hello|hi|早安|你好|晚上好)$/i.test(t);
 }
 
-/* 打招呼回复 */
 function buildGreetingReply() {
   return `こんにちは😊
 
@@ -35,50 +25,38 @@ function buildGreetingReply() {
 そのまま使える返信を作ります。`;
 }
 
-/* 场景识别（保留） */
-function detectScenario(text = "") {
-  const t = String(text);
-
-  if (/浮気|怪しい/.test(t)) return "cheating";
-  if (/復縁|戻りたい/.test(t)) return "reunion";
-  if (/別れ|もう無理/.test(t)) return "breakup";
-  if (/返信こない|無視/.test(t)) return "ignore";
-  if (/告白|誘いたい/.test(t)) return "flirt";
-  if (/冷たい|距離/.test(t)) return "cold";
-
-  return "normal";
-}
-
-/* 输入类型识别（保留） */
-function detectInputType(text = "", context = {}) {
+function detectInputType(text = "", user = {}) {
   const t = String(text).trim();
 
   if (!t) return "unknown";
 
   if (/「.+」/.test(t)) return "partner";
 
-  if (/復縁したい|戻りたい|告白したい|誘いたい/.test(t)) {
-    return "intent";
-  }
-
-  if (context.lastInput && /返事|どうする|次/.test(t)) {
-    return "followup";
-  }
-
-  if (/どうしよ|微妙|無理|不安/.test(t)) {
+  if (/相手から|相手のメッセージ|相手に言われた|彼から|彼女から/.test(t)) {
     return "situation";
   }
 
-  if (t.length <= 10) return "unknown";
+  if (/どう返せば|なんて返せば|返信したい|返事したい|どう思う|相談|どうしよ|不安/.test(t)) {
+    return "situation";
+  }
+
+  if (/復縁したい|戻りたい|告白したい|誘いたい|会いたい/.test(t)) {
+    return "situation";
+  }
+
+  if (/返信|既読|未読|無視|冷たい|距離|別れ|復縁|浮気|怪しい|喧嘩|ブロック|好き|告白|誘い|デート|連絡|LINE|脈あり|脈なし/.test(t)) {
+    return "situation";
+  }
+
+  if (user.lastInput && /^(続き|つづき|次|どうする|返事)$/i.test(t)) {
+    return "followup";
+  }
+
+  if (t.length <= 2) return "unknown";
+
+  if (t.length <= 20) return "partner";
 
   return "situation";
-}
-
-function updateContext(user, input, type, scenario, advice = null) {
-  user.context.lastInput = input;
-  user.context.lastInputType = type;
-  user.context.lastScenario = scenario;
-  if (advice) user.context.lastAdvice = advice;
 }
 
 function buildClarifyReply() {
@@ -88,57 +66,66 @@ function buildClarifyReply() {
 ② 今の状況`;
 }
 
-/* 第4次 */
 function buildSoftLimitReply() {
-  return `今は、無理に踏み込まず少し距離を保つのが安全です。
+  return `ここから先は、
+送る内容だけでなく「送るタイミング」も大事です。
 
-無料版で使える3回分はここまでです。
+この先では、
 
-この先の具体的な動き方や、
-送るタイミングはProで確認できます。
+・今送るべきか
+・何時間空けるべきか
+・送るならどの一言が安全か
 
-Pro（月額¥980）で続きを見る`;
+まで確認できます。
+
+続きを見る`;
 }
 
-/* 第5次以后 */
 function buildHardPaywallReply() {
-  return `この先はProでご案内しています。
+  return `この先では、
 
-・相手の本音
+・相手の温度感
 ・次にどう動くか
 ・送るタイミング
 ・そのまま使える返信
 
-を確認できます。
+まで確認できます。
 
-Pro（月額¥980）で続きを見る`;
+続きを見る`;
 }
 
-/* 免费节奏 */
 function attachContinueHint(text, count) {
-  if (count === 1) return text;
+  if (count === 1) {
+    return text;
+  }
 
   if (count === 2) {
     return `${text}
 
-※気になる場合は「続き」と送ると、もう少し詳しく見れます。`;
+※この状況は、次の一言で相手の温度が変わりやすいです。
+「続き」と送ると、次に送るべき一言まで見れます。`;
   }
 
   if (count === 3) {
     return `${text}
 
-今の情報でも方向は見えていますが、
-出し方次第で結果が変わりやすい段階です。
-
-「続き」でこの後の動きも見れます。`;
+ここから先は、送る内容よりも
+“いつ送るか”で結果が変わりやすいです。`;
   }
 
   return text;
 }
 
-/* 免费生成（保留原逻辑，仅加节奏） */
-async function generateFree(input, user, forcedType = null) {
-  const inputType = forcedType || detectInputType(input, user.context);
+async function generateFree(userId, input, forcedType = null) {
+  const user = getUser(userId);
+
+  let inputType = forcedType || detectInputType(input, user);
+
+  if (inputType === "followup") {
+    inputType = user.lastInputType || "situation";
+    input = user.lastInput || input;
+  }
+
   const scenario = detectScenario(input);
 
   const ai = await generateAIResponse({
@@ -146,70 +133,95 @@ async function generateFree(input, user, forcedType = null) {
     userState: {
       inputType,
       scenario,
-      context: user.context
+      context: {
+        lastInput: user.lastInput,
+        lastInputType: user.lastInputType,
+        lastScenario: user.lastScenario,
+        lastAdvice: user.lastAdvice,
+        lastRiskLevel: user.lastRiskLevel
+      }
     }
   });
 
-  user.count++;
-  updateContext(user, input, inputType, scenario, ai);
+  const updatedUser = incrementReplyUsage(userId);
+  const nextCount = updatedUser.usageCount;
 
-  return attachContinueHint(ai, user.count);
+  updateUser(userId, {
+    lastInput: input,
+    lastInputType: inputType,
+    lastScenario: scenario,
+    lastAdvice: ai
+  });
+
+  if (nextCount === 3) {
+    const pro = generateProResponse(input, scenario);
+    return attachContinueHint(ai + "\n\n＝＝＝＝＝＝＝＝＝＝\n" + pro, nextCount);
+  }
+
+  return attachContinueHint(ai, nextCount);
 }
 
-/* 主逻辑 */
 async function handleMessage(userId, text) {
   const input = String(text || "").trim();
 
-  if (!users[userId]) {
-    users[userId] = createUser();
+  if (!input) {
+    return buildClarifyReply();
   }
-
-  const user = users[userId];
 
   if (input === "__reset__") {
-    users[userId] = createUser();
+    resetUser(userId);
     return "リセットしました";
   }
+
+  const user = getUser(userId);
 
   if (isGreeting(input)) {
     return buildGreetingReply();
   }
 
-  /* 第4次 */
-  if (user.count === FREE_LIMIT) {
-    user.count++;
+  if (user.usageCount === FREE_LIMIT) {
+    updateUser(userId, {
+      usageCount: user.usageCount + 1
+    });
+
     return buildSoftLimitReply();
   }
 
-  /* 第5次以后 */
-  if (user.count > FREE_LIMIT) {
+  if (user.usageCount > FREE_LIMIT) {
     return buildHardPaywallReply();
   }
 
   if (user.pendingClarify) {
-    const original = user.pendingText;
-    user.pendingClarify = false;
+    const original = user.pendingText || input;
+
+    updateUser(userId, {
+      pendingClarify: false,
+      pendingText: null
+    });
 
     if (/^(1|①)$/i.test(input)) {
-      return generateFree(original, user, "partner");
+      return generateFree(userId, original, "partner");
     }
 
     if (/^(2|②)$/i.test(input)) {
-      return generateFree(original, user, "situation");
+      return generateFree(userId, original, "situation");
     }
 
-    return generateFree(original, user, "situation");
+    return generateFree(userId, original, "situation");
   }
 
-  const type = detectInputType(input, user.context);
+  const type = detectInputType(input, user);
 
   if (type === "unknown") {
-    user.pendingClarify = true;
-    user.pendingText = input;
+    updateUser(userId, {
+      pendingClarify: true,
+      pendingText: input
+    });
+
     return buildClarifyReply();
   }
 
-  return generateFree(input, user, type);
+  return generateFree(userId, input, type);
 }
 
 module.exports = { handleMessage };
