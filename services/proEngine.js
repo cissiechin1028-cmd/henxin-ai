@@ -1,21 +1,4 @@
-// services/proEngine.js
-
-function makeHook(input = "") {
-  const text = String(input).trim();
-
-  if (!text) return "この状況";
-
-  return text.length > 24
-    ? `「${text.slice(0, 24)}…」`
-    : `「${text}」`;
-}
-
 function generateProResponse(input, scenario = "normal") {
-  const hook = makeHook(input);
-
-  // ======================
-  // cheating（最冷静）
-  // ======================
   if (scenario === "cheating") {
     return `【この後どうする？】
 ・今は送らない
@@ -29,15 +12,12 @@ function generateProResponse(input, scenario = "normal") {
 「落ち着いたタイミングで話せたらでいいよ」
 
 【タイミング】
-・平日の夜（21時前後）
+・平日の夜 21時前後
 
 やりがち【NG】
-ここで疑いをぶつけると、防御に入って本音が出なくなります。`;
+ここで疑いをぶつけると、防御に入って本音が出にくくなります。`;
   }
 
-  // ======================
-  // breakup
-  // ======================
   if (scenario === "breakup") {
     return `【この後どうする？】
 ・今は送らない
@@ -57,14 +37,11 @@ function generateProResponse(input, scenario = "normal") {
 ここで長文や説得をすると、完全に距離を置かれやすくなります。`;
   }
 
-  // ======================
-  // ignore
-  // ======================
   if (scenario === "ignore") {
     return `【この後どうする？】
 ・今は送らない
 ・2〜3日待つ
-・軽い内容で再接触
+・軽い内容で再接触する
 
 【送るなら】
 「忙しかったら全然大丈夫。また落ち着いたら話そ😊」
@@ -79,14 +56,11 @@ function generateProResponse(input, scenario = "normal") {
 ここで追いLINEをすると、相手の温度がさらに下がります。`;
   }
 
-  // ======================
-  // cold
-  // ======================
   if (scenario === "cold") {
     return `【この後どうする？】
 ・今は軽く触れるだけ
-・様子を見て引く
-・詰めない
+・理由を詰めない
+・相手の反応を見る
 
 【送るなら】
 「最近ちょっと忙しそうだね。無理しないでね」
@@ -101,9 +75,6 @@ function generateProResponse(input, scenario = "normal") {
 ここで理由を聞きすぎると、距離が広がりやすくなります。`;
   }
 
-  // ======================
-  // flirt
-  // ======================
   if (scenario === "flirt") {
     return `【この後どうする？】
 ・軽く好意を出す
@@ -117,15 +88,12 @@ function generateProResponse(input, scenario = "normal") {
 「タイミング合えば、もう少し話せたら嬉しい」
 
 【タイミング】
-・夜（20〜22時）
+・夜 20〜22時
 
 やりがち【NG】
 ここで一気に距離を詰めると、引かれやすくなります。`;
   }
 
-  // ======================
-  // reunion
-  // ======================
   if (scenario === "reunion") {
     return `【この後どうする？】
 ・いきなり復縁は出さない
@@ -145,9 +113,6 @@ function generateProResponse(input, scenario = "normal") {
 ここで復縁の話を出すと、警戒が強くなります。`;
   }
 
-  // ======================
-  // normal
-  // ======================
   return `【この後どうする？】
 ・軽く返す
 ・様子を見る
