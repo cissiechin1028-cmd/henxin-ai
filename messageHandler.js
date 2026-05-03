@@ -74,6 +74,12 @@ function detectInputType(text = "", user = {}) {
   return "situation";
 }
 
+function isHighIntentInput(text = "") {
+  const t = String(text).trim();
+
+  return /復縁|戻りたい|浮気|怪しい|別れ|別れそう|ブロック|既読無視|未読無視|脈なし|冷たい|距離|喧嘩|嫌われた|終わり/.test(t);
+}
+
 function buildClarifyReply() {
   return `これ、どっちですか？
 
@@ -97,7 +103,25 @@ function buildSoftLimitReply() {
 }
 
 function buildHardPaywallReply() {
-  return `この先では、
+  if (PRO_URL) {
+    return `無料で見られる回数はここまでです。
+
+この先では、
+
+・相手の温度感
+・次にどう動くか
+・送るタイミング
+・そのまま使える返信
+
+まで確認できます。
+
+続きを見る👇
+${PRO_URL}`;
+  }
+
+  return `無料で見られる回数はここまでです。
+
+この先では、
 
 ・相手の温度感
 ・次にどう動くか
@@ -120,23 +144,83 @@ ${PRO_URL}
   return `開通リンクは準備中です。`;
 }
 
-function attachContinueHint(text, count) {
+function attachContinueHint(text, count, isHighIntent = false) {
   if (count === 1) {
-    return text;
+    if (isHighIntent) {
+      return `${text}
+
+※この状況は、次の一言を間違えると相手の温度が下がりやすいです。
+相手の返事や、今の状況をもう少し送ってください。`;
+    }
+
+    return `${text}
+
+相手の返事が来たら、そのまま送ってください。
+次にどう返すのが自然か、一緒に見ます。`;
   }
 
   if (count === 2) {
+    if (isHighIntent) {
+      return `${text}
+
+※ここからは、勢いで送るより「送る順番」がかなり大事です。
+次の状況を送ってくれたら、危ない返し方を避けて考えます。`;
+    }
+
     return `${text}
 
-※この状況は、次の一言で相手の温度が変わりやすいです。
-「続き」と送ると、次に送るべき一言まで見れます。`;
+この流れなら、次にどう動くかも見れます。
+相手の返信や迷っている内容を、そのまま送ってください。`;
   }
 
   if (count === 3) {
+    if (PRO_URL) {
+      if (isHighIntent) {
+        return `${text}
+
+無料で見られるのはここまでです。
+
+この状況は、返信内容だけでなく
+「いつ送るか」「どこまで踏み込むか」で結果が変わりやすいです。
+
+この先では、
+
+・今送るべきか
+・何時間空けるべきか
+・送るならどの一言が安全か
+・送らない方がいいNG返信
+
+まで確認できます。
+
+続きを見る👇
+${PRO_URL}`;
+      }
+
+      return `${text}
+
+無料で見られるのはここまでです。
+
+ここから先は、
+送る内容だけでなく「送るタイミング」も大事です。
+
+この先では、
+
+・今送るべきか
+・何時間空けるべきか
+・送るならどの一言が自然か
+
+まで確認できます。
+
+続きを見る👇
+${PRO_URL}`;
+    }
+
     return `${text}
 
-ここから先は、送る内容よりも
-“いつ送るか”で結果が変わりやすいです。
+無料で見られるのはここまでです。
+
+ここから先は、
+送る内容だけでなく「送るタイミング」も大事です。
 
 続きを見る`;
   }
@@ -155,6 +239,7 @@ async function generateFree(userId, input, forcedType = null) {
   }
 
   const scenario = detectScenario(input);
+  const isHighIntent = isHighIntentInput(input);
 
   const ai = await generateAIResponse({
     input,
@@ -181,7 +266,7 @@ async function generateFree(userId, input, forcedType = null) {
     lastAdvice: ai
   });
 
-  return attachContinueHint(ai, nextCount);
+  return attachContinueHint(ai, nextCount, isHighIntent);
 }
 
 async function handleMessage(userId, text) {
@@ -196,7 +281,7 @@ async function handleMessage(userId, text) {
     return "リセットしました";
   }
 
-  let user = getUser(userId);
+  const user = getUser(userId);
 
   if (isGreeting(input)) {
     return buildGreetingReply(input);
@@ -204,21 +289,6 @@ async function handleMessage(userId, text) {
 
   if (/^(開通|購入|支払い|続きを見る)$/i.test(input)) {
     return buildOpenGuide();
-  }
-
-  const isFollowup = /^(続き|つづき|次|どうする|返事)$/i.test(input);
-
-  if (
-    user.lastInput &&
-    input !== user.lastInput &&
-    !isFollowup
-  ) {
-    updateUser(userId, {
-      usageCount: 0,
-      paywall: false
-    });
-
-    user = getUser(userId);
   }
 
   if (user.pendingClarify) {
@@ -240,16 +310,11 @@ async function handleMessage(userId, text) {
     return generateFree(userId, original, "situation");
   }
 
-  if (user.usageCount === FREE_LIMIT) {
+  if (user.usageCount >= FREE_LIMIT) {
     updateUser(userId, {
-      usageCount: user.usageCount + 1,
       paywall: true
     });
 
-    return buildSoftLimitReply();
-  }
-
-  if (user.usageCount > FREE_LIMIT || user.paywall) {
     return buildHardPaywallReply();
   }
 
