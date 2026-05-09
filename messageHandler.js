@@ -47,6 +47,20 @@ function detectInputType(text = "", user = {}) {
 
   if (/「.+」/.test(t)) return "partner";
 
+  if (
+    user.lastInput &&
+    /^(続き|つづき|次|どうする|どうすれば|どうしたら|返事|大丈夫|まだ好き|復縁したい)$/i.test(t)
+  ) {
+    return "followup";
+  }
+
+  if (
+    user.lastInput &&
+    /(でも|なんか|気がする|かも|どうすれば|どうしたら|わからない|分からない|大丈夫|まだ好き|復縁|戻りたい|浮気|怪しい|不安|怖い|心配|嫌われた|終わり)/.test(t)
+  ) {
+    return "followup";
+  }
+
   if (/相手から|相手のメッセージ|相手に言われた|彼から|彼女から/.test(t)) {
     return "situation";
   }
@@ -78,6 +92,42 @@ function isHighIntentInput(text = "") {
   const t = String(text).trim();
 
   return /復縁|戻りたい|浮気|怪しい|別れ|別れそう|ブロック|既読無視|未読無視|脈なし|冷たい|距離|喧嘩|嫌われた|終わり/.test(t);
+}
+
+function deriveConversationRules(input = "", user = {}) {
+  const t = String(input).trim();
+
+  let contactAllowed = user.contactAllowed;
+  let recommendedAction = user.recommendedAction;
+  let mainRisk = user.mainRisk;
+
+  if (/しばらく連絡しないで|連絡しないで|距離を置きたい|距離置きたい|今は話したくない|一人にして|放っておいて/.test(t)) {
+    contactAllowed = false;
+    recommendedAction = "wait";
+    mainRisk = "push_too_hard";
+  } else if (/忙しい|バタバタ|返信遅い|既読無視|未読無視|冷たい|そっけない|距離を感じる/.test(t)) {
+    contactAllowed = true;
+    recommendedAction = "soft_reply";
+    mainRisk = "pressure";
+  } else if (/喧嘩|怒ってる|怒らせた|言いすぎた|責めた|傷つけた/.test(t)) {
+    contactAllowed = true;
+    recommendedAction = "cool_down";
+    mainRisk = "escalation";
+  } else if (/別れたい|別れよう|別れた|振られた|復縁したい|戻りたい/.test(t)) {
+    contactAllowed = false;
+    recommendedAction = "reduce_pressure";
+    mainRisk = "begging";
+  } else if (/浮気|怪しい|他に好きな人|他の人|女の影|男の影/.test(t)) {
+    contactAllowed = true;
+    recommendedAction = "observe";
+    mainRisk = "accusation";
+  }
+
+  return {
+    contactAllowed,
+    recommendedAction,
+    mainRisk
+  };
 }
 
 function buildClarifyReply() {
@@ -232,17 +282,26 @@ async function generateFree(userId, input, forcedType = null) {
   const user = getUser(userId);
 
   let inputType = forcedType || detectInputType(input, user);
+  let aiInput = input;
 
   if (inputType === "followup") {
     inputType = user.lastInputType || "situation";
-    input = user.lastInput || input;
+
+    aiInput = `前回までの相談:
+${user.lastInput || ""}
+
+今回の追問:
+${input}
+
+上の流れを一つの相談として見て、前回と矛盾しないように返してください。`;
   }
 
-  const scenario = detectScenario(input);
-  const isHighIntent = isHighIntentInput(input);
+  const rules = deriveConversationRules(aiInput, user);
+  const scenario = detectScenario(aiInput);
+  const isHighIntent = isHighIntentInput(aiInput);
 
   const ai = await generateAIResponse({
-    input,
+    input: aiInput,
     userState: {
       inputType,
       scenario,
@@ -251,7 +310,10 @@ async function generateFree(userId, input, forcedType = null) {
         lastInputType: user.lastInputType,
         lastScenario: user.lastScenario,
         lastAdvice: user.lastAdvice,
-        lastRiskLevel: user.lastRiskLevel
+        lastRiskLevel: user.lastRiskLevel,
+        contactAllowed: rules.contactAllowed,
+        recommendedAction: rules.recommendedAction,
+        mainRisk: rules.mainRisk
       }
     }
   });
@@ -260,10 +322,13 @@ async function generateFree(userId, input, forcedType = null) {
   const nextCount = updatedUser.usageCount;
 
   updateUser(userId, {
-    lastInput: input,
+    lastInput: aiInput,
     lastInputType: inputType,
     lastScenario: scenario,
-    lastAdvice: ai
+    lastAdvice: ai,
+    contactAllowed: rules.contactAllowed,
+    recommendedAction: rules.recommendedAction,
+    mainRisk: rules.mainRisk
   });
 
   return attachContinueHint(ai, nextCount, isHighIntent);
