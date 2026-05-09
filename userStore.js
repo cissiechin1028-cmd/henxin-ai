@@ -4,7 +4,6 @@ function createUser() {
   return {
     usageCount: 0,
     replyUsageCount: 0,
-    criticalUsageCount: 0,
     plan: "free",
 
     pendingClarify: false,
@@ -54,21 +53,9 @@ function incrementReplyUsage(userId) {
   return users[userId];
 }
 
-function incrementCriticalUsage(userId) {
-  const user = getUser(userId);
-
-  users[userId] = {
-    ...user,
-    criticalUsageCount: user.criticalUsageCount + 1
-  };
-
-  return users[userId];
-}
-
 module.exports = {
   getUser,
   resetUser,
   updateUser,
-  incrementReplyUsage,
-  incrementCriticalUsage
+  incrementReplyUsage
 };
