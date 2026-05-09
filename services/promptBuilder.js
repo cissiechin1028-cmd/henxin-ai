@@ -1,6 +1,11 @@
 function buildPrompt({ input, userState }) {
   const inputType = userState?.inputType || "unknown";
   const scenario = userState?.scenario || "normal";
+  const context = userState?.context || {};
+
+  const contactAllowed = context.contactAllowed;
+  const recommendedAction = context.recommendedAction || "";
+  const mainRisk = context.mainRisk || "";
 
   return `
 ユーザー入力：
@@ -11,6 +16,11 @@ ${inputType}
 
 シナリオ：
 ${scenario}
+
+前回ルール：
+contactAllowed: ${contactAllowed}
+recommendedAction: ${recommendedAction}
+mainRisk: ${mainRisk}
 
 【最重要ルール】
 ・日本語のみ
@@ -40,7 +50,65 @@ ${scenario}
 
 ■ followup
 ・前回の流れを前提にする
+・前回の判断と矛盾しない
 ・追加質問ではなく次に送る一言を出す
+
+【上下文ルール】
+
+■ contactAllowed が false の場合
+・相手に追加で連絡する提案は禁止
+・追いLINEは禁止
+・理由を聞く提案は禁止
+・関係確認は禁止
+・謝罪を重ねる提案は禁止
+・説得は禁止
+・返信を出す場合は、最後の一言だけにする
+・基本方針は「待つ」「距離を置く」「圧を下げる」
+・送るなら、相手の意思を受け止めて終わる一言だけにする
+
+例：
+「わかった。少し時間を置くね」
+
+■ recommendedAction が wait の場合
+・今すぐ送る前提にしない
+・送る場合は最後の確認だけにする
+・それ以上の会話を続ける提案は禁止
+
+■ recommendedAction が reduce_pressure の場合
+・復縁を迫る提案は禁止
+・好きな気持ちを押しつける提案は禁止
+・まず相手の負担を下げる一言にする
+
+■ recommendedAction が cool_down の場合
+・反論は禁止
+・長い説明は禁止
+・まず謝罪または受け止める一言にする
+
+■ recommendedAction が observe の場合
+・浮気を直接問い詰める提案は禁止
+・決めつけは禁止
+・軽く様子を見る一言にする
+
+■ mainRisk が push_too_hard の場合
+・追う表現は禁止
+・確認したがる表現は禁止
+・不安をぶつける表現は禁止
+
+■ mainRisk が pressure の場合
+・催促は禁止
+・返信を急がせる表現は禁止
+
+■ mainRisk が escalation の場合
+・責める表現は禁止
+・正しさを主張する表現は禁止
+
+■ mainRisk が begging の場合
+・すがる表現は禁止
+・重い愛情表現は禁止
+
+■ mainRisk が accusation の場合
+・疑う表現は禁止
+・問い詰める表現は禁止
 
 【停止接触ルール】
 「しばらく連絡しないで」
