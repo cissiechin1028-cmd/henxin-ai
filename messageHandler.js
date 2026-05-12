@@ -334,6 +334,41 @@ ${input}
   return attachContinueHint(ai, nextCount, isHighIntent);
 }
 
+async function generatePro(userId, input, forcedType = null) {
+  const user = getUser(userId);
+
+  let inputType = forcedType || detectInputType(input, user);
+  let aiInput = input;
+
+  if (inputType === "followup") {
+    inputType = user.lastInputType || "situation";
+
+    aiInput = `前回までの相談:
+${user.lastInput || ""}
+
+今回の追問:
+${input}
+
+上の流れを一つの相談として見て、前回と矛盾しないように返してください。`;
+  }
+
+  const rules = deriveConversationRules(aiInput, user);
+  const scenario = detectScenario(aiInput);
+  const proReply = generateProResponse(aiInput, scenario);
+
+  updateUser(userId, {
+    lastInput: aiInput,
+    lastInputType: inputType,
+    lastScenario: scenario,
+    lastAdvice: proReply,
+    contactAllowed: rules.contactAllowed,
+    recommendedAction: rules.recommendedAction,
+    mainRisk: rules.mainRisk
+  });
+
+  return proReply;
+}
+
 async function handleMessage(userId, text) {
   const input = String(text || "").trim();
 
@@ -375,7 +410,7 @@ async function handleMessage(userId, text) {
     return generateFree(userId, original, "situation");
   }
 
-  if (user.usageCount >= FREE_LIMIT) {
+  if (user.plan !== "pro" && user.usageCount >= FREE_LIMIT) {
     updateUser(userId, {
       paywall: true
     });
@@ -392,6 +427,10 @@ async function handleMessage(userId, text) {
     });
 
     return buildClarifyReply();
+  }
+
+  if (user.plan === "pro") {
+    return generatePro(userId, input, type);
   }
 
   return generateFree(userId, input, type);
