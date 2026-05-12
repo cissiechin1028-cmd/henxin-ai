@@ -4,7 +4,7 @@ function createUser() {
   return {
     usageCount: 0,
     replyUsageCount: 0,
-    plan: "free",
+    plan: "pro",
 
     pendingClarify: false,
     pendingText: null,
