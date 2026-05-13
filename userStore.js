@@ -13,7 +13,9 @@ function createUser() {
     lastInputType: null,
     lastScenario: null,
     lastAdvice: null,
-    lastRiskLevel: 1
+    lastRiskLevel: 1,
+
+    conversationSummary: null
   };
 }
 
