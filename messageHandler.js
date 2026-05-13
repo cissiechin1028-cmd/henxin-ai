@@ -1,6 +1,7 @@
 const { generateAIResponse } = require("./services/ai");
 const { generateProResponse } = require("./services/proEngine");
 const { detectScenario } = require("./services/scenarioDetector");
+const { classifyMessage } = require("./services/classifier");
 const {
   getUser,
   resetUser,
@@ -296,9 +297,20 @@ ${input}
 上の流れを一つの相談として見て、前回と矛盾しないように返してください。`;
   }
 
-  const rules = deriveConversationRules(aiInput, user);
-  const scenario = detectScenario(aiInput);
-  const isHighIntent = isHighIntentInput(aiInput);
+  const classification = await classifyMessage({ input: aiInput, user });
+  const fallbackRules = deriveConversationRules(aiInput, user);
+
+  const rules = classification
+    ? {
+        contactAllowed: classification.contactAllowed,
+        recommendedAction: classification.recommendedAction,
+        mainRisk: classification.mainRisk
+      }
+    : fallbackRules;
+
+  const scenario = classification?.scenario || detectScenario(aiInput);
+  const riskLevel = classification?.riskLevel || user.lastRiskLevel || 1;
+  const isHighIntent = classification ? riskLevel >= 3 : isHighIntentInput(aiInput);
 
   const ai = await generateAIResponse({
     input: aiInput,
@@ -326,6 +338,7 @@ ${input}
     lastInputType: inputType,
     lastScenario: scenario,
     lastAdvice: ai,
+    lastRiskLevel: riskLevel,
     contactAllowed: rules.contactAllowed,
     recommendedAction: rules.recommendedAction,
     mainRisk: rules.mainRisk
@@ -352,8 +365,19 @@ ${input}
 上の流れを一つの相談として見て、前回と矛盾しないように返してください。`;
   }
 
-  const rules = deriveConversationRules(aiInput, user);
-  const scenario = detectScenario(aiInput);
+  const classification = await classifyMessage({ input: aiInput, user });
+  const fallbackRules = deriveConversationRules(aiInput, user);
+
+  const rules = classification
+    ? {
+        contactAllowed: classification.contactAllowed,
+        recommendedAction: classification.recommendedAction,
+        mainRisk: classification.mainRisk
+      }
+    : fallbackRules;
+
+  const scenario = classification?.scenario || detectScenario(aiInput);
+  const riskLevel = classification?.riskLevel || user.lastRiskLevel || 1;
   const proReply = generateProResponse(aiInput, scenario);
 
   updateUser(userId, {
@@ -361,6 +385,7 @@ ${input}
     lastInputType: inputType,
     lastScenario: scenario,
     lastAdvice: proReply,
+    lastRiskLevel: riskLevel,
     contactAllowed: rules.contactAllowed,
     recommendedAction: rules.recommendedAction,
     mainRisk: rules.mainRisk
