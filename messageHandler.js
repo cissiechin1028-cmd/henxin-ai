@@ -2,6 +2,7 @@ const { generateAIResponse } = require("./services/ai");
 const { generateProResponse } = require("./services/proEngine");
 const { detectScenario } = require("./services/scenarioDetector");
 const { classifyMessage } = require("./services/classifier");
+const { updateConversationSummary } = require("./services/summarizer");
 const {
   getUser,
   resetUser,
@@ -323,6 +324,7 @@ ${input}
         lastScenario: user.lastScenario,
         lastAdvice: user.lastAdvice,
         lastRiskLevel: user.lastRiskLevel,
+        conversationSummary: user.conversationSummary,
         contactAllowed: rules.contactAllowed,
         recommendedAction: rules.recommendedAction,
         mainRisk: rules.mainRisk
@@ -333,12 +335,20 @@ ${input}
   const updatedUser = incrementReplyUsage(userId);
   const nextCount = updatedUser.usageCount;
 
+  const conversationSummary = await updateConversationSummary({
+    previousSummary: user.conversationSummary,
+    input: aiInput,
+    reply: ai,
+    scenario
+  });
+
   updateUser(userId, {
     lastInput: aiInput,
     lastInputType: inputType,
     lastScenario: scenario,
     lastAdvice: ai,
     lastRiskLevel: riskLevel,
+    conversationSummary,
     contactAllowed: rules.contactAllowed,
     recommendedAction: rules.recommendedAction,
     mainRisk: rules.mainRisk
@@ -380,12 +390,20 @@ ${input}
   const riskLevel = classification?.riskLevel || user.lastRiskLevel || 1;
   const proReply = generateProResponse(aiInput, scenario);
 
+  const conversationSummary = await updateConversationSummary({
+    previousSummary: user.conversationSummary,
+    input: aiInput,
+    reply: proReply,
+    scenario
+  });
+
   updateUser(userId, {
     lastInput: aiInput,
     lastInputType: inputType,
     lastScenario: scenario,
     lastAdvice: proReply,
     lastRiskLevel: riskLevel,
+    conversationSummary,
     contactAllowed: rules.contactAllowed,
     recommendedAction: rules.recommendedAction,
     mainRisk: rules.mainRisk
