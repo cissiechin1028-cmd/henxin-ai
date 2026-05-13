@@ -6,6 +6,7 @@ function buildPrompt({ input, userState }) {
   const contactAllowed = context.contactAllowed;
   const recommendedAction = context.recommendedAction || "";
   const mainRisk = context.mainRisk || "";
+  const conversationSummary = context.conversationSummary || "";
 
   return `
 ユーザー入力：
@@ -16,6 +17,9 @@ ${inputType}
 
 シナリオ：
 ${scenario}
+
+前回までの要約：
+${conversationSummary || "なし"}
 
 前回ルール：
 contactAllowed: ${contactAllowed}
