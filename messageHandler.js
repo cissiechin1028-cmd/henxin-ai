@@ -359,7 +359,7 @@ ${input}
 }
 
 async function generatePro(userId, input, forcedType = null) {
-  const user = getUser(userId);
+  const user = await getUser(userId);
 
   let inputType = forcedType || detectInputType(input, user);
   let aiInput = input;
@@ -398,7 +398,7 @@ ${input}
     scenario
   });
 
-  updateUser(userId, {
+  await updateUser(userId, {
     lastInput: aiInput,
     lastInputType: inputType,
     lastScenario: scenario,
@@ -425,7 +425,7 @@ async function handleMessage(userId, text) {
     return "リセットしました";
   }
 
-  const user = getUser(userId);
+  const user = await getUser(userId);
 
   if (isGreeting(input)) {
     return buildGreetingReply(input);
@@ -438,7 +438,7 @@ async function handleMessage(userId, text) {
   if (user.pendingClarify) {
     const original = user.pendingText || input;
 
-    updateUser(userId, {
+    await updateUser(userId, {
       pendingClarify: false,
       pendingText: null
     });
@@ -455,7 +455,7 @@ async function handleMessage(userId, text) {
   }
 
   if (user.plan !== "pro" && user.usageCount >= FREE_LIMIT) {
-    updateUser(userId, {
+    await updateUser(userId, {
       paywall: true
     });
 
@@ -465,7 +465,7 @@ async function handleMessage(userId, text) {
   const type = detectInputType(input, user);
 
   if (type === "unknown") {
-    updateUser(userId, {
+    await updateUser(userId, {
       pendingClarify: true,
       pendingText: input
     });
