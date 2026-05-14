@@ -12,6 +12,15 @@ const {
 
 const FREE_LIMIT = 3;
 const PRO_URL = process.env.PRO_URL || "";
+const BASE_URL = process.env.BASE_URL || "";
+
+function buildCheckoutUrl(userId) {
+  if (BASE_URL) {
+    return `${BASE_URL}/checkout?userId=${encodeURIComponent(userId)}`;
+  }
+
+  return PRO_URL;
+}
 
 function isGreeting(text = "") {
   const t = String(text).trim().toLowerCase();
@@ -154,8 +163,10 @@ function buildSoftLimitReply() {
 続きを見る`;
 }
 
-function buildHardPaywallReply() {
-  if (PRO_URL) {
+function buildHardPaywallReply(userId) {
+  const checkoutUrl = buildCheckoutUrl(userId);
+
+  if (checkoutUrl) {
     return `無料で見られる回数はここまでです。
 
 この先では、
@@ -168,7 +179,7 @@ function buildHardPaywallReply() {
 まで確認できます。
 
 続きを見る👇
-${PRO_URL}`;
+${checkoutUrl}`;
   }
 
   return `無料で見られる回数はここまでです。
@@ -185,10 +196,12 @@ ${PRO_URL}`;
 続きを見る`;
 }
 
-function buildOpenGuide() {
-  if (PRO_URL) {
+function buildOpenGuide(userId) {
+  const checkoutUrl = buildCheckoutUrl(userId);
+
+  if (checkoutUrl) {
     return `開通はこちら👇
-${PRO_URL}
+${checkoutUrl}
 
 開通後、もう一度メッセージを送ってください。`;
   }
@@ -196,7 +209,9 @@ ${PRO_URL}
   return `開通リンクは準備中です。`;
 }
 
-function attachContinueHint(text, count, isHighIntent = false) {
+function attachContinueHint(text, count, isHighIntent = false, userId = "") {
+  const checkoutUrl = buildCheckoutUrl(userId);
+
   if (count === 1) {
     if (isHighIntent) {
       return `${text}
@@ -227,7 +242,7 @@ function attachContinueHint(text, count, isHighIntent = false) {
   }
 
   if (count === 3) {
-    if (PRO_URL) {
+    if (checkoutUrl) {
       if (isHighIntent) {
         return `${text}
 
@@ -246,7 +261,7 @@ function attachContinueHint(text, count, isHighIntent = false) {
 まで確認できます。
 
 続きを見る👇
-${PRO_URL}`;
+${checkoutUrl}`;
       }
 
       return `${text}
@@ -265,7 +280,7 @@ ${PRO_URL}`;
 まで確認できます。
 
 続きを見る👇
-${PRO_URL}`;
+${checkoutUrl}`;
     }
 
     return `${text}
@@ -355,7 +370,7 @@ ${input}
     mainRisk: rules.mainRisk
   });
 
-  return attachContinueHint(ai, nextCount, isHighIntent);
+  return attachContinueHint(ai, nextCount, isHighIntent, userId);
 }
 
 async function generatePro(userId, input, forcedType = null) {
@@ -432,7 +447,7 @@ async function handleMessage(userId, text) {
   }
 
   if (/^(開通|購入|支払い|続きを見る)$/i.test(input)) {
-    return buildOpenGuide();
+    return buildOpenGuide(userId);
   }
 
   if (user.pendingClarify) {
@@ -459,7 +474,7 @@ async function handleMessage(userId, text) {
       paywall: true
     });
 
-    return buildHardPaywallReply();
+    return buildHardPaywallReply(userId);
   }
 
   const type = detectInputType(input, user);
