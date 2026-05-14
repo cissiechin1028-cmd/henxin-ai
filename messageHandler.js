@@ -282,7 +282,7 @@ ${PRO_URL}`;
 }
 
 async function generateFree(userId, input, forcedType = null) {
-  const user = getUser(userId);
+  const user = await getUser(userId);
 
   let inputType = forcedType || detectInputType(input, user);
   let aiInput = input;
@@ -333,7 +333,7 @@ ${input}
     }
   });
 
-  const updatedUser = incrementReplyUsage(userId);
+  const updatedUser = await incrementReplyUsage(userId);
   const nextCount = updatedUser.usageCount;
 
   const conversationSummary = await updateConversationSummary({
@@ -343,7 +343,7 @@ ${input}
     scenario
   });
 
-  updateUser(userId, {
+  await updateUser(userId, {
     lastInput: aiInput,
     lastInputType: inputType,
     lastScenario: scenario,
@@ -421,7 +421,7 @@ async function handleMessage(userId, text) {
   }
 
   if (input === "__reset__") {
-    resetUser(userId);
+    await resetUser(userId);
     return "リセットしました";
   }
 
