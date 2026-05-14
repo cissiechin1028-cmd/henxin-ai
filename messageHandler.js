@@ -389,7 +389,7 @@ ${input}
 
   const scenario = classification?.scenario || detectScenario(aiInput);
   const riskLevel = classification?.riskLevel || user.lastRiskLevel || 1;
-  const proReply = generateProResponse(aiInput, scenario);
+  const proReply = await generateProResponse(aiInput, scenario);
 
   const conversationSummary = await updateConversationSummary({
     previousSummary: user.conversationSummary,
