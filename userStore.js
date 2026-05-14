@@ -3,6 +3,9 @@ const { createClient } = require("@supabase/supabase-js");
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
+console.log("SUPABASE_URL EXISTS:", Boolean(supabaseUrl));
+console.log("SUPABASE_KEY EXISTS:", Boolean(supabaseKey));
+
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 function createUser() {
