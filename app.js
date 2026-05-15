@@ -139,17 +139,7 @@ app.post("/webhook", async (req, res) => {
       if (checkoutUrlMatch) {
         const checkoutUrl = checkoutUrlMatch[0];
 
-        const paywallText =
-          "無料で見られる内容はここまでです。\n\n" +
-          "この先では、\n\n" +
-          "・脈ありかどうか\n" +
-          "・今の気持ち\n" +
-          "・次に送るべき返信\n" +
-          "・送るベストなタイミング\n\n" +
-          "まで詳しく確認できます。\n\n" +
-          "恋愛返信AI Proで、すべての分析結果を見る。";
-
-        await replyButton(replyToken, paywallText, "今すぐ続きを見る", checkoutUrl);
+        await replyButton(replyToken, replyText, "今すぐ続きを見る", checkoutUrl);
       } else {
         await replyMessage(replyToken, replyText);
       }
