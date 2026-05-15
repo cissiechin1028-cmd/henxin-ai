@@ -86,28 +86,28 @@ app.get("/checkout", async (req, res) => {
     }
 
     const session = await stripe.checkout.sessions.create({
-  mode: "subscription",
-  line_items: [
-    {
-      price: STRIPE_PRICE_ID,
-      quantity: 1
-    }
-  ],
-  success_url: `${BASE_URL}/success`,
-  cancel_url: `${BASE_URL}/cancel`,
+      mode: "subscription",
+      line_items: [
+        {
+          price: STRIPE_PRICE_ID,
+          quantity: 1
+        }
+      ],
+      success_url: `${BASE_URL}/success`,
+      cancel_url: `${BASE_URL}/cancel`,
 
-  locale: "ja",   // 强制 Stripe Checkout 显示日语
+      locale: "ja",   // 强制 Stripe Checkout 显示日语
 
-  client_reference_id: userId,
-  metadata: {
-    userId
-  },
-  subscription_data: {
-    metadata: {
-      userId
-    }
-  }
-});
+      client_reference_id: userId,
+      metadata: {
+        userId
+      },
+      subscription_data: {
+        metadata: {
+          userId
+        }
+      }
+    });
 
     res.redirect(303, session.url);
   } catch (err) {
@@ -132,27 +132,28 @@ app.post("/webhook", async (req, res) => {
 
       const replyText = await handleMessage(userId, text);
 
-const checkoutUrlMatch = String(replyText).match(
-  /https:\/\/henxin-ai\.onrender\.com\/checkout\?userId=[^\s]+/
-);
+      const checkoutUrlMatch = String(replyText).match(
+        /https:\/\/henxin-ai\.onrender\.com\/checkout\?userId=[^\s]+/
+      );
 
-if (checkoutUrlMatch) {
-  const checkoutUrl = checkoutUrlMatch[0];
+      if (checkoutUrlMatch) {
+        const checkoutUrl = checkoutUrlMatch[0];
 
-  const paywallText =
-    "無料で見られる内容はここまでです。\n\n" +
-    "この先では、\n\n" +
-    "・脈ありかどうか\n" +
-    "・今の気持ち\n" +
-    "・次に送るべき返信\n" +
-    "・送るベストなタイミング\n\n" +
-    "まで詳しく確認できます。\n\n" +
-    "恋愛返信AI Proで、すべての分析結果を見る。";
+        const paywallText =
+          "無料で見られる内容はここまでです。\n\n" +
+          "この先では、\n\n" +
+          "・脈ありかどうか\n" +
+          "・今の気持ち\n" +
+          "・次に送るべき返信\n" +
+          "・送るベストなタイミング\n\n" +
+          "まで詳しく確認できます。\n\n" +
+          "恋愛返信AI Proで、すべての分析結果を見る。";
 
-  await replyButton(replyToken, paywallText, "今すぐ続きを見る", checkoutUrl);
-} else {
-  await replyMessage(replyToken, replyText);
-}
+        await replyButton(replyToken, paywallText, "今すぐ続きを見る", checkoutUrl);
+      } else {
+        await replyMessage(replyToken, replyText);
+      }
+    }
 
     res.status(200).send("OK");
   } catch (err) {
