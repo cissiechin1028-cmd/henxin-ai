@@ -118,10 +118,10 @@ app.get("/success", (req, res) => {
   }
 
   .subtitle {
-    font-size: 16px;
-    line-height: 1.9;
+    font-size: 15px;
+    line-height: 1.75;
     color: #4b5563;
-    margin-bottom: 32px;
+    margin-bottom: 30px;
   }
 
   .badge {
