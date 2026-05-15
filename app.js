@@ -86,25 +86,28 @@ app.get("/checkout", async (req, res) => {
     }
 
     const session = await stripe.checkout.sessions.create({
-      mode: "subscription",
-      line_items: [
-        {
-          price: STRIPE_PRICE_ID,
-          quantity: 1
-        }
-      ],
-      success_url: `${BASE_URL}/success`,
-      cancel_url: `${BASE_URL}/cancel`,
-      client_reference_id: userId,
-      metadata: {
-        userId
-      },
-      subscription_data: {
-        metadata: {
-          userId
-        }
-      }
-    });
+  mode: "subscription",
+  line_items: [
+    {
+      price: STRIPE_PRICE_ID,
+      quantity: 1
+    }
+  ],
+  success_url: `${BASE_URL}/success`,
+  cancel_url: `${BASE_URL}/cancel`,
+
+  locale: "ja",   // 强制 Stripe Checkout 显示日语
+
+  client_reference_id: userId,
+  metadata: {
+    userId
+  },
+  subscription_data: {
+    metadata: {
+      userId
+    }
+  }
+});
 
     res.redirect(303, session.url);
   } catch (err) {
