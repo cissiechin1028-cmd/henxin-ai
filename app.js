@@ -64,9 +64,125 @@ app.get("/", (req, res) => {
 });
 
 app.get("/success", (req, res) => {
-  res
-    .status(200)
-    .send("お支払いが完了しました。LINEに戻って、もう一度メッセージを送ってください。");
+  res.status(200).send(`
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>お支払い完了</title>
+<style>
+  body {
+    margin: 0;
+    padding: 0;
+    background: linear-gradient(180deg, #f8fbff 0%, #eef4ff 100%);
+    font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+    color: #1f2937;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+  }
+
+  .card {
+    width: 90%;
+    max-width: 420px;
+    background: #ffffff;
+    border-radius: 24px;
+    padding: 48px 32px;
+    box-sizing: border-box;
+    box-shadow: 0 20px 60px rgba(15, 23, 42, 0.08);
+    text-align: center;
+  }
+
+  .icon {
+    width: 88px;
+    height: 88px;
+    margin: 0 auto 28px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #22c55e, #16a34a);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 42px;
+    color: #ffffff;
+    box-shadow: 0 12px 30px rgba(34, 197, 94, 0.25);
+  }
+
+  h1 {
+    margin: 0 0 16px;
+    font-size: 28px;
+    font-weight: 700;
+    color: #111827;
+    letter-spacing: 0.02em;
+  }
+
+  .subtitle {
+    font-size: 16px;
+    line-height: 1.9;
+    color: #4b5563;
+    margin-bottom: 32px;
+  }
+
+  .badge {
+    display: inline-block;
+    padding: 10px 18px;
+    background: #eefbf3;
+    color: #16a34a;
+    border-radius: 999px;
+    font-size: 14px;
+    font-weight: 600;
+    margin-bottom: 32px;
+  }
+
+  .button {
+    display: inline-block;
+    width: 100%;
+    box-sizing: border-box;
+    padding: 16px 24px;
+    background: linear-gradient(135deg, #4f46e5, #6366f1);
+    color: #ffffff;
+    text-decoration: none;
+    border-radius: 14px;
+    font-size: 16px;
+    font-weight: 700;
+    box-shadow: 0 12px 24px rgba(79, 70, 229, 0.20);
+  }
+
+  .note {
+    margin-top: 18px;
+    font-size: 13px;
+    color: #9ca3af;
+    line-height: 1.8;
+  }
+</style>
+</head>
+<body>
+  <div class="card">
+    <div class="icon">✓</div>
+
+    <div class="badge">恋愛返信AI Pro が有効になりました</div>
+
+    <h1>お支払い完了</h1>
+
+    <div class="subtitle">
+      ご購入ありがとうございます。<br>
+      LINEに戻って、もう一度メッセージを送ると<br>
+      Pro分析をご利用いただけます。
+    </div>
+
+    <a href="https://line.me/R/" class="button">
+      LINEに戻る
+    </a>
+
+    <div class="note">
+      もしLINEが開かない場合は、<br>
+      この画面を閉じて手動でLINEに戻ってください。
+    </div>
+  </div>
+</body>
+</html>
+  `);
 });
 
 app.get("/cancel", (req, res) => {
