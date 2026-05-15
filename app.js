@@ -139,7 +139,19 @@ app.post("/webhook", async (req, res) => {
       if (checkoutUrlMatch) {
         const checkoutUrl = checkoutUrlMatch[0];
 
-        await replyButton(replyToken, replyText, "今すぐ続きを見る", checkoutUrl);
+        const cleanedReplyText = String(replyText)
+          .replace(
+            /\n*続きを見る👇\n*https:\/\/henxin-ai\.onrender\.com\/checkout\?userId=[^\s]+/g,
+            ""
+          )
+          .trim();
+
+        await replyButton(
+          replyToken,
+          cleanedReplyText,
+          "今すぐ続きを見る",
+          checkoutUrl
+        );
       } else {
         await replyMessage(replyToken, replyText);
       }
