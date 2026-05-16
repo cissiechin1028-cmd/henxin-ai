@@ -74,7 +74,7 @@ app.get("/success", (req, res) => {
 <style>
   body {
     margin: 0;
-    padding: 0;
+    padding: 24px 16px;
     background: linear-gradient(180deg, #f8fbff 0%, #eef4ff 100%);
     font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
     color: #1f2937;
@@ -85,11 +85,11 @@ app.get("/success", (req, res) => {
   }
 
   .card {
-    width: 90%;
-    max-width: 420px;
+    width: 100%;
+    max-width: 720px;
     background: #ffffff;
-    border-radius: 24px;
-    padding: 48px 32px;
+    border-radius: 36px;
+    padding: 36px 32px 48px;
     box-sizing: border-box;
     box-shadow: 0 20px 60px rgba(15, 23, 42, 0.08);
     text-align: center;
