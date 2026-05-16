@@ -74,7 +74,7 @@ app.get("/success", (req, res) => {
 <style>
   body {
     margin: 0;
-    padding: 24px 16px;
+    padding: 8px 16px 24px;
     background: linear-gradient(180deg, #f8fbff 0%, #eef4ff 100%);
     font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
     color: #1f2937;
