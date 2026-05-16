@@ -306,6 +306,7 @@ ${input}
       inputType,
       scenario,
       context: {
+        originalInput: input,
         lastInput: user.lastInput,
         lastInputType: user.lastInputType,
         lastScenario: user.lastScenario,
