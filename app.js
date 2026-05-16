@@ -100,7 +100,7 @@ app.get("/success", (req, res) => {
   .icon {
     width: 88px;
     height: 88px;
-    margin: 0 auto 28px;
+    margin: 0 auto 24px;
     border-radius: 50%;
     background: linear-gradient(135deg, #22c55e, #16a34a);
     display: flex;
@@ -112,7 +112,7 @@ app.get("/success", (req, res) => {
   }
 
   h1 {
-    margin: 0 0 16px;
+    margin: 0 0 10px;
     font-size: 28px;
     font-weight: 700;
     color: #111827;
@@ -123,7 +123,7 @@ app.get("/success", (req, res) => {
     font-size: 15px;
     line-height: 1.75;
     color: #4b5563;
-    margin-bottom: 30px;
+    margin-bottom: 24px;
   }
 
   .badge {
@@ -134,7 +134,7 @@ app.get("/success", (req, res) => {
     border-radius: 999px;
     font-size: 14px;
     font-weight: 600;
-    margin-bottom: 32px;
+    margin-bottom: 24px;
   }
 
   .button {
@@ -152,7 +152,7 @@ app.get("/success", (req, res) => {
   }
 
   .note {
-    margin-top: 18px;
+    margin-top: 14px;
     font-size: 13px;
     color: #9ca3af;
     line-height: 1.8;
