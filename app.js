@@ -74,22 +74,21 @@ app.get("/success", (req, res) => {
 <style>
   body {
     margin: 0;
-    padding: 24px 16px;
+    padding: 0;
     background: linear-gradient(180deg, #f8fbff 0%, #eef4ff 100%);
     font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
     color: #1f2937;
     display: flex;
     justify-content: center;
-    align-items: flex-start;
+    align-items: center;
     min-height: 100vh;
-    box-sizing: border-box;
   }
 
   .card {
-    width: 100%;
-    max-width: 720px;
+    width: 90%;
+    max-width: 420px;
     background: #ffffff;
-    border-radius: 36px;
+    border-radius: 24px;
     padding: 48px 32px;
     box-sizing: border-box;
     box-shadow: 0 20px 60px rgba(15, 23, 42, 0.08);
@@ -99,7 +98,7 @@ app.get("/success", (req, res) => {
   .icon {
     width: 88px;
     height: 88px;
-    margin: 0 auto 24px;
+    margin: 0 auto 28px;
     border-radius: 50%;
     background: linear-gradient(135deg, #22c55e, #16a34a);
     display: flex;
@@ -111,7 +110,7 @@ app.get("/success", (req, res) => {
   }
 
   h1 {
-    margin: 0 0 18px;
+    margin: 0 0 16px;
     font-size: 28px;
     font-weight: 700;
     color: #111827;
@@ -120,9 +119,9 @@ app.get("/success", (req, res) => {
 
   .subtitle {
     font-size: 15px;
-    line-height: 1.9;
+    line-height: 1.75;
     color: #4b5563;
-    margin-bottom: 32px;
+    margin-bottom: 30px;
   }
 
   .badge {
@@ -140,12 +139,12 @@ app.get("/success", (req, res) => {
     display: inline-block;
     width: 100%;
     box-sizing: border-box;
-    padding: 20px 24px;
+    padding: 16px 24px;
     background: linear-gradient(135deg, #4f46e5, #6366f1);
     color: #ffffff;
     text-decoration: none;
-    border-radius: 18px;
-    font-size: 18px;
+    border-radius: 14px;
+    font-size: 16px;
     font-weight: 700;
     box-shadow: 0 12px 24px rgba(79, 70, 229, 0.20);
   }
@@ -172,7 +171,7 @@ app.get("/success", (req, res) => {
       Pro分析をご利用いただけます。
     </div>
 
-    <a href="https://line.me/R/oaMessage/%40931poeez" class="button">
+    <a href="https://line.me/R/" class="button">
       LINEに戻る
     </a>
 
