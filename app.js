@@ -90,7 +90,7 @@ app.get("/success", (req, res) => {
     max-width: 720px;
     background: #ffffff;
     border-radius: 36px;
-    padding: 28px 32px 40px;
+    padding: 28px 32px 24px;
     box-sizing: border-box;
     box-shadow: 0 20px 60px rgba(15, 23, 42, 0.08);
     text-align: center;
