@@ -171,7 +171,7 @@ app.get("/success", (req, res) => {
       Pro分析をご利用いただけます。
     </div>
 
-    <a href="https://line.me/R/nv/chat" class="button">
+    <a href="https://line.me/R/oaMessage/%40931poeez" class="button">
       LINEに戻る
     </a>
 
