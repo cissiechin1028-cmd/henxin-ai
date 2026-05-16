@@ -74,7 +74,7 @@ app.get("/success", (req, res) => {
 <style>
   body {
     margin: 0;
-    padding: 0 16px 24px;
+    padding: 24px 16px;
     background: linear-gradient(180deg, #f8fbff 0%, #eef4ff 100%);
     font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
     color: #1f2937;
@@ -90,11 +90,10 @@ app.get("/success", (req, res) => {
     max-width: 720px;
     background: #ffffff;
     border-radius: 36px;
-    padding: 28px 32px 24px;
+    padding: 48px 32px;
     box-sizing: border-box;
     box-shadow: 0 20px 60px rgba(15, 23, 42, 0.08);
     text-align: center;
-    margin-top: 12px;
   }
 
   .icon {
@@ -112,7 +111,7 @@ app.get("/success", (req, res) => {
   }
 
   h1 {
-    margin: 0 0 10px;
+    margin: 0 0 18px;
     font-size: 28px;
     font-weight: 700;
     color: #111827;
@@ -121,9 +120,9 @@ app.get("/success", (req, res) => {
 
   .subtitle {
     font-size: 15px;
-    line-height: 1.75;
+    line-height: 1.9;
     color: #4b5563;
-    margin-bottom: 24px;
+    margin-bottom: 32px;
   }
 
   .badge {
@@ -134,25 +133,25 @@ app.get("/success", (req, res) => {
     border-radius: 999px;
     font-size: 14px;
     font-weight: 600;
-    margin-bottom: 24px;
+    margin-bottom: 32px;
   }
 
   .button {
     display: inline-block;
     width: 100%;
     box-sizing: border-box;
-    padding: 16px 24px;
+    padding: 20px 24px;
     background: linear-gradient(135deg, #4f46e5, #6366f1);
     color: #ffffff;
     text-decoration: none;
-    border-radius: 14px;
-    font-size: 16px;
+    border-radius: 18px;
+    font-size: 18px;
     font-weight: 700;
     box-shadow: 0 12px 24px rgba(79, 70, 229, 0.20);
   }
 
   .note {
-    margin-top: 14px;
+    margin-top: 18px;
     font-size: 13px;
     color: #9ca3af;
     line-height: 1.8;
