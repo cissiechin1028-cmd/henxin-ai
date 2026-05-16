@@ -74,14 +74,15 @@ app.get("/success", (req, res) => {
 <style>
   body {
     margin: 0;
-    padding: 8px 16px 24px;
+    padding: 0 16px 24px;
     background: linear-gradient(180deg, #f8fbff 0%, #eef4ff 100%);
     font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
     color: #1f2937;
     display: flex;
     justify-content: center;
-    align-items: center;
+    align-items: flex-start;
     min-height: 100vh;
+    box-sizing: border-box;
   }
 
   .card {
@@ -89,10 +90,11 @@ app.get("/success", (req, res) => {
     max-width: 720px;
     background: #ffffff;
     border-radius: 36px;
-    padding: 36px 32px 48px;
+    padding: 28px 32px 40px;
     box-sizing: border-box;
     box-shadow: 0 20px 60px rgba(15, 23, 42, 0.08);
     text-align: center;
+    margin-top: 12px;
   }
 
   .icon {
