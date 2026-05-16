@@ -81,7 +81,7 @@ app.get("/success", (req, res) => {
     display: flex;
     justify-content: center;
     align-items: flex-start;
-    min-height: 100vh;
+    min-height: auto;
     box-sizing: border-box;
   }
 
