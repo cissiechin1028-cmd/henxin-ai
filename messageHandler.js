@@ -212,35 +212,6 @@ ${checkoutUrl}
 function attachContinueHint(text, count, isHighIntent = false, userId = "") {
   const checkoutUrl = buildCheckoutUrl(userId);
 
-  if (count === 1) {
-    if (isHighIntent) {
-      return `${text}
-
-※今の段階では、返信内容だけでなく「次にどう動くか」も大事です。
-相手の返事や、今の状況をもう少し送ってください。
-流れを見ながら、次の一言まで一緒に考えます。`;
-    }
-
-    return `${text}
-
-相手の返事が来たら、そのまま送ってください。
-この流れに合わせて、次にどう返すのが自然か見ます。`;
-  }
-
-  if (count === 2) {
-    if (isHighIntent) {
-      return `${text}
-
-※ここからは、勢いで送るより「送る順番」と「タイミング」が大事です。
-次の状況を送ってくれたら、相手の温度を下げにくい進め方を一緒に考えます。`;
-    }
-
-    return `${text}
-
-この流れなら、次の一言で印象が変わりやすいです。
-相手の返信や迷っている内容を、そのまま送ってください。`;
-  }
-
   if (count === 3) {
     if (checkoutUrl) {
       if (isHighIntent) {
