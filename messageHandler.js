@@ -149,88 +149,51 @@ function buildClarifyReply() {
 }
 
 function buildSoftLimitReply() {
-  return `この続きでは、
+  return `ここから先は、
+送る内容だけでなく「送るタイミング」も大事です。
+
+この先では、
 
 ・今送るべきか
-・どれくらい待つべきか
-・送るならどの一言が自然か
+・何時間空けるべきか
+・送るならどの一言が安全か
 
-まで詳しく確認できます。
+まで確認できます。
 
-続きを見てみる`;
+続きを見る`;
 }
 
-function buildDynamicUpsell({ checkoutUrl = "", isHighIntent = false, scenario = "normal" } = {}) {
-  const isSensitive =
-    isHighIntent ||
-    /reunion|fight|cold|ignore|block|breakup|cheating|normal/.test(String(scenario));
-
-  const body = isSensitive
-    ? `この続きでは、
-
-・相手の温度感
-・今どう動くのが自然か
-・送るならどの一言がよいか
-
-まで詳しく見られます。`
-    : `この続きでは、
-
-・今送るべきか
-・どれくらい待つべきか
-・送るならどの一言が自然か
-
-まで詳しく見られます。`;
+function buildHardPaywallReply(userId) {
+  const checkoutUrl = buildCheckoutUrl(userId);
 
   if (checkoutUrl) {
-    return `${body}
+    return `無料で見られる回数はここまでです。
 
-続きを見てみる👇
+この先では、
+
+・相手の温度感
+・次にどう動くか
+・送るタイミング
+・そのまま使える返信
+
+まで確認できます。
+
+続きを見る👇
 ${checkoutUrl}`;
   }
 
-  return `${body}
+  return `無料で見られる回数はここまでです。
 
-続きを見てみる`;
-}
+この先では、
 
-function buildPaywallEmpathy(input = "") {
-  const t = String(input || "");
+・相手の温度感
+・次にどう動くか
+・送るタイミング
+・そのまま使える返信
 
-  if (/どうすれば|どうしたら|わからない|分からない|不安|怖い|心配/.test(t)) {
-    return "どう動けばいいか分からなくなる時だよね。";
-  }
+まで確認できます。
 
-  if (/復縁|戻りたい|まだ好き|諦め/.test(t)) {
-    return "まだ気持ちが残っていると、簡単には割り切れないよね。";
-  }
-
-  if (/喧嘩|怒らせた|言いすぎた|傷つけた/.test(t)) {
-    return "早く何とかしたい気持ちになるよね。";
-  }
-
-  if (/既読|未読|返信|返事|無視/.test(t)) {
-    return "返事がないと、どうしても気になってしまうよね。";
-  }
-
-  if (/浮気|怪しい|他の人|女の影|男の影/.test(t)) {
-    return "一度気になり始めると、落ち着かなくなるよね。";
-  }
-
-  return "ここからどう動くか、迷いやすいところだよね。";
-}
-
-function buildHardPaywallReply(userId, input = "", isHighIntent = false, scenario = "normal") {
-  const checkoutUrl = buildCheckoutUrl(userId);
-  const empathy = buildPaywallEmpathy(input);
-  const upsell = buildDynamicUpsell({
-    checkoutUrl,
-    isHighIntent,
-    scenario
-  });
-
-  return `${empathy}
-
-${upsell}`;
+続きを見る`;
 }
 
 function buildOpenGuide(userId) {
@@ -246,17 +209,59 @@ ${checkoutUrl}
   return `開通リンクは準備中です。`;
 }
 
-function attachContinueHint(text, count, isHighIntent = false, userId = "", scenario = "normal") {
+function attachContinueHint(text, count, isHighIntent = false, userId = "") {
   const checkoutUrl = buildCheckoutUrl(userId);
 
   if (count === 3) {
+    if (checkoutUrl) {
+      if (isHighIntent) {
+        return `${text}
+
+無料で見られるのはここまでです。
+
+この状況は、返信内容だけでなく
+「いつ送るか」「どこまで踏み込むか」で結果が変わりやすいです。
+
+この先では、
+
+・今送るべきか
+・何時間空けるべきか
+・送るならどの一言が安全か
+・送らない方がいいNG返信
+
+まで確認できます。
+
+続きを見る👇
+${checkoutUrl}`;
+      }
+
+      return `${text}
+
+無料で見られるのはここまでです。
+
+ここから先は、
+送る内容だけでなく「送るタイミング」も大事です。
+
+この先では、
+
+・今送るべきか
+・何時間空けるべきか
+・送るならどの一言が自然か
+
+まで確認できます。
+
+続きを見る👇
+${checkoutUrl}`;
+    }
+
     return `${text}
 
-${buildDynamicUpsell({
-  checkoutUrl,
-  isHighIntent,
-  scenario
-})}`;
+無料で見られるのはここまでです。
+
+ここから先は、
+送る内容だけでなく「送るタイミング」も大事です。
+
+続きを見る`;
   }
 
   return text;
@@ -337,7 +342,7 @@ ${input}
     mainRisk: rules.mainRisk
   });
 
-  return attachContinueHint(ai, nextCount, isHighIntent, userId, scenario);
+  return attachContinueHint(ai, nextCount, isHighIntent, userId);
 }
 
 async function generatePro(userId, input, forcedType = null) {
@@ -441,11 +446,7 @@ async function handleMessage(userId, text) {
       paywall: true
     });
 
-    const scenario = user.lastScenario || detectScenario(input);
-    const riskLevel = user.lastRiskLevel || 1;
-    const isHighIntent = riskLevel >= 3 || isHighIntentInput(input);
-
-    return buildHardPaywallReply(userId, input, isHighIntent, scenario);
+    return buildHardPaywallReply(userId);
   }
 
   const type = detectInputType(input, user);
