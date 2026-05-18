@@ -167,8 +167,7 @@ function buildHardPaywallReply(userId) {
   const checkoutUrl = buildCheckoutUrl(userId);
 
   if (checkoutUrl) {
-    return `無料で見られる回数はここまでです。
-
+    return 
 ここから先は、相手の返事や状況に合わせて
 次の動き方をもう少し丁寧に見ていけます。
 
@@ -222,8 +221,6 @@ function attachContinueHint(text, count, isHighIntent = false, userId = "") {
     if (checkoutUrl) {
       if (isHighIntent) {
         return `${text}
-
-無料で見られるのはここまでです。
 
 この先は、相手の反応に合わせて
 「今送るべきか」「どれくらい待つべきか」まで見た方が安心です。
