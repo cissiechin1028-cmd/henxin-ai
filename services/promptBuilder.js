@@ -40,6 +40,7 @@ function buildPrompt({ input, userState }) {
   const mainRisk = context.mainRisk || "";
   const conversationSummary = context.conversationSummary || "";
   const originalInput = context.originalInput || input;
+  const freeUsageCount = context.freeUsageCount || 0;
   const speechStyle = detectUserSpeechStyle(originalInput);
 
   return `
@@ -57,6 +58,9 @@ ${scenario}
 
 ユーザー文体：
 ${speechStyle === "polite" ? "やさしい丁寧語" : "タメ口"}
+
+無料版の今回回数：
+${freeUsageCount}
 
 前回までの要約：
 ${conversationSummary || "なし"}
@@ -140,12 +144,16 @@ mainRisk: ${mainRisk}
 返事を催促しているように見える文は避ける。
 
 【継続相談の導線】
-無料版の1回目・2回目・3回目のすべてで、返信の最後には必ず継続相談の導線を自然に入れる。
+無料版の1回目・2回目では、返信の最後に継続相談の導線を自然に入れる。
 
-必ず伝える意味：
+1回目・2回目で必ず伝える意味：
 ・相手から返信が来たら、その内容をそのまま送ってよい
 ・状況が変わった場合も、その内容をそのまま送ってよい
 ・送ってもらえれば、次にどう返すかを一緒に考えられる
+
+無料版の3回目では、返信の最後に継続相談の導線を入れない。
+3回目では「返信が来たら送ってください」「一緒に考えます」などを書かない。
+3回目の案内は messageHandler.js のUpsell文に任せる。
 
 禁止：
 ・ユーザー自身で返して大丈夫
@@ -155,7 +163,6 @@ mainRisk: ${mainRisk}
 ・自分のペースで進めてください
 
 返信タイミング、詳しい分析、深い判断など、Pro版の価値を無料版で明示しすぎない。
-ただし「次にどう返すかを一緒に考えられる」ことは必ず伝える。
 固定文にせず、毎回自然に言い換える。
 
 【入力タイプ別】
@@ -252,8 +259,15 @@ mainRisk が accusation の場合：
 
 3段落目：
 今の段階で避けた方がよい行動を短く伝える。
-そのうえで、相手から返信が来た場合や状況が変わった場合は、
-その内容をそのまま送れば、次にどう返すかを一緒に考えられることを必ず自然に伝える。
+
+無料版1回目・2回目の場合：
+相手から返信が来た場合や状況が変わった場合は、その内容をそのまま送れば、次にどう返すかを一緒に考えられることを必ず自然に伝える。
+
+無料版3回目の場合：
+継続相談の導線は書かない。
+「返信が来たら送ってください」「一緒に考えます」などは書かない。
+messageHandler.js のUpsell文と矛盾しないよう、短い注意だけで終える。
+
 ユーザー自身で返してよい、自然に続けてよい、という印象を与える表現は禁止。
 固定文にしない。
 毎回同じ締め方にしない。
