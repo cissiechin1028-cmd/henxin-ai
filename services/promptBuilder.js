@@ -275,19 +275,31 @@ mainRisk が accusation の場合：
 `;
 }
 
+function removeEmoji(text = "") {
+  return String(text).replace(/[\p{Extended_Pictographic}\uFE0F\u200D]/gu, "");
+}
+
+function removeEmojiInsideQuotes(text = "") {
+  return String(text).replace(/「([^」]*)」/g, (match, inner) => {
+    return `「${removeEmoji(inner).trim()}」`;
+  });
+}
+
 function formatFreeReply(text = "") {
-  return String(text)
-    .replace(/【結論】/g, "")
-    .replace(/A（安全）/g, "")
-    .replace(/B（少し攻める）/g, "")
-    .replace(/A案/g, "")
-    .replace(/B案/g, "")
-    .replace(/判断[:：]/g, "")
-    .replace(/送るLINE[:：]/g, "")
-    .replace(/注意[:：]/g, "")
-    .replace(/⚠️/g, "")
-    .replace(/---/g, "")
-    .trim();
+  return removeEmojiInsideQuotes(
+    String(text)
+      .replace(/【結論】/g, "")
+      .replace(/A（安全）/g, "")
+      .replace(/B（少し攻める）/g, "")
+      .replace(/A案/g, "")
+      .replace(/B案/g, "")
+      .replace(/判断[:：]/g, "")
+      .replace(/送るLINE[:：]/g, "")
+      .replace(/注意[:：]/g, "")
+      .replace(/⚠️/g, "")
+      .replace(/---/g, "")
+      .trim()
+  );
 }
 
 module.exports = {
