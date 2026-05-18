@@ -329,7 +329,8 @@ ${input}
         conversationSummary: user.conversationSummary,
         contactAllowed: rules.contactAllowed,
         recommendedAction: rules.recommendedAction,
-        mainRisk: rules.mainRisk
+        mainRisk: rules.mainRisk,
+        freeUsageCount: user.usageCount + 1
       }
     }
   });
