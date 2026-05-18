@@ -167,8 +167,10 @@ function buildHardPaywallReply(userId) {
   const checkoutUrl = buildCheckoutUrl(userId);
 
   if (checkoutUrl) {
-    return `ここから先は、
-相手の返事や状況に合わせて、次の動き方をもう少し丁寧に見た方が安心です。
+    return `無料で見られる回数はここまでです。
+
+ここから先は、相手の返事や状況に合わせて
+次の動き方をもう少し丁寧に見ていけます。
 
 Proでは、
 
@@ -183,8 +185,10 @@ Proでは、
 ${checkoutUrl}`;
   }
 
-  return `ここから先は、
-相手の返事や状況に合わせて、次の動き方をもう少し丁寧に見た方が安心です。
+  return `無料で見られる回数はここまでです。
+
+ここから先は、相手の返事や状況に合わせて
+次の動き方をもう少し丁寧に見ていけます。
 
 Proでは、
 
