@@ -422,6 +422,28 @@ function formatFreeReply(text = "") {
       .replace(/注意[:：]/g, "")
       .replace(/⚠️/g, "")
       .replace(/---/g, "")
+
+      .replace(/Proでは[\s\S]*$/i, "")
+      .replace(/PROでは[\s\S]*$/i, "")
+      .replace(/プロ版では[\s\S]*$/i, "")
+      .replace(/プレミアムでは[\s\S]*$/i, "")
+      .replace(/有料版では[\s\S]*$/i, "")
+
+
+      .replace(/この先は[\s\S]*$/i, "")
+      .replace(/ここから先は[\s\S]*$/i, "")
+      .replace(/本当に大事なのはここから[\s\S]*$/i, "")
+      .replace(/詳しく見ると[\s\S]*$/i, "")
+      .replace(/詳しく見ていくと[\s\S]*$/i, "")
+      .replace(/さらに詳しく[\s\S]*$/i, "")
+      .replace(/続きはこちら[\s\S]*$/i, "")
+      .replace(/詳しく見られます[\s\S]*$/i, "")
+      .replace(/確認できます[\s\S]*$/i, "")
+
+
+      .replace(/[ \t]+\n/g, "\n")
+      .replace(/\n{3,}/g, "\n\n")
+
       .trim()
   );
 }
