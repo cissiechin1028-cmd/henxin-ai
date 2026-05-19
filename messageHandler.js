@@ -171,12 +171,30 @@ function buildHardPaywallReply(userId) {
     return `ここから先は、相手の返事や状況に合わせて
 次の動き方をもう少し丁寧に見ていけます。
 
+Proでは、
+
+・今送るべきか
+・どれくらい待つべきか
+・送るならどの一言が自然か
+・避けた方がいい返し方
+
+まで確認できます。
+
 続きを見る👇
 ${checkoutUrl}`;
   }
 
   return `ここから先は、相手の返事や状況に合わせて
 次の動き方をもう少し丁寧に見ていけます。
+
+Proでは、
+
+・今送るべきか
+・どれくらい待つべきか
+・送るならどの一言が自然か
+・避けた方がいい返し方
+
+まで確認できます。
 
 続きを見る`;
 }
@@ -193,6 +211,7 @@ ${checkoutUrl}
 
   return `開通リンクは準備中です。`;
 }
+
 function attachContinueHint(text, count, isHighIntent = false, userId = "") {
   if (count === 3) {
     return `${text}
