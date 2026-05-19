@@ -213,21 +213,6 @@ ${checkoutUrl}
 }
 
 function attachContinueHint(text, count, isHighIntent = false, userId = "") {
-  const checkoutUrl = buildCheckoutUrl(userId);
-
-  if (count === 3) {
-    if (checkoutUrl) {
-      return `${text}
-
-続きはこちらから確認できます。
-${checkoutUrl}`;
-    }
-
-    return `${text}
-
-続きはこちらから確認できます。`;
-  }
-
   return text;
 }
 
