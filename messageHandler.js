@@ -324,6 +324,7 @@ ${input}
         recommendedAction: rules.recommendedAction,
         mainRisk: rules.mainRisk,
         freeUsageCount: user.usageCount + 1
+        referenceCases: JSON.stringify(referenceCases, null, 2)
       }
     }
   });
