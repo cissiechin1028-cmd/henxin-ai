@@ -213,6 +213,12 @@ ${checkoutUrl}
 }
 
 function attachContinueHint(text, count, isHighIntent = false, userId = "") {
+  if (count === 3) {
+    return `${text}
+
+__SHOW_PAY_BUTTON__`;
+  }
+
   return text;
 }
 
