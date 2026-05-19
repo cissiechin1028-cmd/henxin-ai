@@ -330,6 +330,8 @@ ${input}
     }
   });
 
+  const ai = formatFreeReply(rawReply);
+  
   const updatedUser = await incrementReplyUsage(userId);
   const nextCount = updatedUser.usageCount;
 
