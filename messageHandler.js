@@ -1,4 +1,5 @@
 const { generateAIResponse } = require("./services/ai");
+const { retrieveCases } = require("./services/caseRetriever");
 const { generateProResponse } = require("./services/proEngine");
 const { detectScenario } = require("./services/scenarioDetector");
 const { classifyMessage } = require("./services/classifier");
