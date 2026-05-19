@@ -304,6 +304,7 @@ ${input}
   const scenario = classification?.scenario || detectScenario(aiInput);
   const riskLevel = classification?.riskLevel || user.lastRiskLevel || 1;
   const isHighIntent = classification ? riskLevel >= 3 : isHighIntentInput(aiInput);
+  
   const referenceCases = retrieveCases(input, 3);
 
   const ai = await generateAIResponse({
