@@ -213,62 +213,7 @@ ${checkoutUrl}
 }
 
 function attachContinueHint(text, count, isHighIntent = false, userId = "") {
-  const checkoutUrl = buildCheckoutUrl(userId);
-
-  if (count === 3) {
-    if (checkoutUrl) {
-      if (isHighIntent) {
-        return `${text}
-
-この先は、相手の反応に合わせて
-「今送るべきか」「どれくらい待つべきか」まで見た方が安心です。
-
-Proでは、
-
-・今送るべきか
-・どれくらい待つべきか
-・送るならどの一言が自然か
-・避けた方がいい返し方
-
-まで詳しく確認できます。
-
-続きを見る👇
-${checkoutUrl}`;
-      }
-
-      return `${text}
-
-この先は、相手の返信や状況に合わせて
-次にどう返すかをもう少し詳しく見られます。
-
-Proでは、
-
-・今送るべきか
-・どれくらい待つべきか
-・送るならどの一言が自然か
-
-まで確認できます。
-
-続きを見る👇
-${checkoutUrl}`;
-    }
-
-    return `${text}
-
-この先は、相手の返信や状況に合わせて
-次にどう返すかをもう少し詳しく見られます。
-
-Proでは、
-
-・今送るべきか
-・どれくらい待つべきか
-・送るならどの一言が自然か
-
-まで確認できます。
-
-続きを見る`;
-  }
-
+ 
   return text;
 }
 
