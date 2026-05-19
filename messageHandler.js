@@ -165,64 +165,14 @@ function buildSoftLimitReply() {
 }
 
 function buildHardPaywallReply(userId) {
-  const checkoutUrl = buildCheckoutUrl(userId);
-
-  if (checkoutUrl) {
-    return `ここから先は、相手の返事や状況に合わせて
-次の動き方をもう少し丁寧に見ていけます。
-
-Proでは、
-
-・今送るべきか
-・どれくらい待つべきか
-・送るならどの一言が自然か
-・避けた方がいい返し方
-
-まで確認できます。
-
-続きを見る👇
-${checkoutUrl}`;
-  }
-
-  return `ここから先は、相手の返事や状況に合わせて
-次の動き方をもう少し丁寧に見ていけます。
-
-Proでは、
-
-・今送るべきか
-・どれくらい待つべきか
-・送るならどの一言が自然か
-・避けた方がいい返し方
-
-まで確認できます。
-
-続きを見る`;
+  return "";
 }
 
 function buildOpenGuide(userId) {
-  const checkoutUrl = buildCheckoutUrl(userId);
-
-  if (checkoutUrl) {
-    return `開通はこちら👇
-${checkoutUrl}
-
-開通後、もう一度メッセージを送ってください。`;
-  }
-
-  return `開通リンクは準備中です。`;
+  return "";
 }
-
 function attachContinueHint(text, count, isHighIntent = false, userId = "") {
-  const checkoutUrl = buildCheckoutUrl(userId);
-
   if (count === 3) {
-    if (checkoutUrl) {
-      return `${text}
-
-続きはこちらから確認できます。
-${checkoutUrl}`;
-    }
-
     return `${text}
 
 続きはこちらから確認できます。`;
