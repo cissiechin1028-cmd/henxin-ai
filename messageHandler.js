@@ -308,7 +308,7 @@ ${input}
   
   const referenceCases = retrieveCases(input, 3);
 
-  const ai = await generateAIResponse({
+  const rawReply = await generateAIResponse({
     input: aiInput,
     userState: {
       inputType,
