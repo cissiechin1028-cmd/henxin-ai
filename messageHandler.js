@@ -213,7 +213,11 @@ ${checkoutUrl}
 }
 
 function attachContinueHint(text, count, isHighIntent = false, userId = "") {
- 
+  // 不再在正文中追加任何 Pro / 付费提示文案
+  // 第二张付款卡片仍然由：
+  // await replyButton(replyToken, checkoutUrl);
+  // 单独发送，所以这里只返回原始回复内容即可。
+
   return text;
 }
 
