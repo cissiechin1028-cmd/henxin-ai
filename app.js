@@ -268,6 +268,19 @@ app.post("/webhook", async (req, res) => {
           "今すぐ続きを見る",
           checkoutUrl
         );
+      } else if (String(replyText).includes("__SHOW_PAY_BUTTON__")) {
+        const checkoutUrl = `${BASE_URL}/checkout?userId=${encodeURIComponent(userId)}`;
+
+        const cleanedReplyText = String(replyText)
+          .replace("__SHOW_PAY_BUTTON__", "")
+          .trim();
+
+        await replyButton(
+          replyToken,
+          cleanedReplyText,
+          "今すぐ続きを見る",
+          checkoutUrl
+        );
       } else {
         await replyMessage(replyToken, replyText);
       }
