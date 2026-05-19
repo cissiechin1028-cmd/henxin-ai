@@ -4,6 +4,7 @@ const { generateProResponse } = require("./services/proEngine");
 const { detectScenario } = require("./services/scenarioDetector");
 const { classifyMessage } = require("./services/classifier");
 const { updateConversationSummary } = require("./services/summarizer");
+const { formatFreeReply } = require("./promptBuilder");
 const {
   getUser,
   resetUser,
