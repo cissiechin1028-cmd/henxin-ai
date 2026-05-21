@@ -254,7 +254,7 @@ ${input}
   const scenario = classification?.scenario || detectScenario(aiInput);
   const riskLevel = classification?.riskLevel || user.lastRiskLevel || 1;
   const isHighIntent = classification ? riskLevel >= 3 : isHighIntentInput(aiInput);
-  
+
   const referenceCases = retrieveCases(input, 3);
 
   const rawReply = await generateAIResponse({
@@ -280,7 +280,7 @@ ${input}
   });
 
   const ai = rawReply;
-  
+
   const updatedUser = await incrementReplyUsage(userId);
   const nextCount = updatedUser.usageCount;
 
@@ -374,6 +374,20 @@ async function handleMessage(userId, text) {
   }
 
   const user = await getUser(userId);
+
+  // =========================
+  // 同意チェック（新增）
+  // =========================
+  if (!user.privacyAccepted) {
+    return `ご利用前に、以下の内容への同意が必要です。
+
+・18歳以上であること
+・利用規約
+・プライバシーポリシー
+・返金ポリシー
+
+同意するボタンを押してください。`;
+  }
 
   if (isGreeting(input)) {
     return buildGreetingReply(input);
