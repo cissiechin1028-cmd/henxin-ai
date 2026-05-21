@@ -386,6 +386,11 @@ async function handleMessage(userId, text) {
     return "リセットしました";
   }
 
+  if (/^(履歴削除|データ削除)$/i.test(input)) {
+    await resetUser(userId);
+    return "保存中の相談履歴を削除しました。";
+  }
+
   const user = await getUser(userId);
 
   // =========================
