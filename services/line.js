@@ -86,54 +86,25 @@ async function replyAgreementButton(replyToken) {
               "自然で好印象な返信文を提案するサービスです。\n\n" +
               "ご利用前に、以下の内容をご確認ください。\n\n" +
               "■ 利用規約\n" +
-              "下のリンクからご確認ください。\n\n" +
+              "https://line-reply.site/terms.html\n\n" +
               "■ プライバシーポリシー\n" +
-              "下のリンクからご確認ください。\n\n" +
+              "https://line-reply.site/privacy.html\n\n" +
               "■ 返金ポリシー\n" +
-              "下のリンクからご確認ください。\n\n" +
+              "https://line-reply.site/refund.html\n\n" +
               "■ データ削除について\n" +
-              "下のリンクからご確認ください。\n\n" +
+              "https://line-reply.site/data-deletion.html\n\n" +
               "18歳以上の方のみご利用いただけます。\n" +
               "相談内容は最大30日間保存されます。\n\n" +
-              "内容をご確認のうえ、同意してサービスを開始してください。"
+              "内容をご確認のうえ、同意してサービスを開始してください。",
+            previewUrl: false
           },
           {
             type: "template",
-            altText: "ご利用規約",
+            altText: "同意して始める",
             template: {
               type: "buttons",
-              text: "各ポリシーはこちらから確認できます。",
+              text: "内容を確認後、同意して開始できます。",
               actions: [
-                {
-                  type: "uri",
-                  label: "利用規約",
-                  uri: "https://line-reply.site/terms.html"
-                },
-                {
-                  type: "uri",
-                  label: "プライバシーポリシー",
-                  uri: "https://line-reply.site/privacy.html"
-                },
-                {
-                  type: "uri",
-                  label: "返金ポリシー",
-                  uri: "https://line-reply.site/refund.html"
-                }
-              ]
-            }
-          },
-          {
-            type: "template",
-            altText: "データ削除について",
-            template: {
-              type: "buttons",
-              text: "データ削除方法はこちらから確認できます。",
-              actions: [
-                {
-                  type: "uri",
-                  label: "データ削除について",
-                  uri: "https://line-reply.site/data-deletion.html"
-                },
                 {
                   type: "postback",
                   label: "18歳以上で同意して始める",
