@@ -216,6 +216,19 @@ function attachContinueHint(text, count, isHighIntent = false, userId = "") {
   if (count === 3) {
     return `${text}
 
+ここから先はProで確認できます。
+
+Proで解放：
+・相手の心理分析
+・脈あり度
+・NG返信
+・返信3パターン
+・送るタイミング
+・次の一手
+
+料金：
+月額 ¥980（税込）
+
 __SHOW_PAY_BUTTON__`;
   }
 
