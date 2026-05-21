@@ -212,7 +212,7 @@ app.get("/checkout", async (req, res) => {
       success_url: `${BASE_URL}/success`,
       cancel_url: `${BASE_URL}/cancel`,
 
-      locale: "ja",   // 强制 Stripe Checkout 显示日语
+      locale: "ja",
 
       client_reference_id: userId,
       metadata: {
@@ -237,14 +237,39 @@ app.post("/webhook", async (req, res) => {
     const events = req.body.events || [];
 
     for (const event of events) {
+      const userId = event.source?.userId;
+      const replyToken = event.replyToken;
+
+      if (!userId || !replyToken) continue;
+
+      // =========================
+      // 同意按钮点击处理（新增）
+      // =========================
+      if (
+        event.type === "postback" &&
+        event.postback &&
+        event.postback.data === "accept_terms"
+      ) {
+        await updateUser(userId, {
+          privacyAccepted: true,
+          ageConfirmed: true
+        });
+
+        await replyMessage(
+          replyToken,
+          "ご同意ありがとうございます。\n\n18歳以上であり、利用規約・プライバシーポリシー・返金ポリシーに同意いただいたことを確認しました。\n\nこれでサービスをご利用いただけます。LINEのメッセージをそのまま送ってください。"
+        );
+
+        continue;
+      }
+
+      // 原有逻辑：只处理文本消息
       if (event.type !== "message") continue;
       if (!event.message || event.message.type !== "text") continue;
 
-      const userId = event.source?.userId;
-      const replyToken = event.replyToken;
       const text = event.message.text;
 
-      if (!userId || !replyToken || !text) continue;
+      if (!text) continue;
 
       const replyText = await handleMessage(userId, text);
 
