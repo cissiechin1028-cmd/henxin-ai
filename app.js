@@ -307,7 +307,7 @@ app.post("/webhook", async (req, res) => {
         await replyButton(
           replyToken,
           cleanedReplyText,
-          "今すぐ続きを見る",
+          "Proで続きを見る",
           checkoutUrl
         );
       } else if (String(replyText).includes("__SHOW_PAY_BUTTON__")) {
@@ -320,7 +320,7 @@ app.post("/webhook", async (req, res) => {
         await replyButton(
           replyToken,
           cleanedReplyText,
-          "今すぐ続きを見る",
+          "Proで続きを見る",
           checkoutUrl
         );
       } else {
