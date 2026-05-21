@@ -44,7 +44,16 @@ async function replyButton(replyToken, text, buttonText, url) {
             altText: buttonText,
             template: {
               type: "buttons",
-              text: "続きはこちらから確認できます。",
+              text: "ここから先はProで確認できます。\n\n" +
+                    "Proで解放：\n" +
+                    "・相手の心理分析\n" +
+                    "・脈あり度\n" +
+                    "・NG返信\n" +
+                    "・返信3パターン\n" +
+                    "・送るタイミング\n" +
+                    "・次の一手\n\n" +
+                    "料金：\n" +
+                    "月額 ¥980（税込）\n",
               actions: [
                 {
                   type: "uri",
