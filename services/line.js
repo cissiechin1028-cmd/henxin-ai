@@ -79,26 +79,31 @@ async function replyAgreementButton(replyToken) {
         replyToken,
         messages: [
           {
+            type: "text",
+            text:
+              "はじめまして、恋愛返信AIです😊\n\n" +
+              "このAIは、LINEのやり取りや相談内容をもとに、\n" +
+              "自然で好印象な返信文を提案するサービスです。\n\n" +
+              "ご利用前に、以下の内容をご確認ください。\n\n" +
+              "■ 利用規約\n" +
+              "https://line-reply.site/terms.html\n\n" +
+              "■ プライバシーポリシー\n" +
+              "https://line-reply.site/privacy.html\n\n" +
+              "■ 返金ポリシー\n" +
+              "https://line-reply.site/refund.html\n\n" +
+              "■ データ削除について\n" +
+              "https://line-reply.site/data-deletion.html\n\n" +
+              "18歳以上の方のみご利用いただけます。\n" +
+              "相談内容は最大30日間保存されます。\n\n" +
+              "内容をご確認のうえ、同意してサービスを開始してください。"
+          },
+          {
             type: "template",
-            altText: "ご利用開始",
+            altText: "同意して始める",
             template: {
               type: "buttons",
-              title: "ご利用前の確認",
-              text:
-                "18歳以上の方向けです。\n" +
-                "相談内容は最大30日間保存されます。\n" +
-                "ご利用前に内容をご確認ください。",
+              text: "内容を確認後、同意して開始できます。",
               actions: [
-                {
-                  type: "uri",
-                  label: "利用規約",
-                  uri: "https://line-reply.site/terms.html"
-                },
-                {
-                  type: "uri",
-                  label: "プライバシーポリシー",
-                  uri: "https://line-reply.site/privacy.html"
-                },
                 {
                   type: "postback",
                   label: "18歳以上で同意して始める",
