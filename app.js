@@ -2,7 +2,7 @@ require("dotenv").config();
 
 const express = require("express");
 const Stripe = require("stripe");
-const { replyMessage, replyButton } = require("./services/line");
+const { replyMessage, replyButton, replyAgreementButton } = require("./services/line");
 const { handleMessage } = require("./messageHandler");
 const { updateUser } = require("./userStore");
 
@@ -243,6 +243,14 @@ app.post("/webhook", async (req, res) => {
       if (!userId || !replyToken) continue;
 
       // =========================
+      // 加好友时发送同意按钮（新增）
+      // =========================
+      if (event.type === "follow") {
+        await replyAgreementButton(replyToken);
+        continue;
+      }
+
+      // =========================
       // 同意按钮点击处理（新增）
       // =========================
       if (
@@ -250,9 +258,13 @@ app.post("/webhook", async (req, res) => {
         event.postback &&
         event.postback.data === "accept_terms"
       ) {
+        const now = new Date().toISOString();
+
         await updateUser(userId, {
           privacyAccepted: true,
-          ageConfirmed: true
+          privacyAcceptedAt: now,
+          ageConfirmed: true,
+          ageConfirmedAt: now
         });
 
         await replyMessage(
@@ -272,6 +284,11 @@ app.post("/webhook", async (req, res) => {
       if (!text) continue;
 
       const replyText = await handleMessage(userId, text);
+
+      if (String(replyText).includes("同意するボタンを押してください。")) {
+        await replyAgreementButton(replyToken);
+        continue;
+      }
 
       const checkoutUrlMatch = String(replyText).match(
         /https:\/\/henxin-ai\.onrender\.com\/checkout\?userId=[^\s]+/
