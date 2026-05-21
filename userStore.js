@@ -14,6 +14,11 @@ function createUser() {
     replyUsageCount: 0,
     plan: "free",
 
+    privacyAccepted: false,
+    privacyAcceptedAt: null,
+    ageConfirmed: false,
+    ageConfirmedAt: null,
+
     pendingClarify: false,
     pendingText: null,
 
@@ -32,6 +37,11 @@ function fromDb(row = {}) {
     usageCount: row.usage_count ?? 0,
     replyUsageCount: row.reply_usage_count ?? 0,
     plan: row.plan || "free",
+
+    privacyAccepted: row.privacy_accepted ?? false,
+    privacyAcceptedAt: row.privacy_accepted_at ?? null,
+    ageConfirmed: row.age_confirmed ?? false,
+    ageConfirmedAt: row.age_confirmed_at ?? null,
 
     pendingClarify: row.pending_clarify ?? false,
     pendingText: row.pending_text ?? null,
@@ -59,6 +69,11 @@ function toDb(userId, data = {}) {
   if ("usageCount" in data) db.usage_count = data.usageCount;
   if ("replyUsageCount" in data) db.reply_usage_count = data.replyUsageCount;
   if ("plan" in data) db.plan = data.plan;
+
+  if ("privacyAccepted" in data) db.privacy_accepted = data.privacyAccepted;
+  if ("privacyAcceptedAt" in data) db.privacy_accepted_at = data.privacyAcceptedAt;
+  if ("ageConfirmed" in data) db.age_confirmed = data.ageConfirmed;
+  if ("ageConfirmedAt" in data) db.age_confirmed_at = data.ageConfirmedAt;
 
   if ("pendingClarify" in data) db.pending_clarify = data.pendingClarify;
   if ("pendingText" in data) db.pending_text = data.pendingText;
