@@ -23,6 +23,33 @@ function buildCheckoutUrl(userId) {
   return PRO_URL;
 }
 
+function naturalizeReply(text = "") {
+  return String(text || "")
+    .replace(/【結論】/g, "")
+    .replace(/結論[:：]/g, "")
+    .replace(/理由[:：]/g, "")
+    .replace(/おすすめ戦略[:：]/g, "")
+    .replace(/今回のおすすめ[:：]/g, "")
+    .replace(/送るタイミング[:：]/g, "")
+    .replace(/送るLINE[:：]/g, "")
+    .replace(/💬 送るなら[:：]/g, "送るなら、")
+    .replace(/送るなら[:：]/g, "送るなら、")
+    .replace(/注意[:：]/g, "")
+    .replace(/⚠️ 注意[:：]/g, "")
+    .replace(/⚠️/g, "")
+    .replace(/次の動き[:：]/g, "")
+    .replace(/積極プラン[:：]/g, "少し近づくなら、")
+    .replace(/安全プラン[:：]/g, "今は保つなら、")
+    .replace(/撤退プラン[:：]/g, "一度引くなら、")
+    .replace(/・積極プラン[:：]/g, "・少し近づくなら、")
+    .replace(/・安全プラン[:：]/g, "・今は保つなら、")
+    .replace(/・撤退プラン[:：]/g, "・一度引くなら、")
+    .replace(/---/g, "")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 function isGreeting(text = "") {
   const t = String(text).trim().toLowerCase();
 
@@ -292,7 +319,7 @@ ${input}
     }
   });
 
-  const ai = rawReply;
+  const ai = naturalizeReply(rawReply);
 
   const updatedUser = await incrementReplyUsage(userId);
   const nextCount = updatedUser.usageCount;
@@ -350,7 +377,8 @@ ${input}
 
   const scenario = classification?.scenario || detectScenario(aiInput);
   const riskLevel = classification?.riskLevel || user.lastRiskLevel || 1;
-  const proReply = await generateProResponse(aiInput, scenario);
+  const rawProReply = await generateProResponse(aiInput, scenario);
+  const proReply = naturalizeReply(rawProReply);
 
   const conversationSummary = await updateConversationSummary({
     previousSummary: user.conversationSummary,
