@@ -246,12 +246,12 @@ function attachContinueHint(text, count, isHighIntent = false, userId = "") {
 ここから先はProで確認できます。
 
 Proで解放：
-・相手の心理分析
-・脈あり度
-・NG返信
-・返信3パターン
+・相手の本音分析
+・今の距離感
+・やってはいけない行動
+・自然な返信例
 ・送るタイミング
-・次の一手
+・次どう動くべきか
 
 料金：
 月額 ¥980（税込）
