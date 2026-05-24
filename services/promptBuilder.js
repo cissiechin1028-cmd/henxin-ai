@@ -30,106 +30,6 @@ function detectUserSpeechStyle(text = "") {
   return politeScore > casualScore ? "polite" : "casual";
 }
 
-function detectScenarioFromText(text = "") {
-  const t = String(text || "");
-
-  if (/元彼|元カレ|元カノ|復縁|やり直|別れて/.test(t)) {
-    return "EX_RECONCILIATION";
-  }
-
-  if (/喧嘩|ケンカ|謝り|謝る|仲直り|言いすぎ/.test(t)) {
-    return "CONFLICT_REPAIR";
-  }
-
-  if (/既読無視|返信|返事|未読|LINE.*返/.test(t)) {
-    return "RESPONSE_DELAY";
-  }
-
-  if (/脈あり|脈なし|好きなのかな|告白|付き合/.test(t)) {
-    return "AMBIGUOUS_RELATION";
-  }
-
-  if (/初デート|デート|ご飯|誘った|会った/.test(t)) {
-    return "EARLY_DATING";
-  }
-
-  if (/諦め|もう無理|冷め|短くなった|断られ/.test(t)) {
-    return "LET_GO_DECISION";
-  }
-
-  if (/私が悪い|自信|嫌われた|重い|不安|怖い/.test(t)) {
-    return "SELF_DOUBT";
-  }
-
-  return "GENERAL";
-}
-
-function getScenarioInstruction(detectedScenario) {
-  switch (detectedScenario) {
-    case "EX_RECONCILIATION":
-      return `
-【シナリオ別方針】
-この相談は復縁・元恋人との再接触の可能性が高い。
-相手の連絡の意図、復縁の可能性、期待しすぎない距離感を重視して答える。
-復縁を急がせず、まず自然に会話を再開できる返信を提案する。
-`;
-
-    case "CONFLICT_REPAIR":
-      return `
-【シナリオ別方針】
-この相談は喧嘩・仲直りの可能性が高い。
-謝るタイミング、感情の落ち着き、関係修復を重視して答える。
-長文や言い訳を避け、短く素直な返信を提案する。
-`;
-
-    case "RESPONSE_DELAY":
-      return `
-【シナリオ別方針】
-この相談は返信遅れ・既読無視の可能性が高い。
-相手の忙しさや温度差を冷静に見て、追いLINEを急がせない。
-重くならない自然な一言を提案する。
-`;
-
-    case "AMBIGUOUS_RELATION":
-      return `
-【シナリオ別方針】
-この相談は曖昧な関係・脈あり判断の可能性が高い。
-相手の好意の強さ、迷い、関係を進めるタイミングを重視する。
-押しすぎず、相手が返しやすい返信を提案する。
-`;
-
-    case "EARLY_DATING":
-      return `
-【シナリオ別方針】
-この相談は交際前・デート初期の可能性が高い。
-関係がまだ浅い前提で、自然さと次につながる余白を重視する。
-好意を出しすぎず、また会いやすい返信を提案する。
-`;
-
-    case "LET_GO_DECISION":
-      return `
-【シナリオ別方針】
-この相談は諦めるべきかの判断が必要な可能性が高い。
-現実的に状況を見つつ、相談者の自尊心と希望を守る。
-無理に追わせず、距離感を整える方向で答える。
-`;
-
-    case "SELF_DOUBT":
-      return `
-【シナリオ別方針】
-この相談は不安・自己否定・自信の低下が強い可能性が高い。
-まず気持ちに寄り添い、自分を責めすぎないよう支える。
-確認する場合も、重くならない優しい返信を提案する。
-`;
-
-    default:
-      return `
-【シナリオ別方針】
-恋愛相談として、相手の気持ち・今の距離感・次の自然な一手をバランスよく考える。
-`;
-  }
-}
-
 function buildPrompt({ input, userState }) {
   const inputType = userState?.inputType || "unknown";
   const scenario = userState?.scenario || "normal";
@@ -143,12 +43,6 @@ function buildPrompt({ input, userState }) {
   const freeUsageCount = context.freeUsageCount || 0;
   const referenceCases = context.referenceCases || "";
   const speechStyle = detectUserSpeechStyle(originalInput);
-  const detectedScenario = detectScenarioFromText([
-    input,
-    originalInput,
-    conversationSummary
-  ].join(" "));
-  const scenarioInstruction = getScenarioInstruction(detectedScenario);
 
   return `
 ユーザー入力：
@@ -162,9 +56,6 @@ ${inputType}
 
 シナリオ：
 ${scenario}
-
-自動判定シナリオ：
-${detectedScenario}
 
 ユーザー文体：
 ${speechStyle === "polite" ? "やさしい丁寧語" : "タメ口"}
@@ -182,8 +73,6 @@ mainRisk: ${mainRisk}
 
 参考ケース：
 ${referenceCases || "なし"}
-
-${scenarioInstruction}
 
 あなたは「返信くん」。
 恋愛に悩むユーザーに、LINE上で自然に寄り添いながら、今どう動くのが一番いいかを短く伝える。
@@ -274,44 +163,39 @@ ${scenarioInstruction}
 
 【シナリオ別の戦略優先】
 
-EX_RECONCILIATION：
+reunion：
 復縁を急がせない。
 相手が自然に返している場合は、焦らず会話を続ける方向。
 相手が冷たい、警戒している、返信が薄い場合は、一度距離を置く方向。
 相手から会話を広げている場合のみ、少し距離を縮める方向。
 
-RESPONSE_DELAY：
+ignore：
 既読無視・未読無視では、基本は追いLINEを避ける。
 短期間の沈黙なら、しばらく待つ方向。
 相手から返信が来た直後なら、相手のペースに合わせる方向。
 相手が明るく返してきた場合のみ、軽く会話を広げる方向。
 
-CONFLICT_REPAIR：
+fight：
 喧嘩直後は、少し時間を置く方向。
 相手が話す姿勢を見せている場合は、穏やかに会話を再開する方向。
 相手から歩み寄りがある場合のみ、少し距離を縮める方向。
 
-LET_GO_DECISION：
+breakup：
 反応が薄い、断られている、温度差が強い場合は、一度引く方向。
 ただし無料版では最終宣告をしない。
 まだ会話が続いている場合は、焦らず様子を見る方向。
 
-SELF_DOUBT：
+cold：
 まず不安を落ち着かせる。
 相手の反応が悪くない場合は、自然なやり取りを続ける方向。
 不安から確認したくなっている場合は、すぐ動かず待つ方向。
 
-AMBIGUOUS_RELATION：
+flirt：
 相手から話題を広げる、誘いに乗る、返信が温かい場合は、少し近づく方向。
 反応が普通なら、自然な距離を保つ方向。
 反応が薄い場合は、少し距離を置く方向。
 
-EARLY_DATING：
-デート後の反応が良い場合は、軽く次につなげる方向。
-返信が普通なら、焦らず自然に続ける方向。
-次の話が出ない、反応が薄い場合は、少し時間を置く方向。
-
-GENERAL：
+normal：
 特定の方向を初期値にしない。
 入力内容を見て、
 ・少し近づく
