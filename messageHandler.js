@@ -324,7 +324,19 @@ ${input}
   const updatedUser = await incrementReplyUsage(userId);
   const nextCount = updatedUser.usageCount;
 
-  const conversationSummary = user.conversationSummary;
+  const shouldUpdateSummary =
+    inputType === "followup" ||
+    aiInput.length >= 500 ||
+    String(user.conversationSummary || "").length > 0;
+
+  const conversationSummary = shouldUpdateSummary
+    ? await updateConversationSummary({
+        previousSummary: user.conversationSummary,
+        input: aiInput,
+        reply: ai,
+        scenario
+      })
+    : user.conversationSummary;
 
   await updateUser(userId, {
     lastInput: aiInput,
@@ -375,7 +387,19 @@ ${input}
   const rawProReply = await generateProResponse(aiInput, scenario);
   const proReply = naturalizeReply(rawProReply);
 
-  const conversationSummary = user.conversationSummary;
+  const shouldUpdateSummary =
+    inputType === "followup" ||
+    aiInput.length >= 500 ||
+    String(user.conversationSummary || "").length > 0;
+
+  const conversationSummary = shouldUpdateSummary
+    ? await updateConversationSummary({
+        previousSummary: user.conversationSummary,
+        input: aiInput,
+        reply: proReply,
+        scenario
+      })
+    : user.conversationSummary;
 
   await updateUser(userId, {
     lastInput: aiInput,
