@@ -324,12 +324,7 @@ ${input}
   const updatedUser = await incrementReplyUsage(userId);
   const nextCount = updatedUser.usageCount;
 
-  const conversationSummary = await updateConversationSummary({
-    previousSummary: user.conversationSummary,
-    input: aiInput,
-    reply: ai,
-    scenario
-  });
+  const conversationSummary = user.conversationSummary;
 
   await updateUser(userId, {
     lastInput: aiInput,
@@ -380,12 +375,7 @@ ${input}
   const rawProReply = await generateProResponse(aiInput, scenario);
   const proReply = naturalizeReply(rawProReply);
 
-  const conversationSummary = await updateConversationSummary({
-    previousSummary: user.conversationSummary,
-    input: aiInput,
-    reply: proReply,
-    scenario
-  });
+  const conversationSummary = user.conversationSummary;
 
   await updateUser(userId, {
     lastInput: aiInput,
