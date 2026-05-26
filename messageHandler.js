@@ -95,7 +95,7 @@ function detectInputType(text = "", user = {}) {
 
   if (
     user.lastInput &&
-    /(でも|なんか|気がする|かも|どうすれば|どうしたら|わからない|分からない|大丈夫|まだ好き|復縁|戻りたい|浮気|怪しい|不安|怖い|心配|嫌われた|終わり)/.test(t)
+    /(でも|なんか|気がする|かも|どうすれば|どうしたら|わからない|分からない|大丈夫|まだ好き|復縁|戻りたい|浮気|怪しい|不安|怖い|心配|嫌われた|終わり|待った方がいい|待つ|どれくらい|タイミング|脈あり|脈なし)/.test(t)
   ) {
     return "followup";
   }
@@ -114,10 +114,6 @@ function detectInputType(text = "", user = {}) {
 
   if (/返信|既読|未読|無視|冷たい|距離|別れ|復縁|浮気|怪しい|喧嘩|ブロック|好き|告白|誘い|デート|連絡|LINE|脈あり|脈なし/.test(t)) {
     return "situation";
-  }
-
-  if (user.lastInput && /^(続き|つづき|次|どうする|返事)$/i.test(t)) {
-    return "followup";
   }
 
   if (t.length <= 2) return "unknown";
@@ -169,26 +165,33 @@ function deriveConversationRules(input = "", user = {}) {
   };
 }
 
+function buildFollowupInput({ user, input }) {
+  const summary = user.conversationSummary || "";
+
+  return `会話状況:
+${summary || "前回の相談内容あり"}
+
+前回の相談タイプ:
+${user.lastInputType || "不明"}
+
+前回のシナリオ:
+${user.lastScenario || "normal"}
+
+前回の注意:
+${user.mainRisk || "なし"}
+
+今回の質問:
+${input}
+
+これは前回の続きです。
+前回と同じ説明を繰り返さず、今回の質問にだけ自然に答えてください。`;
+}
+
 function buildClarifyReply() {
   return `これ、どっちですか？
 
 ① 相手から来たLINE
 ② 今の状況`;
-}
-
-function buildSoftLimitReply() {
-  return `ここから先は、
-返信内容だけでなく、送る流れまで見た方が安全です。
-
-この続きでは、
-
-・今送るべきか
-・どれくらい待つべきか
-・送るならどの一言が自然か
-
-まで詳しく確認できます。
-
-続きを見る`;
 }
 
 function buildHardPaywallReply(userId) {
@@ -239,7 +242,7 @@ ${checkoutUrl}
   return `開通リンクは準備中です。`;
 }
 
-function attachContinueHint(text, count, isHighIntent = false, userId = "") {
+function attachContinueHint(text, count) {
   if (count === 3) {
     return `${text}
 
@@ -262,22 +265,16 @@ __SHOW_PAY_BUTTON__`;
   return text;
 }
 
-async function generateFree(userId, input, forcedType = null) {
+async function buildContext(userId, input, forcedType = null) {
   const user = await getUser(userId);
 
   let inputType = forcedType || detectInputType(input, user);
   let aiInput = input;
+  const isFollowup = inputType === "followup";
 
-  if (inputType === "followup") {
+  if (isFollowup) {
     inputType = user.lastInputType || "situation";
-
-    aiInput = `前回までの相談:
-${user.lastInput || ""}
-
-今回の追問:
-${input}
-
-上の流れを一つの相談として見て、前回と矛盾しないように返してください。`;
+    aiInput = buildFollowupInput({ user, input });
   }
 
   const classification = await classifyMessage({ input: aiInput, user });
@@ -291,11 +288,34 @@ ${input}
       }
     : fallbackRules;
 
-  const scenario = classification?.scenario || detectScenario(aiInput);
+  const scenario = classification?.scenario || user.lastScenario || detectScenario(aiInput);
   const riskLevel = classification?.riskLevel || user.lastRiskLevel || 1;
-  const isHighIntent = classification ? riskLevel >= 3 : isHighIntentInput(aiInput);
-
   const referenceCases = retrieveCases(input, 3);
+
+  return {
+    user,
+    inputType,
+    aiInput,
+    isFollowup,
+    classification,
+    rules,
+    scenario,
+    riskLevel,
+    referenceCases
+  };
+}
+
+async function generateFree(userId, input, forcedType = null) {
+  const {
+    user,
+    inputType,
+    aiInput,
+    isFollowup,
+    rules,
+    scenario,
+    riskLevel,
+    referenceCases
+  } = await buildContext(userId, input, forcedType);
 
   const rawReply = await generateAIResponse({
     input: aiInput,
@@ -304,6 +324,7 @@ ${input}
       scenario,
       context: {
         originalInput: input,
+        isFollowup,
         lastInput: user.lastInput,
         lastInputType: user.lastInputType,
         lastScenario: user.lastScenario,
@@ -325,21 +346,21 @@ ${input}
   const nextCount = updatedUser.usageCount;
 
   const shouldUpdateSummary =
-    inputType === "followup" ||
-    aiInput.length >= 500 ||
+    isFollowup ||
+    aiInput.length >= 300 ||
     String(user.conversationSummary || "").length > 0;
 
   const conversationSummary = shouldUpdateSummary
     ? await updateConversationSummary({
         previousSummary: user.conversationSummary,
-        input: aiInput,
+        input: input,
         reply: ai,
         scenario
       })
     : user.conversationSummary;
 
   await updateUser(userId, {
-    lastInput: aiInput,
+    lastInput: input,
     lastInputType: inputType,
     lastScenario: scenario,
     lastAdvice: ai,
@@ -350,59 +371,52 @@ ${input}
     mainRisk: rules.mainRisk
   });
 
-  return attachContinueHint(ai, nextCount, isHighIntent, userId);
+  return attachContinueHint(ai, nextCount);
 }
 
 async function generatePro(userId, input, forcedType = null) {
-  const user = await getUser(userId);
+  const {
+    user,
+    inputType,
+    aiInput,
+    isFollowup,
+    rules,
+    scenario,
+    riskLevel
+  } = await buildContext(userId, input, forcedType);
 
-  let inputType = forcedType || detectInputType(input, user);
-  let aiInput = input;
+  const rawProReply = await generateProResponse({
+    input: aiInput,
+    scenario,
+    context: {
+      originalInput: input,
+      isFollowup,
+      conversationSummary: user.conversationSummary,
+      lastAdvice: user.lastAdvice,
+      contactAllowed: rules.contactAllowed,
+      recommendedAction: rules.recommendedAction,
+      mainRisk: rules.mainRisk
+    }
+  });
 
-  if (inputType === "followup") {
-    inputType = user.lastInputType || "situation";
-
-    aiInput = `前回までの相談:
-${user.lastInput || ""}
-
-今回の追問:
-${input}
-
-上の流れを一つの相談として見て、前回と矛盾しないように返してください。`;
-  }
-
-  const classification = await classifyMessage({ input: aiInput, user });
-  const fallbackRules = deriveConversationRules(aiInput, user);
-
-  const rules = classification
-    ? {
-        contactAllowed: classification.contactAllowed,
-        recommendedAction: classification.recommendedAction,
-        mainRisk: classification.mainRisk
-      }
-    : fallbackRules;
-
-  const scenario = classification?.scenario || detectScenario(aiInput);
-  const riskLevel = classification?.riskLevel || user.lastRiskLevel || 1;
-  const rawProReply = await generateProResponse(aiInput, scenario);
   const proReply = naturalizeReply(rawProReply);
 
   const shouldUpdateSummary =
-    inputType === "followup" ||
-    aiInput.length >= 500 ||
+    isFollowup ||
+    aiInput.length >= 300 ||
     String(user.conversationSummary || "").length > 0;
 
   const conversationSummary = shouldUpdateSummary
     ? await updateConversationSummary({
         previousSummary: user.conversationSummary,
-        input: aiInput,
+        input: input,
         reply: proReply,
         scenario
       })
     : user.conversationSummary;
 
   await updateUser(userId, {
-    lastInput: aiInput,
+    lastInput: input,
     lastInputType: inputType,
     lastScenario: scenario,
     lastAdvice: proReply,
@@ -435,9 +449,6 @@ async function handleMessage(userId, text) {
 
   const user = await getUser(userId);
 
-  // =========================
-  // 同意チェック（新增）
-  // =========================
   if (!user.privacyAccepted) {
     return `ご利用前に、以下の内容への同意が必要です。
 
