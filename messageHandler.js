@@ -95,7 +95,7 @@ function detectInputType(text = "", user = {}) {
 
   if (
     user.lastInput &&
-    /(でも|なんか|気がする|かも|どうすれば|どうしたら|わからない|分からない|大丈夫|まだ好き|復縁|戻りたい|浮気|怪しい|不安|怖い|心配|嫌われた|終わり|待った方がいい|待つ|どれくらい|タイミング|脈あり|脈なし)/.test(t)
+    /(でも|なんか|気がする|かも|どうすれば|どうしたら|わからない|分からない|大丈夫|まだ好き|復縁|戻りたい|浮気|怪しい|不安|怖い|心配|嫌われた|終わり|待った方がいい|待つ|どれくらい|タイミング|脈あり|脈なし|怒ってる|謝る|謝らない|仲直り|距離|返事|返信)/.test(t)
   ) {
     return "followup";
   }
@@ -121,12 +121,6 @@ function detectInputType(text = "", user = {}) {
   if (t.length <= 20) return "partner";
 
   return "situation";
-}
-
-function isHighIntentInput(text = "") {
-  const t = String(text).trim();
-
-  return /復縁|戻りたい|浮気|怪しい|別れ|別れそう|ブロック|既読無視|未読無視|脈なし|冷たい|距離|喧嘩|嫌われた|終わり/.test(t);
 }
 
 function deriveConversationRules(input = "", user = {}) {
@@ -165,7 +159,43 @@ function deriveConversationRules(input = "", user = {}) {
   };
 }
 
-function buildFollowupInput({ user, input }) {
+function detectFollowupStage({ scenario = "normal", user = {}, input = "" }) {
+  const usage = Number(user.replyUsageCount || 0);
+  const text = String(input || "");
+
+  if (["breakup", "fight", "reunion"].includes(scenario)) {
+    if (usage <= 2) return "cooldown";
+
+    if (/返信|返事|戻って|話せる|普通|会話|仲直り/.test(text)) {
+      return "reconnect";
+    }
+
+    if (/謝る|謝らない|怒ってる|まだ/.test(text)) {
+      return "observe";
+    }
+
+    return "observe";
+  }
+
+  if (["ignore", "cold"].includes(scenario)) {
+    if (usage <= 2) return "wait";
+
+    if (/返事|返信|話題|会話|向こうから/.test(text)) {
+      return "observe";
+    }
+
+    return "soft_reconnect";
+  }
+
+  if (scenario === "flirt") {
+    if (usage <= 2) return "approach_light";
+    return "approach_check";
+  }
+
+  return "normal";
+}
+
+function buildFollowupInput({ user, input, followupStage = "normal" }) {
   const summary = user.conversationSummary || "";
 
   return `会話状況:
@@ -180,11 +210,16 @@ ${user.lastScenario || "normal"}
 前回の注意:
 ${user.mainRisk || "なし"}
 
+今回の会話段階:
+${followupStage}
+
 今回の質問:
 ${input}
 
 これは前回の続きです。
-前回と同じ説明を繰り返さず、今回の質問にだけ自然に答えてください。`;
+前回と同じ説明を繰り返さず、今回の質問にだけ自然に答えてください。
+同じ「待つ」「距離」「自然」「重い」を言い換えて繰り返さないでください。
+会話段階を少し進めて、新しい視点を1つ入れてください。`;
 }
 
 function buildClarifyReply() {
@@ -272,14 +307,19 @@ async function buildContext(userId, input, forcedType = null) {
   let aiInput = input;
   const isFollowup = inputType === "followup";
 
+  const baseScenario = user.lastScenario || detectScenario(input);
+
+  const followupStage = detectFollowupStage({
+    scenario: baseScenario,
+    user,
+    input
+  });
+
   if (isFollowup) {
     inputType = user.lastInputType || "situation";
-    aiInput = buildFollowupInput({ user, input });
+    aiInput = buildFollowupInput({ user, input, followupStage });
   }
 
-  // =========================
-  // GPT classifier 降调用优化
-  // =========================
   let classification = null;
 
   const shouldUseAIClassifier =
@@ -325,7 +365,8 @@ async function buildContext(userId, input, forcedType = null) {
     rules,
     scenario,
     riskLevel,
-    referenceCases
+    referenceCases,
+    followupStage
   };
 }
 
@@ -338,7 +379,8 @@ async function generateFree(userId, input, forcedType = null) {
     rules,
     scenario,
     riskLevel,
-    referenceCases
+    referenceCases,
+    followupStage
   } = await buildContext(userId, input, forcedType);
 
   const rawReply = await generateAIResponse({
@@ -349,6 +391,7 @@ async function generateFree(userId, input, forcedType = null) {
       context: {
         originalInput: input,
         isFollowup,
+        followupStage,
         lastInput: user.lastInput,
         lastInputType: user.lastInputType,
         lastScenario: user.lastScenario,
@@ -370,13 +413,13 @@ async function generateFree(userId, input, forcedType = null) {
   const nextCount = updatedUser.usageCount;
 
   const shouldUpdateSummary =
-  (
-    isFollowup &&
-    user.replyUsageCount >= 3
-  ) ||
-  aiInput.length >= 500 ||
-  riskLevel >= 3 ||
-  user.plan === "pro";
+    (
+      isFollowup &&
+      user.replyUsageCount >= 3
+    ) ||
+    aiInput.length >= 500 ||
+    riskLevel >= 3 ||
+    user.plan === "pro";
 
   const conversationSummary = shouldUpdateSummary
     ? await updateConversationSummary({
@@ -410,7 +453,8 @@ async function generatePro(userId, input, forcedType = null) {
     isFollowup,
     rules,
     scenario,
-    riskLevel
+    riskLevel,
+    followupStage
   } = await buildContext(userId, input, forcedType);
 
   const rawProReply = await generateProResponse({
@@ -419,6 +463,7 @@ async function generatePro(userId, input, forcedType = null) {
     context: {
       originalInput: input,
       isFollowup,
+      followupStage,
       conversationSummary: user.conversationSummary,
       lastAdvice: user.lastAdvice,
       contactAllowed: rules.contactAllowed,
@@ -430,13 +475,13 @@ async function generatePro(userId, input, forcedType = null) {
   const proReply = naturalizeReply(rawProReply);
 
   const shouldUpdateSummary =
-  (
-    isFollowup &&
-    user.replyUsageCount >= 3
-  ) ||
-  aiInput.length >= 500 ||
-  riskLevel >= 3 ||
-  user.plan === "pro";
+    (
+      isFollowup &&
+      user.replyUsageCount >= 3
+    ) ||
+    aiInput.length >= 500 ||
+    riskLevel >= 3 ||
+    user.plan === "pro";
 
   const conversationSummary = shouldUpdateSummary
     ? await updateConversationSummary({
