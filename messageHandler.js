@@ -277,7 +277,23 @@ async function buildContext(userId, input, forcedType = null) {
     aiInput = buildFollowupInput({ user, input });
   }
 
-  const classification = await classifyMessage({ input: aiInput, user });
+  // =========================
+  // GPT classifier 降调用优化
+  // =========================
+  let classification = null;
+
+  const shouldUseAIClassifier =
+    isFollowup ||
+    aiInput.length > 250 ||
+    inputType === "unknown";
+
+  if (shouldUseAIClassifier) {
+    classification = await classifyMessage({
+      input: aiInput,
+      user
+    });
+  }
+
   const fallbackRules = deriveConversationRules(aiInput, user);
 
   const rules = classification
@@ -288,8 +304,16 @@ async function buildContext(userId, input, forcedType = null) {
       }
     : fallbackRules;
 
-  const scenario = classification?.scenario || user.lastScenario || detectScenario(aiInput);
-  const riskLevel = classification?.riskLevel || user.lastRiskLevel || 1;
+  const scenario =
+    classification?.scenario ||
+    user.lastScenario ||
+    detectScenario(aiInput);
+
+  const riskLevel =
+    classification?.riskLevel ||
+    user.lastRiskLevel ||
+    1;
+
   const referenceCases = retrieveCases(input, 3);
 
   return {
