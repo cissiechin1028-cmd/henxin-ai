@@ -370,9 +370,13 @@ async function generateFree(userId, input, forcedType = null) {
   const nextCount = updatedUser.usageCount;
 
   const shouldUpdateSummary =
-    isFollowup ||
-    aiInput.length >= 300 ||
-    String(user.conversationSummary || "").length > 0;
+  (
+    isFollowup &&
+    user.replyUsageCount >= 3
+  ) ||
+  aiInput.length >= 500 ||
+  riskLevel >= 3 ||
+  user.plan === "pro";
 
   const conversationSummary = shouldUpdateSummary
     ? await updateConversationSummary({
