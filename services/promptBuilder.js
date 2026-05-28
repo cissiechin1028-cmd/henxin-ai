@@ -1,4 +1,3 @@
-```js
 function detectUserSpeechStyle(text = "") {
   const t = String(text || "");
 
@@ -284,4 +283,3 @@ module.exports = {
   buildPrompt,
   formatFreeReply
 };
-```
