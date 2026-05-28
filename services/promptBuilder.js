@@ -1,3 +1,4 @@
+```js
 function detectUserSpeechStyle(text = "") {
   const t = String(text || "");
 
@@ -266,6 +267,15 @@ function formatFreeReply(text = "") {
 
       .replace(/[ \t]+\n/g, "\n")
       .replace(/\n{3,}/g, "\n\n")
+
+      .split("\n\n")
+      .slice(0, 3)
+      .join("\n\n")
+
+      .split(/(?<=[。！？])/)
+      .slice(0, 8)
+      .join("")
+
       .trim()
   );
 }
@@ -274,3 +284,4 @@ module.exports = {
   buildPrompt,
   formatFreeReply
 };
+```
