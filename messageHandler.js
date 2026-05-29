@@ -160,7 +160,7 @@ function deriveConversationRules(input = "", user = {}) {
 }
 
 function detectFollowupStage({ scenario = "normal", user = {}, input = "" }) {
-  const usage = Number(user.replyUsageCount || 0);
+  const usage = Number(user.replyUsageCount || user.usageCount || 0);
   const text = String(input || "");
 
   if (["breakup", "fight", "reunion"].includes(scenario)) {
@@ -278,7 +278,7 @@ ${checkoutUrl}
 }
 
 function attachContinueHint(text, count) {
-  if (count === 3) {
+  if (count === FREE_LIMIT) {
     return `${text}
 
 ここから先はProで確認できます。
@@ -346,8 +346,9 @@ async function buildContext(userId, input, forcedType = null) {
 
   const scenario =
     classification?.scenario ||
+    detectScenario(aiInput) ||
     user.lastScenario ||
-    detectScenario(aiInput);
+    "normal";
 
   const riskLevel =
     classification?.riskLevel ||
@@ -401,7 +402,7 @@ async function generateFree(userId, input, forcedType = null) {
         contactAllowed: rules.contactAllowed,
         recommendedAction: rules.recommendedAction,
         mainRisk: rules.mainRisk,
-        freeUsageCount: user.usageCount + 1,
+        freeUsageCount: Number(user.usageCount || 0) + 1,
         referenceCases: JSON.stringify(referenceCases, null, 2)
       }
     }
@@ -410,12 +411,12 @@ async function generateFree(userId, input, forcedType = null) {
   const ai = naturalizeReply(rawReply);
 
   const updatedUser = await incrementReplyUsage(userId);
-  const nextCount = updatedUser.usageCount;
+  const nextCount = Number(updatedUser.usageCount || 0);
 
   const shouldUpdateSummary =
     (
       isFollowup &&
-      user.replyUsageCount >= 3
+      Number(user.replyUsageCount || user.usageCount || 0) >= 3
     ) ||
     aiInput.length >= 500 ||
     riskLevel >= 3 ||
@@ -477,7 +478,7 @@ async function generatePro(userId, input, forcedType = null) {
   const shouldUpdateSummary =
     (
       isFollowup &&
-      user.replyUsageCount >= 3
+      Number(user.replyUsageCount || user.usageCount || 0) >= 3
     ) ||
     aiInput.length >= 500 ||
     riskLevel >= 3 ||
@@ -527,14 +528,7 @@ async function handleMessage(userId, text) {
   const user = await getUser(userId);
 
   if (!user.privacyAccepted) {
-    return `ご利用前に、以下の内容への同意が必要です。
-
-・18歳以上であること
-・利用規約
-・プライバシーポリシー
-・返金ポリシー
-
-同意するボタンを押してください。`;
+    return "__SHOW_AGREEMENT_BUTTON__";
   }
 
   if (isGreeting(input)) {
@@ -564,7 +558,7 @@ async function handleMessage(userId, text) {
     return generateFree(userId, original, "situation");
   }
 
-  if (user.plan !== "pro" && user.usageCount >= FREE_LIMIT) {
+  if (user.plan !== "pro" && Number(user.usageCount || 0) >= FREE_LIMIT) {
     await updateUser(userId, {
       paywall: true
     });
