@@ -15,14 +15,48 @@ function safeParseJson(text = "") {
 
 function normalizeClassification(data = {}) {
   const inputTypeList = ["partner", "situation", "followup", "unknown"];
-  const scenarioList = ["normal", "cheating", "breakup", "ignore", "cold", "flirt", "reunion"];
-  const actionList = ["wait", "soft_reply", "reduce_pressure", "cool_down", "observe", ""];
-  const riskList = ["push_too_hard", "pressure", "escalation", "begging", "accusation", ""];
+  const scenarioList = [
+    "normal",
+    "cheating",
+    "breakup",
+    "ignore",
+    "cold",
+    "flirt",
+    "reunion",
+    "fight"
+  ];
+  const actionList = [
+    "wait",
+    "soft_reply",
+    "reduce_pressure",
+    "cool_down",
+    "observe",
+    ""
+  ];
+  const riskList = [
+    "push_too_hard",
+    "pressure",
+    "escalation",
+    "begging",
+    "accusation",
+    ""
+  ];
 
-  const inputType = inputTypeList.includes(data.inputType) ? data.inputType : "situation";
-  const scenario = scenarioList.includes(data.scenario) ? data.scenario : "normal";
-  const recommendedAction = actionList.includes(data.recommendedAction) ? data.recommendedAction : "";
-  const mainRisk = riskList.includes(data.mainRisk) ? data.mainRisk : "";
+  const inputType = inputTypeList.includes(data.inputType)
+    ? data.inputType
+    : "situation";
+
+  const scenario = scenarioList.includes(data.scenario)
+    ? data.scenario
+    : "normal";
+
+  const recommendedAction = actionList.includes(data.recommendedAction)
+    ? data.recommendedAction
+    : "";
+
+  const mainRisk = riskList.includes(data.mainRisk)
+    ? data.mainRisk
+    : "";
 
   let riskLevel = Number(data.riskLevel);
   if (!Number.isFinite(riskLevel)) riskLevel = 1;
@@ -55,7 +89,7 @@ async function classifyMessage({ input, user }) {
 
 分類項目：
 - inputType: partner / situation / followup / unknown
-- scenario: normal / cheating / breakup / ignore / cold / flirt / reunion
+- scenario: normal / cheating / breakup / ignore / cold / flirt / reunion / fight
 - contactAllowed: true / false
 - recommendedAction: wait / soft_reply / reduce_pressure / cool_down / observe / ""
 - mainRisk: push_too_hard / pressure / escalation / begging / accusation / ""
@@ -67,10 +101,20 @@ situation = ユーザーの状況説明
 followup = 前回相談の続き
 unknown = 情報が短すぎて不明
 
+scenario:
+cheating = 浮気疑い、他の異性、隠し事
+breakup = 別れ話、振られた、連絡拒否
+reunion = 復縁、元彼、元カノ、やり直し
+fight = 喧嘩、怒らせた、謝りたい、仲直り
+ignore = 既読無視、未読無視、返事がない
+cold = 冷たい、そっけない、返信が遅い、距離を感じる
+flirt = 片思い、告白、デート、脈あり脈なし
+normal = その他
+
 riskLevel:
 1 = 通常
 2 = 返信遅い、冷たい、既読無視など軽〜中リスク
-3 = 復縁、浮気疑い、強い不安など高リスク
+3 = 復縁、浮気疑い、喧嘩、強い不安など高リスク
 4 = 別れ話、連絡拒否、明確な拒絶など最重要リスク
 
 注意：
