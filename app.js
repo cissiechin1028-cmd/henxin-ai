@@ -4,7 +4,10 @@ const express = require("express");
 const Stripe = require("stripe");
 const { replyMessage, replyButton, replyAgreementButton } = require("./services/line");
 const { handleMessage } = require("./messageHandler");
-const { updateUser } = require("./userStore");
+const {
+  updateUser,
+  updateUserByStripeSubscription
+} = require("./userStore");
 
 const app = express();
 
@@ -13,6 +16,43 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 const BASE_URL = process.env.BASE_URL || "";
 const STRIPE_PRICE_ID = process.env.STRIPE_PRICE_ID || "";
 const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET || "";
+
+function getPlanFromSubscriptionStatus(status = "") {
+  if (status === "active" || status === "trialing") {
+    return "pro";
+  }
+
+  return "free";
+}
+
+async function syncSubscriptionToUser(subscription) {
+  if (!subscription) return;
+
+  const subscriptionId = subscription.id;
+  const userId = subscription.metadata?.userId || "";
+  const plan = getPlanFromSubscriptionStatus(subscription.status);
+
+  const updateData = {
+    plan,
+    paywall: plan !== "pro",
+    stripeCustomerId:
+      typeof subscription.customer === "string"
+        ? subscription.customer
+        : subscription.customer?.id || null,
+    stripeSubscriptionId: subscriptionId || null
+  };
+
+  if (userId) {
+    await updateUser(userId, updateData);
+    console.log("STRIPE SUBSCRIPTION SYNCED BY USER:", userId, plan);
+    return;
+  }
+
+  if (subscriptionId) {
+    await updateUserByStripeSubscription(subscriptionId, updateData);
+    console.log("STRIPE SUBSCRIPTION SYNCED BY SUBSCRIPTION:", subscriptionId, plan);
+  }
+}
 
 app.post(
   "/stripe/webhook",
@@ -38,20 +78,71 @@ app.post(
         const session = event.data.object;
         const userId = session.metadata?.userId || session.client_reference_id;
 
-        if (userId) {
-          await updateUser(userId, {
-            plan: "pro"
+        if (!userId) {
+          console.error("STRIPE WEBHOOK NO USER ID");
+          return res.status(200).send("OK");
+        }
+
+        let subscription = null;
+
+        if (session.subscription) {
+          subscription = await stripe.subscriptions.retrieve(
+            typeof session.subscription === "string"
+              ? session.subscription
+              : session.subscription.id
+          );
+        }
+
+        await updateUser(userId, {
+          plan: "pro",
+          paywall: false,
+          stripeCustomerId:
+            typeof session.customer === "string"
+              ? session.customer
+              : session.customer?.id || null,
+          stripeSubscriptionId:
+            typeof session.subscription === "string"
+              ? session.subscription
+              : session.subscription?.id || null
+        });
+
+        if (subscription) {
+          await syncSubscriptionToUser(subscription);
+        }
+
+        console.log("STRIPE CHECKOUT COMPLETED:", userId);
+      }
+
+      if (
+        event.type === "customer.subscription.updated" ||
+        event.type === "customer.subscription.deleted"
+      ) {
+        const subscription = event.data.object;
+        await syncSubscriptionToUser(subscription);
+      }
+
+      if (event.type === "invoice.payment_failed") {
+        const invoice = event.data.object;
+        const subscriptionId =
+          typeof invoice.subscription === "string"
+            ? invoice.subscription
+            : invoice.subscription?.id || null;
+
+        if (subscriptionId) {
+          await updateUserByStripeSubscription(subscriptionId, {
+            plan: "free",
+            paywall: true
           });
 
-          console.log("STRIPE PLAN UPDATED TO PRO:", userId);
+          console.log("STRIPE PAYMENT FAILED, DOWNGRADED:", subscriptionId);
         } else {
-          console.error("STRIPE WEBHOOK NO USER ID");
+          console.error("STRIPE PAYMENT FAILED NO SUBSCRIPTION ID");
         }
       }
 
       res.status(200).send("OK");
     } catch (err) {
-      console.error("STRIPE WEBHOOK HANDLE ERROR:", err.message);
+      console.error("STRIPE WEBHOOK HANDLE ERROR:", err.response?.data || err.message);
       res.status(200).send("OK");
     }
   }
@@ -242,17 +333,11 @@ app.post("/webhook", async (req, res) => {
 
       if (!userId || !replyToken) continue;
 
-      // =========================
-      // 加好友时发送同意按钮（新增）
-      // =========================
       if (event.type === "follow") {
         await replyAgreementButton(replyToken);
         continue;
       }
 
-      // =========================
-      // 同意按钮点击处理（新增）
-      // =========================
       if (
         event.type === "postback" &&
         event.postback &&
@@ -275,7 +360,6 @@ app.post("/webhook", async (req, res) => {
         continue;
       }
 
-      // 原有逻辑：只处理文本消息
       if (event.type !== "message") continue;
       if (!event.message || event.message.type !== "text") continue;
 
@@ -284,6 +368,11 @@ app.post("/webhook", async (req, res) => {
       if (!text) continue;
 
       const replyText = await handleMessage(userId, text);
+
+      if (String(replyText).includes("__SHOW_AGREEMENT_BUTTON__")) {
+        await replyAgreementButton(replyToken);
+        continue;
+      }
 
       if (String(replyText).includes("同意するボタンを押してください。")) {
         await replyAgreementButton(replyToken);
