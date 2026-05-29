@@ -28,7 +28,15 @@ function createUser() {
     lastAdvice: null,
     lastRiskLevel: 1,
 
-    conversationSummary: null
+    conversationSummary: null,
+
+    contactAllowed: undefined,
+    recommendedAction: undefined,
+    mainRisk: undefined,
+    paywall: false,
+
+    stripeCustomerId: null,
+    stripeSubscriptionId: null
   };
 }
 
@@ -57,7 +65,10 @@ function fromDb(row = {}) {
     contactAllowed: row.contact_allowed ?? undefined,
     recommendedAction: row.recommended_action ?? undefined,
     mainRisk: row.main_risk ?? undefined,
-    paywall: row.paywall ?? false
+    paywall: row.paywall ?? false,
+
+    stripeCustomerId: row.stripe_customer_id ?? null,
+    stripeSubscriptionId: row.stripe_subscription_id ?? null
   };
 }
 
@@ -90,6 +101,14 @@ function toDb(userId, data = {}) {
   if ("recommendedAction" in data) db.recommended_action = data.recommendedAction;
   if ("mainRisk" in data) db.main_risk = data.mainRisk;
   if ("paywall" in data) db.paywall = data.paywall;
+
+  if ("stripeCustomerId" in data) {
+    db.stripe_customer_id = data.stripeCustomerId;
+  }
+
+  if ("stripeSubscriptionId" in data) {
+    db.stripe_subscription_id = data.stripeSubscriptionId;
+  }
 
   return db;
 }
@@ -158,6 +177,45 @@ async function updateUser(userId, data = {}) {
   return updated;
 }
 
+async function updateUserByStripeSubscription(subscriptionId, data = {}) {
+  if (!subscriptionId) return null;
+
+  const { data: row, error: findError } = await supabase
+    .from("users")
+    .select("*")
+    .eq("stripe_subscription_id", subscriptionId)
+    .maybeSingle();
+
+  if (findError) {
+    console.error("SUPABASE FIND BY SUBSCRIPTION ERROR:", findError.message);
+    return null;
+  }
+
+  if (!row) {
+    console.error("SUPABASE NO USER FOR SUBSCRIPTION:", subscriptionId);
+    return null;
+  }
+
+  const user = fromDb(row);
+
+  const updated = {
+    ...user,
+    ...data
+  };
+
+  const { error: updateError } = await supabase
+    .from("users")
+    .update(toDb(row.user_id, updated))
+    .eq("user_id", row.user_id);
+
+  if (updateError) {
+    console.error("SUPABASE UPDATE BY SUBSCRIPTION ERROR:", updateError.message);
+    return null;
+  }
+
+  return updated;
+}
+
 async function incrementReplyUsage(userId) {
   const user = await getUser(userId);
 
@@ -183,5 +241,6 @@ module.exports = {
   getUser,
   resetUser,
   updateUser,
+  updateUserByStripeSubscription,
   incrementReplyUsage
 };
