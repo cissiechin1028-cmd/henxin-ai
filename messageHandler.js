@@ -522,7 +522,7 @@ async function handleMessage(userId, text) {
   }
 
   if (/^(履歴削除|データ削除)$/i.test(input)) {
-    await resetUser(userId);
+    await resetConversationOnly(userId);
     return "保存中の相談履歴を削除しました。";
   }
 
