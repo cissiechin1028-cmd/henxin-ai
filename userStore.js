@@ -157,6 +157,40 @@ async function resetUser(userId) {
   return newUser;
 }
 
+async function resetConversationOnly(userId) {
+  const current = await getUser(userId);
+
+  const updated = {
+    ...current,
+
+    pendingClarify: false,
+    pendingText: null,
+
+    lastInput: null,
+    lastInputType: null,
+    lastScenario: null,
+    lastAdvice: null,
+    lastRiskLevel: 1,
+
+    conversationSummary: null,
+
+    contactAllowed: undefined,
+    recommendedAction: undefined,
+    mainRisk: undefined
+  };
+
+  const { error } = await supabase
+    .from("users")
+    .update(toDb(userId, updated))
+    .eq("user_id", userId);
+
+  if (error) {
+    console.error("SUPABASE RESET CONVERSATION ERROR:", error.message);
+  }
+
+  return updated;
+}
+
 async function updateUser(userId, data = {}) {
   const current = await getUser(userId);
 
@@ -240,6 +274,7 @@ async function incrementReplyUsage(userId) {
 module.exports = {
   getUser,
   resetUser,
+  resetConversationOnly,
   updateUser,
   updateUserByStripeSubscription,
   incrementReplyUsage
