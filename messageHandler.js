@@ -279,18 +279,30 @@ ${checkoutUrl}
 }
 
 function attachContinueHint(text, count) {
+  if (count === 1) {
+    return `${text}
+
+※無料相談はあと2回です。`;
+  }
+
+  if (count === 2) {
+    return `${text}
+
+※無料相談はあと1回です。`;
+  }
+
   if (count === FREE_LIMIT) {
     return `${text}
+
+※今回で無料相談は終了です。
 
 ここから先はProで確認できます。
 
 Proで解放：
-・相手の本音分析
-・今の距離感
-・やってはいけない行動
-・自然な返信例
-・送るタイミング
-・次どう動くべきか
+・今送るべきか
+・送るならどの一言が自然か
+・避けた方がいい返し方
+・相手の反応に合わせた次の動き方
 
 料金：
 月額 ¥980（税込）
@@ -300,7 +312,6 @@ __SHOW_PAY_BUTTON__`;
 
   return text;
 }
-
 async function buildContext(userId, input, forcedType = null) {
   const user = await getUser(userId);
 
