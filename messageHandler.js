@@ -20,31 +20,17 @@ function buildCheckoutUrl(userId) {
   if (BASE_URL) {
     return `${BASE_URL}/checkout?userId=${encodeURIComponent(userId)}`;
   }
-
   return PRO_URL;
 }
 
 function naturalizeReply(text = "") {
   return String(text || "")
-    .replace(/【結論】/g, "")
+    .replace(/【[^】]+】/g, "")
     .replace(/結論[:：]/g, "")
     .replace(/理由[:：]/g, "")
-    .replace(/おすすめ戦略[:：]/g, "")
-    .replace(/今回のおすすめ[:：]/g, "")
-    .replace(/送るタイミング[:：]/g, "")
+    .replace(/判断[:：]/g, "")
     .replace(/送るLINE[:：]/g, "")
-    .replace(/💬 送るなら[:：]/g, "送るなら、")
-    .replace(/送るなら[:：]/g, "送るなら、")
     .replace(/注意[:：]/g, "")
-    .replace(/⚠️ 注意[:：]/g, "")
-    .replace(/⚠️/g, "")
-    .replace(/次の動き[:：]/g, "")
-    .replace(/積極プラン[:：]/g, "少し近づくなら、")
-    .replace(/安全プラン[:：]/g, "今は保つなら、")
-    .replace(/撤退プラン[:：]/g, "一度引くなら、")
-    .replace(/・積極プラン[:：]/g, "・少し近づくなら、")
-    .replace(/・安全プラン[:：]/g, "・今は保つなら、")
-    .replace(/・撤退プラン[:：]/g, "・一度引くなら、")
     .replace(/---/g, "")
     .replace(/[ \t]+\n/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
@@ -74,54 +60,191 @@ function buildGreetingReply(text = "") {
 
   return `${greeting}😊
 
-相手から来たLINEや、
-今の状況をそのまま送ってください。
+気になるLINEをそのまま送ってください。
 
-そのまま使える返信を作ります。`;
+・相手から来たLINE
+・送ろうと思っているLINE
+・返信に迷っているLINE
+
+その一言が自然に見えるか、
+もっといい返し方があるかを見ます。`;
+}
+
+function buildClarifyReply() {
+  return `これ、どっちですか？
+
+① 相手から来たLINE
+② 送ろうと思っているLINE`;
+}
+
+function buildAskForLineReply() {
+  return `その状況だけだと、
+まだ判断しすぎない方がいいかも。
+
+最後のLINEをそのまま送ってみてください。
+
+相手から来た内容でも、
+あなたが送ろうとしている内容でも大丈夫です。`;
+}
+
+function buildHardPaywallReply(userId) {
+  const checkoutUrl = buildCheckoutUrl(userId);
+
+  const text = `無料相談は終了しました。
+
+Proでは、LINEの返信相談を何度でも使えます。
+
+・相手から来たLINEの返し方
+・送る前のLINEチェック
+・続き相談
+・前回までの流れを踏まえた返信
+
+月額 ¥980（税込）`;
+
+  if (checkoutUrl) {
+    return `${text}
+
+続きを見る👇
+${checkoutUrl}`;
+  }
+
+  return `${text}
+
+続きを見る`;
+}
+
+function buildOpenGuide(userId) {
+  const checkoutUrl = buildCheckoutUrl(userId);
+
+  if (checkoutUrl) {
+    return `開通はこちら👇
+${checkoutUrl}
+
+開通後、もう一度メッセージを送ってください。`;
+  }
+
+  return `開通リンクは準備中です。`;
+}
+
+function attachContinueHint(text, count) {
+  if (count === 1) {
+    return `${text}
+
+※無料相談はあと2回です。`;
+  }
+
+  if (count === 2) {
+    return `${text}
+
+※無料相談はあと1回です。`;
+  }
+
+  if (count === FREE_LIMIT) {
+    return `${text}
+
+※今回で無料相談は終了です。
+
+Proでは、返信相談を何度でも使えます。
+
+月額 ¥980（税込）
+
+__SHOW_PAY_BUTTON__`;
+  }
+
+  return text;
+}
+
+function hasQuotedLine(text = "") {
+  const t = String(text || "");
+  return /「[^」]+」/.test(t);
+}
+
+function looksLikeChatlog(text = "") {
+  const t = String(text || "");
+
+  const speakerCount = [
+    /(^|\n)\s*(彼|彼氏|相手|向こう|男|女|私|自分)\s*[:：]/.test(t),
+    /(^|\n)\s*(me|you|him|her)\s*[:：]/i.test(t),
+    (t.match(/「[^」]+」/g) || []).length >= 2
+  ].filter(Boolean).length;
+
+  return t.includes("\n") && speakerCount >= 1;
+}
+
+function looksLikeDraft(text = "") {
+  const t = String(text || "");
+
+  return /送ろうと思|送っていい|送るなら|これ送|こう返|返そうと思|返信しよう|この返信|この返し|これでいい|こう言おう|私[:：]/.test(t);
+}
+
+function looksLikePartnerLine(text = "") {
+  const t = String(text || "");
+
+  if (/相手から|相手のLINE|相手に言われた|彼から|彼女から|向こうから/.test(t)) {
+    return true;
+  }
+
+  if (/(^|\n)\s*(彼|彼氏|相手|向こう)\s*[:：]/.test(t)) {
+    return true;
+  }
+
+  if (hasQuotedLine(t) && !looksLikeDraft(t)) {
+    return true;
+  }
+
+  if (t.length <= 30 && !looksLikeSituation(t)) {
+    return true;
+  }
+
+  return false;
+}
+
+function looksLikeSituation(text = "") {
+  const t = String(text || "");
+
+  return /既読|未読|無視|返信ない|返事ない|冷たい|そっけない|返信遅い|距離|復縁|別れ|振られた|浮気|怪しい|喧嘩|怒ってる|謝りたい|脈あり|脈なし|好き|告白|誘いたい|会いたい|不安|どうすれば|どうしたら|どう思う|相談/.test(t);
 }
 
 function detectInputType(text = "", user = {}) {
-  const t = String(text).trim();
+  const t = String(text || "").trim();
 
   if (!t) return "unknown";
 
-  if (/「.+」/.test(t)) return "partner";
-
   if (
     user.lastInput &&
-    /^(続き|つづき|次|どうする|どうすれば|どうしたら|返事|大丈夫|まだ好き|復縁したい)$/i.test(t)
+    /^(続き|つづき|次|どうする|どうすれば|どうしたら|返事|返信|大丈夫|まだ待つ|送っていい|これは？)$/i.test(t)
   ) {
     return "followup";
   }
 
   if (
     user.lastInput &&
-    /(でも|なんか|気がする|かも|どうすれば|どうしたら|わからない|分からない|大丈夫|まだ好き|復縁|戻りたい|浮気|怪しい|不安|怖い|心配|嫌われた|終わり|待った方がいい|待つ|どれくらい|タイミング|脈あり|脈なし|怒ってる|謝る|謝らない|仲直り|距離|返事|返信)/.test(t)
+    /(でも|じゃあ|それなら|まだ|次|返事|返信|送る|待つ|タイミング|大丈夫|どうすれば|どうしたら|これでいい|この場合)/.test(t)
   ) {
     return "followup";
   }
 
-  if (/相手から|相手のメッセージ|相手に言われた|彼から|彼女から/.test(t)) {
-    return "situation";
-  }
-
-  if (/どう返せば|なんて返せば|返信したい|返事したい|どう思う|相談|どうしよ|不安/.test(t)) {
-    return "situation";
-  }
-
-  if (/復縁したい|戻りたい|告白したい|誘いたい|会いたい/.test(t)) {
-    return "situation";
-  }
-
-  if (/返信|既読|未読|無視|冷たい|距離|別れ|復縁|浮気|怪しい|喧嘩|ブロック|好き|告白|誘い|デート|連絡|LINE|脈あり|脈なし/.test(t)) {
-    return "situation";
-  }
+  if (looksLikeChatlog(t)) return "chatlog";
+  if (looksLikeDraft(t)) return "draft";
+  if (looksLikePartnerLine(t)) return "partner";
+  if (looksLikeSituation(t)) return "situation";
 
   if (t.length <= 2) return "unknown";
-
-  if (t.length <= 20) return "partner";
+  if (t.length <= 30) return "partner";
 
   return "situation";
+}
+
+function shouldAskForLine(inputType, text = "") {
+  if (inputType !== "situation") return false;
+
+  const t = String(text || "").trim();
+
+  if (hasQuotedLine(t)) return false;
+  if (looksLikeChatlog(t)) return false;
+  if (looksLikeDraft(t)) return false;
+
+  return true;
 }
 
 function deriveConversationRules(input = "", user = {}) {
@@ -171,10 +294,6 @@ function detectFollowupStage({ scenario = "normal", user = {}, input = "" }) {
       return "reconnect";
     }
 
-    if (/謝る|謝らない|怒ってる|まだ/.test(text)) {
-      return "observe";
-    }
-
     return "observe";
   }
 
@@ -218,100 +337,9 @@ ${followupStage}
 ${input}
 
 これは前回の続きです。
-前回と同じ説明を繰り返さず、今回の質問にだけ自然に答えてください。
-同じ「待つ」「距離」「自然」「重い」を言い換えて繰り返さないでください。
-会話段階を少し進めて、新しい視点を1つ入れてください。`;
+前回と同じ説明を繰り返さず、今回の質問にだけ自然に答えてください。`;
 }
 
-function buildClarifyReply() {
-  return `これ、どっちですか？
-
-① 相手から来たLINE
-② 今の状況`;
-}
-
-function buildHardPaywallReply(userId) {
-  const checkoutUrl = buildCheckoutUrl(userId);
-
-  if (checkoutUrl) {
-    return `ここから先は、相手の返事や状況に合わせて
-次の動き方をもう少し丁寧に見ていけます。
-
-Proでは、
-
-・今送るべきか
-・どれくらい待つべきか
-・送るならどの一言が自然か
-・避けた方がいい返し方
-
-まで確認できます。
-
-続きを見る👇
-${checkoutUrl}`;
-  }
-
-  return `ここから先は、相手の返事や状況に合わせて
-次の動き方をもう少し丁寧に見ていけます。
-
-Proでは、
-
-・今送るべきか
-・どれくらい待つべきか
-・送るならどの一言が自然か
-・避けた方がいい返し方
-
-まで確認できます。
-
-続きを見る`;
-}
-
-function buildOpenGuide(userId) {
-  const checkoutUrl = buildCheckoutUrl(userId);
-
-  if (checkoutUrl) {
-    return `開通はこちら👇
-${checkoutUrl}
-
-開通後、もう一度メッセージを送ってください。`;
-  }
-
-  return `開通リンクは準備中です。`;
-}
-
-function attachContinueHint(text, count) {
-  if (count === 1) {
-    return `${text}
-
-※無料相談はあと2回です。`;
-  }
-
-  if (count === 2) {
-    return `${text}
-
-※無料相談はあと1回です。`;
-  }
-
-  if (count === FREE_LIMIT) {
-    return `${text}
-
-※今回で無料相談は終了です。
-
-ここから先はProで確認できます。
-
-Proで解放：
-・今送るべきか
-・送るならどの一言が自然か
-・避けた方がいい返し方
-・相手の反応に合わせた次の動き方
-
-料金：
-月額 ¥980（税込）
-
-__SHOW_PAY_BUTTON__`;
-  }
-
-  return text;
-}
 async function buildContext(userId, input, forcedType = null) {
   const user = await getUser(userId);
 
@@ -336,7 +364,7 @@ async function buildContext(userId, input, forcedType = null) {
 
   const shouldUseAIClassifier =
     isFollowup ||
-    aiInput.length > 250 ||
+    aiInput.length > 220 ||
     inputType === "unknown";
 
   if (shouldUseAIClassifier) {
@@ -344,6 +372,10 @@ async function buildContext(userId, input, forcedType = null) {
       input: aiInput,
       user
     });
+  }
+
+  if (classification?.inputType && !forcedType && classification.inputType !== "unknown") {
+    inputType = classification.inputType;
   }
 
   const fallbackRules = deriveConversationRules(aiInput, user);
@@ -426,18 +458,16 @@ async function generateFree(userId, input, forcedType = null) {
   const nextCount = Number(updatedUser.usageCount || 0);
 
   const shouldUpdateSummary =
-    (
-      isFollowup &&
-      Number(user.replyUsageCount || user.usageCount || 0) >= 3
-    ) ||
-    aiInput.length >= 500 ||
+    isFollowup ||
+    inputType === "chatlog" ||
+    aiInput.length >= 400 ||
     riskLevel >= 3 ||
     user.plan === "pro";
 
   const conversationSummary = shouldUpdateSummary
     ? await updateConversationSummary({
         previousSummary: user.conversationSummary,
-        input: input,
+        input,
         reply: ai,
         scenario
       })
@@ -475,6 +505,7 @@ async function generatePro(userId, input, forcedType = null) {
     scenario,
     context: {
       originalInput: input,
+      inputType,
       isFollowup,
       followupStage,
       conversationSummary: user.conversationSummary,
@@ -488,18 +519,16 @@ async function generatePro(userId, input, forcedType = null) {
   const proReply = naturalizeReply(rawProReply);
 
   const shouldUpdateSummary =
-    (
-      isFollowup &&
-      Number(user.replyUsageCount || user.usageCount || 0) >= 3
-    ) ||
-    aiInput.length >= 500 ||
+    isFollowup ||
+    inputType === "chatlog" ||
+    aiInput.length >= 400 ||
     riskLevel >= 3 ||
     user.plan === "pro";
 
   const conversationSummary = shouldUpdateSummary
     ? await updateConversationSummary({
         previousSummary: user.conversationSummary,
-        input: input,
+        input,
         reply: proReply,
         scenario
       })
@@ -518,6 +547,25 @@ async function generatePro(userId, input, forcedType = null) {
   });
 
   return proReply;
+}
+
+async function handleClarifyAnswer(userId, input, user) {
+  const original = user.pendingText || input;
+
+  await updateUser(userId, {
+    pendingClarify: false,
+    pendingText: null
+  });
+
+  if (/^(1|①)$/i.test(input)) {
+    return generateFree(userId, original, "partner");
+  }
+
+  if (/^(2|②)$/i.test(input)) {
+    return generateFree(userId, original, "draft");
+  }
+
+  return generateFree(userId, original, "partner");
 }
 
 async function handleMessage(userId, text) {
@@ -552,22 +600,7 @@ async function handleMessage(userId, text) {
   }
 
   if (user.pendingClarify) {
-    const original = user.pendingText || input;
-
-    await updateUser(userId, {
-      pendingClarify: false,
-      pendingText: null
-    });
-
-    if (/^(1|①)$/i.test(input)) {
-      return generateFree(userId, original, "partner");
-    }
-
-    if (/^(2|②)$/i.test(input)) {
-      return generateFree(userId, original, "situation");
-    }
-
-    return generateFree(userId, original, "situation");
+    return handleClarifyAnswer(userId, input, user);
   }
 
   if (user.plan !== "pro" && Number(user.usageCount || 0) >= FREE_LIMIT) {
@@ -587,6 +620,10 @@ async function handleMessage(userId, text) {
     });
 
     return buildClarifyReply();
+  }
+
+  if (shouldAskForLine(type, input)) {
+    return buildAskForLineReply();
   }
 
   if (user.plan === "pro") {
