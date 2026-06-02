@@ -21,6 +21,7 @@ function createUser() {
 
     pendingClarify: false,
     pendingText: null,
+    pendingMode: null,
 
     lastInput: null,
     lastInputType: null,
@@ -54,6 +55,7 @@ function fromDb(row = {}) {
 
     pendingClarify: row.pending_clarify ?? false,
     pendingText: row.pending_text ?? null,
+    pendingMode: row.pending_mode ?? null,
 
     lastInput: row.last_input ?? null,
     lastInputType: row.last_input_type ?? null,
@@ -75,9 +77,7 @@ function fromDb(row = {}) {
 }
 
 function toDb(userId, data = {}) {
-  const db = {
-    user_id: userId
-  };
+  const db = { user_id: userId };
 
   if ("usageCount" in data) db.usage_count = data.usageCount;
   if ("replyUsageCount" in data) db.reply_usage_count = data.replyUsageCount;
@@ -90,6 +90,7 @@ function toDb(userId, data = {}) {
 
   if ("pendingClarify" in data) db.pending_clarify = data.pendingClarify;
   if ("pendingText" in data) db.pending_text = data.pendingText;
+  if ("pendingMode" in data) db.pending_mode = data.pendingMode;
 
   if ("lastInput" in data) db.last_input = data.lastInput;
   if ("lastInputType" in data) db.last_input_type = data.lastInputType;
@@ -105,13 +106,8 @@ function toDb(userId, data = {}) {
   if ("mainRisk" in data) db.main_risk = data.mainRisk;
   if ("paywall" in data) db.paywall = data.paywall;
 
-  if ("stripeCustomerId" in data) {
-    db.stripe_customer_id = data.stripeCustomerId;
-  }
-
-  if ("stripeSubscriptionId" in data) {
-    db.stripe_subscription_id = data.stripeSubscriptionId;
-  }
+  if ("stripeCustomerId" in data) db.stripe_customer_id = data.stripeCustomerId;
+  if ("stripeSubscriptionId" in data) db.stripe_subscription_id = data.stripeSubscriptionId;
 
   return db;
 }
@@ -128,9 +124,7 @@ async function getUser(userId) {
     return createUser();
   }
 
-  if (data) {
-    return fromDb(data);
-  }
+  if (data) return fromDb(data);
 
   const newUser = createUser();
 
@@ -168,6 +162,7 @@ async function resetConversationOnly(userId) {
 
     pendingClarify: false,
     pendingText: null,
+    pendingMode: null,
 
     lastInput: null,
     lastInputType: null,
