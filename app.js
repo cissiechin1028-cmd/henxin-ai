@@ -374,13 +374,10 @@ app.post("/webhook", async (req, res) => {
           ageConfirmedAt: now
         });
 
-        await replyMessage(
-  replyToken,
-  buildWelcomeMessage(),
-  {
-    quickReply: true
-  }
-);
+        await replyMessage(replyToken, buildWelcomeMessage(), {
+          quickReply: true
+        });
+
         continue;
       }
 
@@ -402,17 +399,16 @@ app.post("/webhook", async (req, res) => {
         continue;
       }
 
-      const checkoutUrlPattern = new RegExp(
-        `${BASE_URL.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\/checkout\\?userId=[^\\s]+`
+      const checkoutUrlMatch = String(replyText).match(
+        /https?:\/\/[^\s]+\/checkout\?userId=[^\s]+/
       );
-
-      const checkoutUrlMatch = String(replyText).match(checkoutUrlPattern);
 
       if (checkoutUrlMatch) {
         const checkoutUrl = checkoutUrlMatch[0];
 
         const cleanedReplyText = String(replyText)
-          .replace(new RegExp(`\\n*続きを見る👇\\n*${checkoutUrl.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`, "g"), "")
+          .replace(`続きを見る👇\n${checkoutUrl}`, "")
+          .replace(checkoutUrl, "")
           .trim();
 
         await replyButton(
