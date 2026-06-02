@@ -5,9 +5,13 @@ const Stripe = require("stripe");
 const {
   replyMessage,
   replyButton,
-  replyAgreementButton
+  replyAgreementButton,
+  downloadLineImage
 } = require("./services/line");
-const { handleMessage } = require("./messageHandler");
+const {
+  handleMessage,
+  handleImageMessage
+} = require("./messageHandler");
 const {
   updateUser,
   updateUserByStripeSubscription
@@ -61,21 +65,73 @@ async function syncSubscriptionToUser(subscription) {
 function buildWelcomeMessage() {
   return `ご同意ありがとうございます😊
 
-気になるLINEをそのまま送ってください。
+LINEスクショを送るだけで、
+次にどう返すのが自然か見れます。
 
-たとえば、
+使い方：
 
-・相手から来たLINE
-・送ろうと思っているLINE
-・返信に迷っているLINE
-・直近のやり取り
+・LINEスクショ
+・送る前にチェック
+・相談したい
+・新しい相談
 
-をそのまま送るだけで大丈夫です。
+スクショは直近の5〜10通くらいで大丈夫です。
+長いやり取り全部は不要です。
 
-その一言が自然に見えるか、
-もっといい返し方があるかを見ます。
+※名前・電話番号・住所など個人情報が見える場合は、隠してから送ってください。
 
 最初の3回は無料でお試しいただけます。`;
+}
+
+async function sendReplyContent(replyToken, replyText, userId) {
+  if (String(replyText).includes("__SHOW_AGREEMENT_BUTTON__")) {
+    await replyAgreementButton(replyToken);
+    return;
+  }
+
+  if (String(replyText).includes("同意するボタンを押してください。")) {
+    await replyAgreementButton(replyToken);
+    return;
+  }
+
+  const checkoutUrlMatch = String(replyText).match(
+    /https?:\/\/[^\s]+\/checkout\?userId=[^\s]+/
+  );
+
+  if (checkoutUrlMatch) {
+    const checkoutUrl = checkoutUrlMatch[0];
+
+    const cleanedReplyText = String(replyText)
+      .replace(`続きを見る👇\n${checkoutUrl}`, "")
+      .replace(checkoutUrl, "")
+      .trim();
+
+    await replyButton(
+      replyToken,
+      cleanedReplyText,
+      "Proで続ける",
+      checkoutUrl
+    );
+    return;
+  }
+
+  if (String(replyText).includes("__SHOW_PAY_BUTTON__")) {
+    const checkoutUrl = `${BASE_URL}/checkout?userId=${encodeURIComponent(userId)}`;
+
+    const cleanedReplyText = String(replyText)
+      .replace("__SHOW_PAY_BUTTON__", "")
+      .trim();
+
+    await replyButton(
+      replyToken,
+      cleanedReplyText,
+      "Proで続ける",
+      checkoutUrl
+    );
+    return;
+  }
+
+  await replyMessage(replyToken, replyText);
 }
 
 app.post(
@@ -382,57 +438,37 @@ app.post("/webhook", async (req, res) => {
       }
 
       if (event.type !== "message") continue;
-      if (!event.message || event.message.type !== "text") continue;
+      if (!event.message) continue;
 
-      const text = event.message.text;
-      if (!text) continue;
+      if (event.message.type === "text") {
+        const text = event.message.text;
+        if (!text) continue;
 
-      const replyText = await handleMessage(userId, text);
-
-      if (String(replyText).includes("__SHOW_AGREEMENT_BUTTON__")) {
-        await replyAgreementButton(replyToken);
+        const replyText = await handleMessage(userId, text);
+        await sendReplyContent(replyToken, replyText, userId);
         continue;
       }
 
-      if (String(replyText).includes("同意するボタンを押してください。")) {
-        await replyAgreementButton(replyToken);
+      if (event.message.type === "image") {
+        try {
+          const imageBuffer = await downloadLineImage(event.message.id);
+          const replyText = await handleImageMessage(userId, imageBuffer);
+          await sendReplyContent(replyToken, replyText, userId);
+        } catch (err) {
+          console.error("IMAGE MESSAGE HANDLE ERROR:", err.response?.data || err.message);
+          await replyMessage(
+            replyToken,
+            "画像をうまく読み取れませんでした。もう一度送るか、直近のやり取りをテキストで送ってください。"
+          );
+        }
+
         continue;
       }
 
-      const checkoutUrlMatch = String(replyText).match(
-        /https?:\/\/[^\s]+\/checkout\?userId=[^\s]+/
+      await replyMessage(
+        replyToken,
+        "テキストかLINEスクショを送ってください😊"
       );
-
-      if (checkoutUrlMatch) {
-        const checkoutUrl = checkoutUrlMatch[0];
-
-        const cleanedReplyText = String(replyText)
-          .replace(`続きを見る👇\n${checkoutUrl}`, "")
-          .replace(checkoutUrl, "")
-          .trim();
-
-        await replyButton(
-          replyToken,
-          cleanedReplyText,
-          "Proで続ける",
-          checkoutUrl
-        );
-      } else if (String(replyText).includes("__SHOW_PAY_BUTTON__")) {
-        const checkoutUrl = `${BASE_URL}/checkout?userId=${encodeURIComponent(userId)}`;
-
-        const cleanedReplyText = String(replyText)
-          .replace("__SHOW_PAY_BUTTON__", "")
-          .trim();
-
-        await replyButton(
-          replyToken,
-          cleanedReplyText,
-          "Proで続ける",
-          checkoutUrl
-        );
-      } else {
-        await replyMessage(replyToken, replyText);
-      }
     }
 
     res.status(200).send("OK");
