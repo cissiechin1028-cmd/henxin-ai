@@ -15,24 +15,24 @@ function buildQuickReply() {
         type: "action",
         action: {
           type: "message",
-          label: "送る前にチェック",
-          text: "送る前にチェック"
+          label: "送る前チェック",
+          text: "送る前チェック"
         }
       },
       {
         type: "action",
         action: {
           type: "message",
-          label: "相談したい",
-          text: "相談したい"
+          label: "恋愛相談",
+          text: "恋愛相談"
         }
       },
       {
         type: "action",
         action: {
           type: "message",
-          label: "新しい相談",
-          text: "新しい相談"
+          label: "相談をリセット",
+          text: "相談をリセット"
         }
       }
     ]
