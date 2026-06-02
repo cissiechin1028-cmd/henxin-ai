@@ -1,17 +1,52 @@
 const axios = require("axios");
 
-async function replyMessage(replyToken, text) {
+function buildQuickReply() {
+  return {
+    items: [
+      {
+        type: "action",
+        action: {
+          type: "message",
+          label: "相手から来たLINE",
+          text: "相手から来たLINE"
+        }
+      },
+      {
+        type: "action",
+        action: {
+          type: "message",
+          label: "送る前にチェック",
+          text: "送る前にチェック"
+        }
+      },
+      {
+        type: "action",
+        action: {
+          type: "message",
+          label: "相談したい",
+          text: "相談したい"
+        }
+      }
+    ]
+  };
+}
+
+async function replyMessage(replyToken, text, options = {}) {
   try {
+    const message = {
+      type: "text",
+      text: String(text).slice(0, 4500)
+    };
+
+    if (options.quickReply) {
+      message.quickReply = buildQuickReply();
+    }
+
     const res = await axios.post(
       "https://api.line.me/v2/bot/message/reply",
       {
         replyToken,
-        messages: [
-          {
-            type: "text",
-            text: String(text).slice(0, 4500)
-          }
-        ]
+        messages: [message]
       },
       {
         headers: {
@@ -44,7 +79,7 @@ async function replyButton(replyToken, text, buttonText, url) {
             altText: buttonText,
             template: {
               type: "buttons",
-              text: "続きはこちらから確認できます。",
+              text: "Proでは、返信相談を何度でも続けられます。",
               actions: [
                 {
                   type: "uri",
@@ -81,7 +116,7 @@ async function replyAgreementButton(replyToken) {
           {
             type: "text",
             text:
-              "はじめまして、恋愛返信AIです😊\n\n" +
+              "はじめまして、返信君です😊\n\n" +
               "このAIは、LINEのやり取りや相談内容をもとに、\n" +
               "自然で好印象な返信文を提案するサービスです。\n\n" +
               "ご利用前に、以下の内容をご確認ください。\n\n" +
