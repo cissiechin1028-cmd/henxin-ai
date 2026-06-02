@@ -374,7 +374,13 @@ app.post("/webhook", async (req, res) => {
           ageConfirmedAt: now
         });
 
-        await replyMessage(replyToken, buildWelcomeMessage());
+        await replyMessage(
+  replyToken,
+  buildWelcomeMessage(),
+  {
+    quickReply: true
+  }
+);
         continue;
       }
 
