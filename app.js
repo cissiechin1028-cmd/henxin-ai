@@ -2,7 +2,11 @@ require("dotenv").config();
 
 const express = require("express");
 const Stripe = require("stripe");
-const { replyMessage, replyButton, replyAgreementButton } = require("./services/line");
+const {
+  replyMessage,
+  replyButton,
+  replyAgreementButton
+} = require("./services/line");
 const { handleMessage } = require("./messageHandler");
 const {
   updateUser,
@@ -52,6 +56,26 @@ async function syncSubscriptionToUser(subscription) {
     await updateUserByStripeSubscription(subscriptionId, updateData);
     console.log("STRIPE SUBSCRIPTION SYNCED BY SUBSCRIPTION:", subscriptionId, plan);
   }
+}
+
+function buildWelcomeMessage() {
+  return `ご同意ありがとうございます😊
+
+気になるLINEをそのまま送ってください。
+
+たとえば、
+
+・相手から来たLINE
+・送ろうと思っているLINE
+・返信に迷っているLINE
+・直近のやり取り
+
+をそのまま送るだけで大丈夫です。
+
+その一言が自然に見えるか、
+もっといい返し方があるかを見ます。
+
+最初の3回は無料でお試しいただけます。`;
 }
 
 app.post(
@@ -252,14 +276,14 @@ app.get("/success", (req, res) => {
   <div class="card">
     <div class="icon">✓</div>
 
-    <div class="badge">恋愛返信AI Pro が有効になりました</div>
+    <div class="badge">返信君 Pro が有効になりました</div>
 
     <h1>お支払い完了</h1>
 
     <div class="subtitle">
       ご購入ありがとうございます。<br>
-      LINEに戻って、もう一度メッセージを送ると<br>
-      Pro分析をご利用いただけます。
+      LINEに戻って、気になるLINEを送ると<br>
+      Proとして何度でもご利用いただけます。
     </div>
 
     <a href="https://line.me/R/oaMessage/%40931poeez" class="button">
@@ -302,9 +326,7 @@ app.get("/checkout", async (req, res) => {
       ],
       success_url: `${BASE_URL}/success`,
       cancel_url: `${BASE_URL}/cancel`,
-
       locale: "ja",
-
       client_reference_id: userId,
       metadata: {
         userId
@@ -352,11 +374,7 @@ app.post("/webhook", async (req, res) => {
           ageConfirmedAt: now
         });
 
-        await replyMessage(
-          replyToken,
-          "ご同意ありがとうございます😊\n\n相手から来たLINEや、今の状況をそのまま送ってください。\n\nたとえば、\n・相手から来たメッセージ\n・返信に困っている内容\n・今の関係や状況\n\nなど、そのまま送っても大丈夫です。\n\n自然で好印象な返信を作ります。\n\n最初の3回は無料でお試しいただけます。"
-);
-
+        await replyMessage(replyToken, buildWelcomeMessage());
         continue;
       }
 
@@ -364,7 +382,6 @@ app.post("/webhook", async (req, res) => {
       if (!event.message || event.message.type !== "text") continue;
 
       const text = event.message.text;
-
       if (!text) continue;
 
       const replyText = await handleMessage(userId, text);
@@ -379,24 +396,23 @@ app.post("/webhook", async (req, res) => {
         continue;
       }
 
-      const checkoutUrlMatch = String(replyText).match(
-        /https:\/\/henxin-ai\.onrender\.com\/checkout\?userId=[^\s]+/
+      const checkoutUrlPattern = new RegExp(
+        `${BASE_URL.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\/checkout\\?userId=[^\\s]+`
       );
+
+      const checkoutUrlMatch = String(replyText).match(checkoutUrlPattern);
 
       if (checkoutUrlMatch) {
         const checkoutUrl = checkoutUrlMatch[0];
 
         const cleanedReplyText = String(replyText)
-          .replace(
-            /\n*続きを見る👇\n*https:\/\/henxin-ai\.onrender\.com\/checkout\?userId=[^\s]+/g,
-            ""
-          )
+          .replace(new RegExp(`\\n*続きを見る👇\\n*${checkoutUrl.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`, "g"), "")
           .trim();
 
         await replyButton(
           replyToken,
           cleanedReplyText,
-          "Proで続きを見る",
+          "Proで続ける",
           checkoutUrl
         );
       } else if (String(replyText).includes("__SHOW_PAY_BUTTON__")) {
@@ -409,7 +425,7 @@ app.post("/webhook", async (req, res) => {
         await replyButton(
           replyToken,
           cleanedReplyText,
-          "Proで続きを見る",
+          "Proで続ける",
           checkoutUrl
         );
       } else {
