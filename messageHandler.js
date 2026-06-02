@@ -16,6 +16,13 @@ const FREE_LIMIT = 3;
 const PRO_URL = process.env.PRO_URL || "";
 const BASE_URL = process.env.BASE_URL || "";
 
+const MODES = {
+  SCREENSHOT: "screenshot",
+  DRAFT_CHECK: "draft_check",
+  PARTNER: "partner",
+  CONSULT: "consult"
+};
+
 function buildCheckoutUrl(userId) {
   if (BASE_URL) {
     return `${BASE_URL}/checkout?userId=${encodeURIComponent(userId)}`;
@@ -57,6 +64,24 @@ function detectGreetingReplyWord(text = "") {
   return "こんにちは";
 }
 
+function containsPersonalInfo(text = "") {
+  const t = String(text || "");
+
+  return (
+    /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i.test(t) ||
+    /0\d{1,4}[-ー]?\d{1,4}[-ー]?\d{3,4}/.test(t) ||
+    /〒?\d{3}[-ー]\d{4}/.test(t) ||
+    /(東京都|北海道|大阪府|京都府|.{2,3}県).{0,20}(市|区|町|村)/.test(t) ||
+    /(LINE\s?ID|ラインID|Instagram|インスタ|住所|電話番号|勤務先|学校名)/i.test(t)
+  );
+}
+
+function buildPrivacyWarningReply() {
+  return `個人情報が含まれている可能性があります。
+
+名前・電話番号・住所・メールアドレス・勤務先などは削除してから送ってください😊`;
+}
+
 function buildGreetingReply(text = "") {
   const greeting = detectGreetingReplyWord(text);
 
@@ -64,7 +89,7 @@ function buildGreetingReply(text = "") {
 
 気になるLINEをそのまま送ってください。
 
-・相手から来たLINE
+・LINEスクショ
 ・送ろうと思っているLINE
 ・返信に迷っているLINE
 
@@ -79,6 +104,15 @@ function buildClarifyReply() {
 ② 送ろうと思っているLINE`;
 }
 
+function buildAskForScreenshotReply() {
+  return `📷 LINEスクショを送ってください😊
+
+直近のやり取りが見える1枚で大丈夫です。
+目安は最後の5〜10通くらいです。
+
+※名前・電話番号・住所など個人情報が見える場合は、隠してから送ってください。`;
+}
+
 function buildAskForPartnerLineReply() {
   return `相手から来たLINEをそのまま送ってください😊
 
@@ -88,24 +122,53 @@ function buildAskForPartnerLineReply() {
 そのLINEにどう返すのが自然か見ます。`;
 }
 
-function buildAskForDraftLineReply() {
+function buildAskForDraftLineReply(hasContext = false) {
+  if (hasContext) {
+    return `送ろうと思っているLINEをそのまま送ってください😊
+
+さっきのやり取りを踏まえて、
+その一言が自然かどうか見ます。`;
+  }
+
   return `送ろうと思っているLINEをそのまま送ってください😊
 
-例：
-「また連絡してね」
+前後の流れがある場合は、
+LINEスクショを先に送るとより正確に見れます。
 
-その一言が自然に見えるか、
-もっといい言い方があるか見ます。`;
+例：
+「また連絡してね」`;
+}
+
+function buildAskForConsultReply() {
+  return `相談内容を送ってください😊
+
+ただ、返信を正確に見たい場合は、
+直近のLINEスクショか、最後のやり取りも一緒に送ってください。`;
 }
 
 function buildAskForLineReply() {
   return `その状況だけだと、まだ判断しすぎない方がいいかも。
 
 最後に相手から来たLINEか、
-あなたが送ろうとしているLINEをそのまま送ってください。
+LINEスクショを送ってください。
 
-その一言を見た方が、
+その流れを見た方が、
 どう返すのが自然かちゃんと出せます。`;
+}
+
+function buildNewConsultReply() {
+  return `前の相談をリセットしました😊
+
+新しい相談を始めましょう。
+
+LINEスクショか、
+相手から来たLINEを送ってください。`;
+}
+
+function buildImageOnlyReply() {
+  return `画像を送ってください😊
+
+直近のやり取りが見えるLINEスクショ1枚で大丈夫です。`;
 }
 
 function buildHardPaywallReply(userId) {
@@ -115,7 +178,7 @@ function buildHardPaywallReply(userId) {
 
 Proでは、LINEの返信相談を何度でも使えます。
 
-・相手から来たLINEの返し方
+・LINEスクショから返信提案
 ・送る前のLINEチェック
 ・続き相談
 ・前回までの流れを踏まえた返信
@@ -331,6 +394,9 @@ function buildFollowupInput({ user, input, followupStage = "normal" }) {
   return `会話状況:
 ${user.conversationSummary || "前回の相談内容あり"}
 
+直近のLINE文脈:
+${user.lastChatContext || "なし"}
+
 前回の相談タイプ:
 ${user.lastInputType || "不明"}
 
@@ -348,6 +414,26 @@ ${input}
 
 これは前回の続きです。
 前回と同じ説明を繰り返さず、今回の質問にだけ自然に答えてください。`;
+}
+
+function buildInputWithChatContext({ user, input, mode }) {
+  if (!user.lastChatContext) return input;
+
+  if (mode === MODES.DRAFT_CHECK) {
+    return `直近のLINE文脈:
+${user.lastChatContext}
+
+ユーザーが送ろうとしているLINE:
+${input}
+
+このLINEを送っていいか、文脈に合わせて判断してください。`;
+  }
+
+  return `直近のLINE文脈:
+${user.lastChatContext}
+
+今回の入力:
+${input}`;
 }
 
 async function buildContext(userId, input, forcedType = null) {
@@ -452,6 +538,7 @@ async function generateFree(userId, input, forcedType = null) {
         lastAdvice: user.lastAdvice,
         lastRiskLevel: user.lastRiskLevel,
         conversationSummary: user.conversationSummary,
+        lastChatContext: user.lastChatContext,
         contactAllowed: rules.contactAllowed,
         recommendedAction: rules.recommendedAction,
         mainRisk: rules.mainRisk,
@@ -482,6 +569,7 @@ async function generateFree(userId, input, forcedType = null) {
     : user.conversationSummary;
 
   await updateUser(userId, {
+    pendingMode: null,
     lastInput: input,
     lastInputType: inputType,
     lastScenario: scenario,
@@ -517,6 +605,7 @@ async function generatePro(userId, input, forcedType = null) {
       isFollowup,
       followupStage,
       conversationSummary: user.conversationSummary,
+      lastChatContext: user.lastChatContext,
       lastAdvice: user.lastAdvice,
       contactAllowed: rules.contactAllowed,
       recommendedAction: rules.recommendedAction,
@@ -543,6 +632,7 @@ async function generatePro(userId, input, forcedType = null) {
     : user.conversationSummary;
 
   await updateUser(userId, {
+    pendingMode: null,
     lastInput: input,
     lastInputType: inputType,
     lastScenario: scenario,
@@ -584,6 +674,125 @@ async function handleClarifyAnswer(userId, input, user) {
   return generateByPlan(userId, original, "partner", user);
 }
 
+async function handleMenuCommand(userId, input, user) {
+  if (/^(LINEスクショ|スクショ|画像)$/i.test(input)) {
+    await updateUser(userId, {
+      pendingMode: MODES.SCREENSHOT,
+      pendingClarify: false,
+      pendingText: null
+    });
+
+    return buildAskForScreenshotReply();
+  }
+
+  if (/^(送る前にチェック)$/i.test(input)) {
+    await updateUser(userId, {
+      pendingMode: MODES.DRAFT_CHECK,
+      pendingClarify: false,
+      pendingText: null
+    });
+
+    return buildAskForDraftLineReply(Boolean(user.lastChatContext));
+  }
+
+  if (/^(相手から来たLINE)$/i.test(input)) {
+    await updateUser(userId, {
+      pendingMode: MODES.PARTNER,
+      pendingClarify: false,
+      pendingText: null
+    });
+
+    return buildAskForPartnerLineReply();
+  }
+
+  if (/^(相談したい)$/i.test(input)) {
+    await updateUser(userId, {
+      pendingMode: MODES.CONSULT,
+      pendingClarify: false,
+      pendingText: null
+    });
+
+    return buildAskForConsultReply();
+  }
+
+  if (/^(新しい相談|別件|最初から)$/i.test(input)) {
+    await resetConversationOnly(userId);
+    return buildNewConsultReply();
+  }
+
+  return null;
+}
+
+async function handlePendingMode(userId, input, user) {
+  switch (user.pendingMode) {
+    case MODES.SCREENSHOT:
+      return buildImageOnlyReply();
+
+    case MODES.DRAFT_CHECK: {
+      const inputWithContext = buildInputWithChatContext({
+        user,
+        input,
+        mode: MODES.DRAFT_CHECK
+      });
+
+      return generateByPlan(userId, inputWithContext, "draft", user);
+    }
+
+    case MODES.PARTNER:
+      return generateByPlan(userId, input, "partner", user);
+
+    case MODES.CONSULT: {
+      const type = detectInputType(input, user);
+
+      if (shouldAskForLine(type, input)) {
+        return buildAskForLineReply();
+      }
+
+      return generateByPlan(userId, input, type, user);
+    }
+
+    default:
+      return null;
+  }
+}
+
+async function handleImageMessage(userId, imageBuffer) {
+  const user = await getUser(userId);
+
+  if (!user.privacyAccepted) {
+    return "__SHOW_AGREEMENT_BUTTON__";
+  }
+
+  if (user.plan !== "pro" && Number(user.usageCount || 0) >= FREE_LIMIT) {
+    await updateUser(userId, { paywall: true });
+    return buildHardPaywallReply(userId);
+  }
+
+  const { analyzeLineScreenshot } = require("./services/imageAnalyzer");
+  const result = await analyzeLineScreenshot(imageBuffer);
+
+  if (!result.success) {
+    return result.reply;
+  }
+
+  const reply = naturalizeReply(result.reply);
+  const updatedUser = await incrementReplyUsage(userId);
+  const nextCount = Number(updatedUser.usageCount || 0);
+
+  await updateUser(userId, {
+    pendingMode: null,
+    lastInput: "[LINEスクショ]",
+    lastInputType: "chatlog",
+    lastScenario: "normal",
+    lastAdvice: reply,
+    lastRiskLevel: 1,
+    lastChatContext: result.chatContext || null,
+    conversationSummary: result.chatContext || null
+  });
+
+  return attachContinueHint(reply, nextCount);
+}
+
 async function handleMessage(userId, text) {
   const input = String(text || "").trim();
 
@@ -605,24 +814,19 @@ async function handleMessage(userId, text) {
     return "__SHOW_AGREEMENT_BUTTON__";
   }
 
+  const menuReply = await handleMenuCommand(userId, input, user);
+  if (menuReply) return menuReply;
+
   if (isGreeting(input)) {
     return buildGreetingReply(input);
   }
 
-  if (/^(相手から来たLINE)$/i.test(input)) {
-    return buildAskForPartnerLineReply();
-  }
-
-  if (/^(送る前にチェック)$/i.test(input)) {
-    return buildAskForDraftLineReply();
-  }
-
-  if (/^(相談したい)$/i.test(input)) {
-    return buildAskForLineReply();
-  }
-
   if (/^(開通|購入|支払い|続きを見る)$/i.test(input)) {
     return buildOpenGuide(userId);
+  }
+
+  if (containsPersonalInfo(input)) {
+    return buildPrivacyWarningReply();
   }
 
   if (user.pendingClarify) {
@@ -633,6 +837,9 @@ async function handleMessage(userId, text) {
     await updateUser(userId, { paywall: true });
     return buildHardPaywallReply(userId);
   }
+
+  const pendingReply = await handlePendingMode(userId, input, user);
+  if (pendingReply) return pendingReply;
 
   const type = detectInputType(input, user);
 
@@ -652,4 +859,7 @@ async function handleMessage(userId, text) {
   return generateByPlan(userId, input, type, user);
 }
 
-module.exports = { handleMessage };
+module.exports = {
+  handleMessage,
+  handleImageMessage
+};
