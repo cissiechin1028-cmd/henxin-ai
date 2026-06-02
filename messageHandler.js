@@ -20,6 +20,7 @@ function buildCheckoutUrl(userId) {
   if (BASE_URL) {
     return `${BASE_URL}/checkout?userId=${encodeURIComponent(userId)}`;
   }
+
   return PRO_URL;
 }
 
@@ -31,6 +32,7 @@ function naturalizeReply(text = "") {
     .replace(/判断[:：]/g, "")
     .replace(/送るLINE[:：]/g, "")
     .replace(/注意[:：]/g, "")
+    .replace(/⚠️/g, "")
     .replace(/---/g, "")
     .replace(/[ \t]+\n/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
@@ -77,14 +79,33 @@ function buildClarifyReply() {
 ② 送ろうと思っているLINE`;
 }
 
+function buildAskForPartnerLineReply() {
+  return `相手から来たLINEをそのまま送ってください😊
+
+例：
+「今日は疲れた」
+
+そのLINEにどう返すのが自然か見ます。`;
+}
+
+function buildAskForDraftLineReply() {
+  return `送ろうと思っているLINEをそのまま送ってください😊
+
+例：
+「また連絡してね」
+
+その一言が自然に見えるか、
+もっといい言い方があるか見ます。`;
+}
+
 function buildAskForLineReply() {
-  return `その状況だけだと、
-まだ判断しすぎない方がいいかも。
+  return `その状況だけだと、まだ判断しすぎない方がいいかも。
 
-最後のLINEをそのまま送ってみてください。
+最後に相手から来たLINEか、
+あなたが送ろうとしているLINEをそのまま送ってください。
 
-相手から来た内容でも、
-あなたが送ろうとしている内容でも大丈夫です。`;
+その一言を見た方が、
+どう返すのが自然かちゃんと出せます。`;
 }
 
 function buildHardPaywallReply(userId) {
@@ -123,7 +144,7 @@ ${checkoutUrl}
 開通後、もう一度メッセージを送ってください。`;
   }
 
-  return `開通リンクは準備中です。`;
+  return "開通リンクは準備中です。";
 }
 
 function attachContinueHint(text, count) {
@@ -155,26 +176,31 @@ __SHOW_PAY_BUTTON__`;
 }
 
 function hasQuotedLine(text = "") {
+  return /「[^」]+」/.test(String(text || ""));
+}
+
+function looksLikeSituation(text = "") {
   const t = String(text || "");
-  return /「[^」]+」/.test(t);
+
+  return /既読|未読|無視|返信ない|返事ない|冷たい|そっけない|返信遅い|距離|復縁|別れ|振られた|浮気|怪しい|喧嘩|怒ってる|謝りたい|脈あり|脈なし|好き|告白|誘いたい|会いたい|不安|どうすれば|どうしたら|どう思う|相談/.test(t);
 }
 
 function looksLikeChatlog(text = "") {
   const t = String(text || "");
 
-  const speakerCount = [
-    /(^|\n)\s*(彼|彼氏|相手|向こう|男|女|私|自分)\s*[:：]/.test(t),
-    /(^|\n)\s*(me|you|him|her)\s*[:：]/i.test(t),
-    (t.match(/「[^」]+」/g) || []).length >= 2
-  ].filter(Boolean).length;
+  const hasSpeaker =
+    /(^|\n)\s*(彼|彼氏|相手|向こう|私|自分)\s*[:：]/.test(t) ||
+    /(^|\n)\s*(me|you|him|her)\s*[:：]/i.test(t);
 
-  return t.includes("\n") && speakerCount >= 1;
+  const quoteCount = (t.match(/「[^」]+」/g) || []).length;
+
+  return t.includes("\n") && (hasSpeaker || quoteCount >= 2);
 }
 
 function looksLikeDraft(text = "") {
   const t = String(text || "");
 
-  return /送ろうと思|送っていい|送るなら|これ送|こう返|返そうと思|返信しよう|この返信|この返し|これでいい|こう言おう|私[:：]/.test(t);
+  return /送ろうと思|送っていい|送るなら|これ送|こう返|返そうと思|返信しよう|この返信|この返し|これでいい|こう言おう|送る前にチェック|私[:：]/.test(t);
 }
 
 function looksLikePartnerLine(text = "") {
@@ -197,12 +223,6 @@ function looksLikePartnerLine(text = "") {
   }
 
   return false;
-}
-
-function looksLikeSituation(text = "") {
-  const t = String(text || "");
-
-  return /既読|未読|無視|返信ない|返事ない|冷たい|そっけない|返信遅い|距離|復縁|別れ|振られた|浮気|怪しい|喧嘩|怒ってる|謝りたい|脈あり|脈なし|好き|告白|誘いたい|会いたい|不安|どうすれば|どうしたら|どう思う|相談/.test(t);
 }
 
 function detectInputType(text = "", user = {}) {
@@ -289,21 +309,13 @@ function detectFollowupStage({ scenario = "normal", user = {}, input = "" }) {
 
   if (["breakup", "fight", "reunion"].includes(scenario)) {
     if (usage <= 2) return "cooldown";
-
-    if (/返信|返事|戻って|話せる|普通|会話|仲直り/.test(text)) {
-      return "reconnect";
-    }
-
+    if (/返信|返事|戻って|話せる|普通|会話|仲直り/.test(text)) return "reconnect";
     return "observe";
   }
 
   if (["ignore", "cold"].includes(scenario)) {
     if (usage <= 2) return "wait";
-
-    if (/返事|返信|話題|会話|向こうから/.test(text)) {
-      return "observe";
-    }
-
+    if (/返事|返信|話題|会話|向こうから/.test(text)) return "observe";
     return "soft_reconnect";
   }
 
@@ -316,10 +328,8 @@ function detectFollowupStage({ scenario = "normal", user = {}, input = "" }) {
 }
 
 function buildFollowupInput({ user, input, followupStage = "normal" }) {
-  const summary = user.conversationSummary || "";
-
   return `会話状況:
-${summary || "前回の相談内容あり"}
+${user.conversationSummary || "前回の相談内容あり"}
 
 前回の相談タイプ:
 ${user.lastInputType || "不明"}
@@ -406,7 +416,6 @@ async function buildContext(userId, input, forcedType = null) {
     inputType,
     aiInput,
     isFollowup,
-    classification,
     rules,
     scenario,
     riskLevel,
@@ -453,7 +462,6 @@ async function generateFree(userId, input, forcedType = null) {
   });
 
   const ai = naturalizeReply(rawReply);
-
   const updatedUser = await incrementReplyUsage(userId);
   const nextCount = Number(updatedUser.usageCount || 0);
 
@@ -549,6 +557,14 @@ async function generatePro(userId, input, forcedType = null) {
   return proReply;
 }
 
+async function generateByPlan(userId, input, type, user) {
+  if (user.plan === "pro") {
+    return generatePro(userId, input, type);
+  }
+
+  return generateFree(userId, input, type);
+}
+
 async function handleClarifyAnswer(userId, input, user) {
   const original = user.pendingText || input;
 
@@ -558,22 +574,20 @@ async function handleClarifyAnswer(userId, input, user) {
   });
 
   if (/^(1|①)$/i.test(input)) {
-    return generateFree(userId, original, "partner");
+    return generateByPlan(userId, original, "partner", user);
   }
 
   if (/^(2|②)$/i.test(input)) {
-    return generateFree(userId, original, "draft");
+    return generateByPlan(userId, original, "draft", user);
   }
 
-  return generateFree(userId, original, "partner");
+  return generateByPlan(userId, original, "partner", user);
 }
 
 async function handleMessage(userId, text) {
   const input = String(text || "").trim();
 
-  if (!input) {
-    return buildClarifyReply();
-  }
+  if (!input) return buildClarifyReply();
 
   if (input === "__reset__") {
     await resetUser(userId);
@@ -595,6 +609,18 @@ async function handleMessage(userId, text) {
     return buildGreetingReply(input);
   }
 
+  if (/^(相手から来たLINE)$/i.test(input)) {
+    return buildAskForPartnerLineReply();
+  }
+
+  if (/^(送る前にチェック)$/i.test(input)) {
+    return buildAskForDraftLineReply();
+  }
+
+  if (/^(相談したい)$/i.test(input)) {
+    return buildAskForLineReply();
+  }
+
   if (/^(開通|購入|支払い|続きを見る)$/i.test(input)) {
     return buildOpenGuide(userId);
   }
@@ -604,10 +630,7 @@ async function handleMessage(userId, text) {
   }
 
   if (user.plan !== "pro" && Number(user.usageCount || 0) >= FREE_LIMIT) {
-    await updateUser(userId, {
-      paywall: true
-    });
-
+    await updateUser(userId, { paywall: true });
     return buildHardPaywallReply(userId);
   }
 
@@ -626,11 +649,7 @@ async function handleMessage(userId, text) {
     return buildAskForLineReply();
   }
 
-  if (user.plan === "pro") {
-    return generatePro(userId, input, type);
-  }
-
-  return generateFree(userId, input, type);
+  return generateByPlan(userId, input, type, user);
 }
 
 module.exports = { handleMessage };
