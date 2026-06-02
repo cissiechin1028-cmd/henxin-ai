@@ -685,7 +685,7 @@ async function handleMenuCommand(userId, input, user) {
     return buildAskForScreenshotReply();
   }
 
-  if (/^(送る前にチェック)$/i.test(input)) {
+  if (/^(送る前チェック|送る前にチェック)$/i.test(input)) {
     await updateUser(userId, {
       pendingMode: MODES.DRAFT_CHECK,
       pendingClarify: false,
@@ -695,17 +695,7 @@ async function handleMenuCommand(userId, input, user) {
     return buildAskForDraftLineReply(Boolean(user.lastChatContext));
   }
 
-  if (/^(相手から来たLINE)$/i.test(input)) {
-    await updateUser(userId, {
-      pendingMode: MODES.PARTNER,
-      pendingClarify: false,
-      pendingText: null
-    });
-
-    return buildAskForPartnerLineReply();
-  }
-
-  if (/^(相談したい)$/i.test(input)) {
+  if (/^(恋愛相談|相談したい)$/i.test(input)) {
     await updateUser(userId, {
       pendingMode: MODES.CONSULT,
       pendingClarify: false,
@@ -715,9 +705,12 @@ async function handleMenuCommand(userId, input, user) {
     return buildAskForConsultReply();
   }
 
-  if (/^(新しい相談|別件|最初から)$/i.test(input)) {
+  if (/^(相談をリセット|新しい相談|別件|最初から|リセット)$/i.test(input)) {
     await resetConversationOnly(userId);
-    return buildNewConsultReply();
+
+    return `今の相談内容をリセットしたよ😊
+
+新しい相談を送ってね。`;
   }
 
   return null;
