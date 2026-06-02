@@ -19,7 +19,6 @@ const BASE_URL = process.env.BASE_URL || "";
 const MODES = {
   SCREENSHOT: "screenshot",
   DRAFT_CHECK: "draft_check",
-  PARTNER: "partner",
   CONSULT: "consult"
 };
 
@@ -87,21 +86,13 @@ function buildGreetingReply(text = "") {
 
   return `${greeting}😊
 
-気になるLINEをそのまま送ってください。
+気になるLINEを送ってください。
 
-・LINEスクショ
-・送ろうと思っているLINE
-・返信に迷っているLINE
+📷 LINEスクショ
+✍️ 送る前チェック
+💬 恋愛相談
 
-その一言が自然に見えるか、
-もっといい返し方があるかを見ます。`;
-}
-
-function buildClarifyReply() {
-  return `これ、どっちですか？
-
-① 相手から来たLINE
-② 送ろうと思っているLINE`;
+どれでも大丈夫です。`;
 }
 
 function buildAskForScreenshotReply() {
@@ -111,15 +102,6 @@ function buildAskForScreenshotReply() {
 目安は最後の5〜10通くらいです。
 
 ※名前・電話番号・住所など個人情報が見える場合は、隠してから送ってください。`;
-}
-
-function buildAskForPartnerLineReply() {
-  return `相手から来たLINEをそのまま送ってください😊
-
-例：
-「今日は疲れた」
-
-そのLINEにどう返すのが自然か見ます。`;
 }
 
 function buildAskForDraftLineReply(hasContext = false) {
@@ -133,7 +115,7 @@ function buildAskForDraftLineReply(hasContext = false) {
   return `送ろうと思っているLINEをそのまま送ってください😊
 
 前後の流れがある場合は、
-LINEスクショを先に送るとより正確に見れます。
+先にLINEスクショを送るとより正確に見れます。
 
 例：
 「また連絡してね」`;
@@ -142,7 +124,7 @@ LINEスクショを先に送るとより正確に見れます。
 function buildAskForConsultReply() {
   return `相談内容を送ってください😊
 
-ただ、返信を正確に見たい場合は、
+返信を正確に見たい場合は、
 直近のLINEスクショか、最後のやり取りも一緒に送ってください。`;
 }
 
@@ -156,13 +138,10 @@ LINEスクショを送ってください。
 どう返すのが自然かちゃんと出せます。`;
 }
 
-function buildNewConsultReply() {
-  return `前の相談をリセットしました😊
+function buildResetReply() {
+  return `今の相談内容をリセットしたよ😊
 
-新しい相談を始めましょう。
-
-LINEスクショか、
-相手から来たLINEを送ってください。`;
+新しい相談を送ってね。`;
 }
 
 function buildImageOnlyReply() {
@@ -263,7 +242,7 @@ function looksLikeChatlog(text = "") {
 function looksLikeDraft(text = "") {
   const t = String(text || "");
 
-  return /送ろうと思|送っていい|送るなら|これ送|こう返|返そうと思|返信しよう|この返信|この返し|これでいい|こう言おう|送る前にチェック|私[:：]/.test(t);
+  return /送ろうと思|送っていい|送るなら|これ送|こう返|返そうと思|返信しよう|この返信|この返し|これでいい|こう言おう|送る前チェック|送る前にチェック|私[:：]/.test(t);
 }
 
 function looksLikePartnerLine(text = "") {
@@ -655,25 +634,6 @@ async function generateByPlan(userId, input, type, user) {
   return generateFree(userId, input, type);
 }
 
-async function handleClarifyAnswer(userId, input, user) {
-  const original = user.pendingText || input;
-
-  await updateUser(userId, {
-    pendingClarify: false,
-    pendingText: null
-  });
-
-  if (/^(1|①)$/i.test(input)) {
-    return generateByPlan(userId, original, "partner", user);
-  }
-
-  if (/^(2|②)$/i.test(input)) {
-    return generateByPlan(userId, original, "draft", user);
-  }
-
-  return generateByPlan(userId, original, "partner", user);
-}
-
 async function handleMenuCommand(userId, input, user) {
   if (/^(LINEスクショ|スクショ|画像)$/i.test(input)) {
     await updateUser(userId, {
@@ -707,10 +667,7 @@ async function handleMenuCommand(userId, input, user) {
 
   if (/^(相談をリセット|新しい相談|別件|最初から|リセット)$/i.test(input)) {
     await resetConversationOnly(userId);
-
-    return `今の相談内容をリセットしたよ😊
-
-新しい相談を送ってね。`;
+    return buildResetReply();
   }
 
   return null;
@@ -730,9 +687,6 @@ async function handlePendingMode(userId, input, user) {
 
       return generateByPlan(userId, inputWithContext, "draft", user);
     }
-
-    case MODES.PARTNER:
-      return generateByPlan(userId, input, "partner", user);
 
     case MODES.CONSULT: {
       const type = detectInputType(input, user);
@@ -789,16 +743,13 @@ async function handleImageMessage(userId, imageBuffer) {
 async function handleMessage(userId, text) {
   const input = String(text || "").trim();
 
-  if (!input) return buildClarifyReply();
+  if (!input) {
+    return buildGreetingReply();
+  }
 
   if (input === "__reset__") {
     await resetUser(userId);
     return "リセットしました";
-  }
-
-  if (/^(履歴削除|データ削除)$/i.test(input)) {
-    await resetConversationOnly(userId);
-    return "保存中の相談履歴を削除しました。";
   }
 
   const user = await getUser(userId);
@@ -818,12 +769,13 @@ async function handleMessage(userId, text) {
     return buildOpenGuide(userId);
   }
 
-  if (containsPersonalInfo(input)) {
-    return buildPrivacyWarningReply();
+  if (/^(履歴削除|データ削除)$/i.test(input)) {
+    await resetConversationOnly(userId);
+    return "保存中の相談履歴を削除しました。";
   }
 
-  if (user.pendingClarify) {
-    return handleClarifyAnswer(userId, input, user);
+  if (containsPersonalInfo(input)) {
+    return buildPrivacyWarningReply();
   }
 
   if (user.plan !== "pro" && Number(user.usageCount || 0) >= FREE_LIMIT) {
@@ -835,15 +787,6 @@ async function handleMessage(userId, text) {
   if (pendingReply) return pendingReply;
 
   const type = detectInputType(input, user);
-
-  if (type === "unknown") {
-    await updateUser(userId, {
-      pendingClarify: true,
-      pendingText: input
-    });
-
-    return buildClarifyReply();
-  }
 
   if (shouldAskForLine(type, input)) {
     return buildAskForLineReply();
