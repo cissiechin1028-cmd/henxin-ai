@@ -29,6 +29,7 @@ function createUser() {
     lastRiskLevel: 1,
 
     conversationSummary: null,
+    lastChatContext: null,
 
     contactAllowed: undefined,
     recommendedAction: undefined,
@@ -61,6 +62,7 @@ function fromDb(row = {}) {
     lastRiskLevel: row.last_risk_level ?? 1,
 
     conversationSummary: row.conversation_summary ?? null,
+    lastChatContext: row.last_chat_context ?? null,
 
     contactAllowed: row.contact_allowed ?? undefined,
     recommendedAction: row.recommended_action ?? undefined,
@@ -96,6 +98,7 @@ function toDb(userId, data = {}) {
   if ("lastRiskLevel" in data) db.last_risk_level = data.lastRiskLevel;
 
   if ("conversationSummary" in data) db.conversation_summary = data.conversationSummary;
+  if ("lastChatContext" in data) db.last_chat_context = data.lastChatContext;
 
   if ("contactAllowed" in data) db.contact_allowed = data.contactAllowed;
   if ("recommendedAction" in data) db.recommended_action = data.recommendedAction;
@@ -173,6 +176,7 @@ async function resetConversationOnly(userId) {
     lastRiskLevel: 1,
 
     conversationSummary: null,
+    lastChatContext: null,
 
     contactAllowed: undefined,
     recommendedAction: undefined,
