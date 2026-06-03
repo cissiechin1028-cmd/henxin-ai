@@ -679,30 +679,42 @@ async function handlePendingMode(userId, input, user) {
       return buildImageOnlyReply();
 
     case MODES.DRAFT_CHECK: {
-      const inputWithContext = buildInputWithChatContext({
-        user,
-        input,
-        mode: MODES.DRAFT_CHECK
-      });
+  const draftInput = user.lastChatContext
+    ? `これは「送る前チェック」です。
 
-      return generateByPlan(userId, inputWithContext, "draft", user);
-    }
+直近のLINE文脈：
+${user.lastChatContext}
 
-    case MODES.CONSULT: {
-      const type = detectInputType(input, user);
+ユーザーが送ろうとしているLINE：
+${input}
 
-      if (shouldAskForLine(type, input)) {
-        return buildAskForLineReply();
-      }
+やってほしいこと：
+このLINEを今この文脈で送っていいか判断してください。
+ただの言い換えではなく、
+・そのまま送っていいか
+・少し変えた方がいいか
+・送らない方がいいか
+を自然な日本語で伝えてください。
 
-      return generateByPlan(userId, input, type, user);
-    }
+必要なら、送るならどんな一言が自然かも提案してください。`
+    : `これは「送る前チェック」です。
 
-    default:
-      return null;
-  }
+ユーザーが送ろうとしているLINE：
+${input}
+
+やってほしいこと：
+まず、このまま送っていいかを判断してください。
+そのうえで、必要なら自然な言い方を提案してください。
+ただの言い換えではなく、
+・そのまま送っていいか
+・少し変えた方がいいか
+・送らない方がいいか
+を自然な日本語で伝えてください。
+
+必要なら、送るならどんな一言が自然かも提案してください。`;
+
+  return generateByPlan(userId, draftInput, "draft", user);
 }
-
 async function handleImageMessage(userId, imageBuffer) {
   const user = await getUser(userId);
 
