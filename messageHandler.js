@@ -679,8 +679,8 @@ async function handlePendingMode(userId, input, user) {
       return buildImageOnlyReply();
 
     case MODES.DRAFT_CHECK: {
-  const draftInput = user.lastChatContext
-    ? `これは「送る前チェック」です。
+      const draftInput = user.lastChatContext
+        ? `これは「送る前チェック」です。
 
 直近のLINE文脈：
 ${user.lastChatContext}
@@ -689,7 +689,8 @@ ${user.lastChatContext}
 ${input}
 
 やってほしいこと：
-このLINEを今この文脈で送っていいか判断してください。
+まず、このまま送っていいかを判断してください。
+そのうえで、必要なら自然な言い方を提案してください。
 ただの言い換えではなく、
 ・そのまま送っていいか
 ・少し変えた方がいいか
@@ -697,7 +698,7 @@ ${input}
 を自然な日本語で伝えてください。
 
 必要なら、送るならどんな一言が自然かも提案してください。`
-    : `これは「送る前チェック」です。
+        : `これは「送る前チェック」です。
 
 ユーザーが送ろうとしているLINE：
 ${input}
@@ -713,7 +714,22 @@ ${input}
 
 必要なら、送るならどんな一言が自然かも提案してください。`;
 
-  return generateByPlan(userId, draftInput, "draft", user);
+      return generateByPlan(userId, draftInput, "draft", user);
+    }
+
+    case MODES.CONSULT: {
+      const type = detectInputType(input, user);
+
+      if (shouldAskForLine(type, input)) {
+        return buildAskForLineReply();
+      }
+
+      return generateByPlan(userId, input, type, user);
+    }
+
+    default:
+      return null;
+  }
 }
 async function handleImageMessage(userId, imageBuffer) {
   const user = await getUser(userId);
