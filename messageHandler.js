@@ -635,37 +635,52 @@ async function generateByPlan(userId, input, type, user) {
 }
 
 async function handleMenuCommand(userId, input, user) {
-  if (/^(LINEスクショ|スクショ|画像)$/i.test(input)) {
-    await updateUser(userId, {
-      pendingMode: MODES.SCREENSHOT,
-      pendingClarify: false,
-      pendingText: null
-    });
-
-    return buildAskForScreenshotReply();
-  }
-
-  if (/^(送る前チェック|送る前にチェック)$/i.test(input)) {
+  if (/^返信アドバイス$/i.test(input)) {
     await updateUser(userId, {
       pendingMode: MODES.DRAFT_CHECK,
       pendingClarify: false,
       pendingText: null
     });
 
-    return buildAskForDraftLineReply(Boolean(user.lastChatContext));
+    return `送ろうと思っている内容や、相手とのLINEスクショを送ってください😊
+
+スクショでも文章でも大丈夫です👌
+
+どう返すのが良いか、一緒に考えます。`;
   }
 
-  if (/^(恋愛相談|相談したい)$/i.test(input)) {
+  if (/^相手の本音$/i.test(input)) {
+    await updateUser(userId, {
+      pendingMode: MODES.SCREENSHOT,
+      pendingClarify: false,
+      pendingText: null
+    });
+
+    return `LINEスクショ、または届いたメッセージを送ってください😊
+
+本音や今の温度感を見ます。
+
+どんな気持ちなのか、一緒に見てみます。`;
+  }
+
+  if (/^状況相談$/i.test(input)) {
     await updateUser(userId, {
       pendingMode: MODES.CONSULT,
       pendingClarify: false,
       pendingText: null
     });
 
-    return buildAskForConsultReply();
+    return `今の状況を教えてください😊
+
+スクショでも文章でも大丈夫です👌
+
+復縁、告白、既読無視など、
+気になっていることをそのまま送ってください。
+
+一緒に整理してみます。`;
   }
 
-  if (/^(相談をリセット|新しい相談|別件|最初から|リセット)$/i.test(input)) {
+  if (/^(リセット)$/i.test(input)) {
     await resetConversationOnly(userId);
     return buildResetReply();
   }
