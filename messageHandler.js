@@ -12,7 +12,7 @@ const {
   incrementReplyUsage
 } = require("./userStore");
 
-const FREE_LIMIT = 3;
+const FREE_LIMIT = 5;
 const PRO_URL = process.env.PRO_URL || "";
 const BASE_URL = process.env.BASE_URL || "";
 
