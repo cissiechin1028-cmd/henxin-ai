@@ -22,7 +22,60 @@ function cleanText(text = "") {
     .trim();
 }
 
-async function analyzeLineScreenshot(imageBuffer) {
+function buildModeInstruction(entryMode = "reply") {
+  if (entryMode === "mind") {
+    return `
+目的：
+LINEスクショから直近の会話を読み取り、相手の本音・温度感・脈あり/脈なし感を短く見ます。
+
+replyのルール：
+・日本語のみ
+・返信文を主役にしない
+・無理に「こう返す」を出さない
+・相手の気持ちは断定しない
+・でも、どう見えやすいかは短く判断する
+・本音、温度感、脈あり/脈なし感を自然な文章で伝える
+・見出し禁止
+・箇条書き禁止
+・説明は長くしない
+`;
+  }
+
+  if (entryMode === "consult") {
+    return `
+目的：
+LINEスクショから直近の状況を読み取り、今どう動くべきかを短く整理します。
+
+replyのルール：
+・日本語のみ
+・返信文だけに寄せすぎない
+・状況整理と次の行動を優先する
+・相手の気持ちは断定しない
+・でも、今の流れがどう見えやすいかは短く判断する
+・見出し禁止
+・箇条書き禁止
+・説明は長くしない
+`;
+  }
+
+  return `
+目的：
+LINEスクショから直近の会話を読み取り、次に送ると自然な一言を提案します。
+
+replyのルール：
+・日本語のみ
+・まず次に送る一言を出す
+・送るLINEは必ず「」で囲む
+・「」の中に絵文字は入れない
+・説明は1〜2文だけ
+・見出し禁止
+・箇条書き禁止
+・相手の気持ちは断定しない
+・でも、次にどう返すのが自然かは判断する
+`;
+}
+
+async function analyzeLineScreenshot(imageBuffer, entryMode = "reply") {
   try {
     const base64Image = Buffer.from(imageBuffer).toString("base64");
 
@@ -37,9 +90,6 @@ async function analyzeLineScreenshot(imageBuffer) {
 あなたはLINEスクショを読むAIです。
 必ずJSONだけを返してください。説明文は禁止です。
 
-目的：
-LINEスクショから直近の会話を読み取り、次にユーザーが送ると自然な一言を提案します。
-
 LINEスクショの読み方：
 ・基本的に左側の吹き出し = 相手
 ・右側の吹き出し = ユーザー
@@ -49,25 +99,17 @@ LINEスクショの読み方：
 ・スタンプだけの場合は「内容不明」と扱う
 ・最後の相手の発言、または会話の最後の流れを重視する
 
+現在の入口:
+${entryMode}
+
+${buildModeInstruction(entryMode)}
+
 返すJSON形式：
 {
   "success": true,
   "chatContext": "相手：...\\n私：...\\n相手：...",
   "reply": "ユーザーに返す文章"
 }
-
-replyのルール：
-・日本語のみ
-・中国語禁止
-・恋愛相談の長文分析をしない
-・まず次に送る一言を出す
-・送るLINEは必ず「」で囲む
-・「」の中に絵文字は入れない
-・説明は1〜2文だけ
-・見出し禁止
-・箇条書き禁止
-・相手の気持ちは断定しない
-・でも、次にどう返すのが自然かは判断する
 
 スクショが読めない場合：
 {
@@ -82,7 +124,7 @@ replyのルール：
             content: [
               {
                 type: "text",
-                text: "このLINEスクショを読んで、直近の会話内容と、次に送るなら自然な一言をJSONで返してください。"
+                text: "このLINEスクショを読んで、現在の入口に合わせてJSONで返してください。"
               },
               {
                 type: "image_url",
@@ -94,7 +136,7 @@ replyのルール：
           }
         ],
         temperature: 0.35,
-        max_tokens: 700
+        max_tokens: 650
       },
       {
         headers: {
