@@ -107,7 +107,7 @@ function buildEntryModeInstruction(entryMode = "") {
 別入口へ誘導しない。
 `,
 
-    screenshot: `
+    mind: `
 現在の入口は「相手の本音」。
 
 役割:
