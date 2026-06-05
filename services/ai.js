@@ -18,7 +18,6 @@ async function generateAIResponse({ input, userState }) {
 
 最重要ルール：
 ・日本語のみ
-・中国語は禁止
 ・長文禁止
 ・一般論禁止
 ・説教禁止
@@ -70,7 +69,7 @@ async function generateAIResponse({ input, userState }) {
           }
         ],
         temperature: 0.65,
-        max_tokens: 620
+        max_tokens: 450
       },
       {
         headers: {
