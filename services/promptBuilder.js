@@ -158,6 +158,9 @@ ${freeUsageCount}
 現在の入口:
 ${entryMode || "unknown"}
 
+入口別の役割:
+${buildEntryModeInstruction(entryMode)}
+
 前回までの要約:
 ${conversationSummary || "なし"}
 
