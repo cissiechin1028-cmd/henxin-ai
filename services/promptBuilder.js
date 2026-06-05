@@ -116,6 +116,7 @@ function buildPrompt({ input, userState }) {
   const inputType = userState?.inputType || "unknown";
   const scenario = userState?.scenario || "normal";
   const context = userState?.context || {};
+  const entryMode = context.entryMode || "";
 
   const originalInput = context.originalInput || input;
   const isFollowup = Boolean(context.isFollowup);
