@@ -320,7 +320,6 @@ async function generateReply(userId, input, forcedType = null) {
         recommendedAction: rules.recommendedAction,
         mainRisk: rules.mainRisk,
         freeUsageCount: Number(user.usageCount || 0) + 1,
-        referenceCases: JSON.stringify(referenceCases, null, 2)
       }
     }
   });
