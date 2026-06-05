@@ -165,7 +165,6 @@ function buildPrompt({ input, userState }) {
   const followupStage = context.followupStage || "normal";
   const conversationSummary = context.conversationSummary || "";
   const referenceCases = context.referenceCases || "";
-  const speechStyle = detectUserSpeechStyle(originalInput);
 
   const contactAllowed = context.contactAllowed;
   const recommendedAction = context.recommendedAction || "";
