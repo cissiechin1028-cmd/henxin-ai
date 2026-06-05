@@ -143,22 +143,17 @@ async function replyAgreementButton(replyToken) {
           {
             type: "text",
             text:
-              "はじめまして、返信くんです😊\n\n" +
-              "このAIは、LINEのやり取りや相談内容をもとに、\n" +
-              "自然で好印象な返信文を提案するサービスです。\n\n" +
-              "ご利用前に、以下の内容をご確認ください。\n\n" +
-              "■ 利用規約\n" +
-              "https://line-reply.site/terms.html\n\n" +
-              "■ プライバシーポリシー\n" +
-              "https://line-reply.site/privacy.html\n\n" +
-              "■ 返金ポリシー\n" +
-              "https://line-reply.site/refund.html\n\n" +
-              "■ データ削除について\n" +
-              "https://line-reply.site/data-deletion.html\n\n" +
-              "18歳以上の方のみご利用いただけます。\n" +
-              "相談内容は最大30日間保存されます。\n\n" +
-              "名前・電話番号・住所などの個人情報は、隠してから送ってください。\n\n" +
-              "内容をご確認のうえ、同意してサービスを開始してください。",
+             "はじめまして、返信くんです😊\n\n" +
+             "LINEのやり取りや恋愛相談をもとに、自然な返信を一緒に考えるAIです。\n\n" +
+             "ご利用前に以下をご確認ください。\n\n" +
+             "■ 利用規約\n" +
+             "https://line-reply.site/terms.html\n\n" +
+             "■ プライバシーポリシー\n" +
+             "https://line-reply.site/privacy.html\n\n" +
+             "18歳以上の方のみご利用いただけます。\n" +
+             "相談内容は最大30日間保存されます。\n\n" +
+             "個人情報は削除したうえでお送りください。\n\n" +
+             "内容をご確認のうえ、同意して開始してください。",
             previewUrl: false
           },
           {
