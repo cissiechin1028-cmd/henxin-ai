@@ -1,6 +1,5 @@
 const { generateAIResponse } = require("./services/ai");
 const { retrieveCases } = require("./services/caseRetriever");
-const { generateProResponse } = require("./services/proEngine");
 const { detectScenario } = require("./services/scenarioDetector");
 const { classifyMessage } = require("./services/classifier");
 const { updateConversationSummary } = require("./services/summarizer");
@@ -17,8 +16,8 @@ const PRO_URL = process.env.PRO_URL || "";
 const BASE_URL = process.env.BASE_URL || "";
 
 const MODES = {
-  SCREENSHOT: "screenshot",
-  DRAFT_CHECK: "draft_check",
+  REPLY: "reply",
+  MIND: "mind",
   CONSULT: "consult"
 };
 
@@ -45,24 +44,6 @@ function naturalizeReply(text = "") {
     .trim();
 }
 
-function isGreeting(text = "") {
-  const t = String(text).trim().toLowerCase();
-
-  return /^(おはよう|おはようございます|こんにちは|こんばんは|お疲れ様|お疲れ様です|はじめまして|よろしく|よろしくお願いします|hello|hi|早安|你好|晚上好)$/i.test(t);
-}
-
-function detectGreetingReplyWord(text = "") {
-  const t = String(text).trim();
-
-  if (/おはよう|早安/.test(t)) return "おはようございます";
-  if (/こんばんは|晚上好/.test(t)) return "こんばんは";
-  if (/お疲れ/.test(t)) return "お疲れ様です";
-  if (/よろしく/.test(t)) return "よろしくお願いします";
-  if (/你好|こんにちは|hello|hi|はじめまして/i.test(t)) return "こんにちは";
-
-  return "こんにちは";
-}
-
 function containsPersonalInfo(text = "") {
   const t = String(text || "");
 
@@ -78,76 +59,27 @@ function containsPersonalInfo(text = "") {
 function buildPrivacyWarningReply() {
   return `個人情報が含まれている可能性があります。
 
-名前・電話番号・住所・メールアドレス・勤務先などは削除してから送ってください😊`;
-}
-
-function buildGreetingReply(text = "") {
-  const greeting = detectGreetingReplyWord(text);
-
-  return `${greeting}😊
-
-気になるLINEを送ってください。
-
-📷 LINEスクショ
-✍️ 送る前チェック
-💬 恋愛相談
-
-どれでも大丈夫です。`;
-}
-
-function buildAskForScreenshotReply() {
-  return `📷 LINEスクショを送ってください😊
-
-直近のやり取りが見える1枚で大丈夫です。
-目安は最後の5〜10通くらいです。
-
-※名前・電話番号・住所など個人情報が見える場合は、隠してから送ってください。`;
-}
-
-function buildAskForDraftLineReply(hasContext = false) {
-  if (hasContext) {
-    return `送ろうと思っているLINEをそのまま送ってください😊
-
-さっきのやり取りを踏まえて、
-その一言が自然かどうか見ます。`;
-  }
-
-  return `送ろうと思っているLINEをそのまま送ってください😊
-
-前後の流れがある場合は、
-先にLINEスクショを送るとより正確に見れます。
-
-例：
-「また連絡してね」`;
-}
-
-function buildAskForConsultReply() {
-  return `相談内容を送ってください😊
-
-返信を正確に見たい場合は、
-直近のLINEスクショか、最後のやり取りも一緒に送ってください。`;
-}
-
-function buildAskForLineReply() {
-  return `その状況だけだと、まだ判断しすぎない方がいいかも。
-
-最後に相手から来たLINEか、
-LINEスクショを送ってください。
-
-その流れを見た方が、
-どう返すのが自然かちゃんと出せます。`;
+お名前・電話番号・住所・メールアドレス・勤務先などは削除したうえでお送りください。`;
 }
 
 function buildResetReply() {
-  return `今の相談内容をリセットしたよ😊
+  return `現在の相談内容をリセットしました😊
 
-新しい相談を送ってね。`;
+新しいご相談がありましたら、お送りください。`;
 }
 
-function buildImageOnlyReply() {
-  return `画像を送ってください😊
+function buildDataDeletedReply() {
+  return `保存中の相談履歴を削除しました。
 
-直近のやり取りが見えるLINEスクショ1枚で大丈夫です。`;
+ご利用ありがとうございました。`;
+}
+
+function buildAskForLineReply() {
+  return `その状況だけでは、正確に判断しすぎない方がよさそうです。
+
+最後に相手から届いたLINE、または直近のLINEスクショをお送りください。
+
+流れが分かると、より自然に見られます。`;
 }
 
 function buildHardPaywallReply(userId) {
@@ -155,66 +87,38 @@ function buildHardPaywallReply(userId) {
 
   const text = `無料相談は終了しました。
 
-Proでは、LINEの返信相談を何度でも使えます。
+Proプランでは、返信くんを回数制限なくご利用いただけます。
 
-・LINEスクショから返信提案
-・送る前のLINEチェック
-・続き相談
-・前回までの流れを踏まえた返信
+・返信アドバイス
+・相手の本音
+・状況相談
+・前回までの流れを踏まえた続き相談
 
 月額 ¥980（税込）`;
 
-  if (checkoutUrl) {
+  return `${text}
+
+${checkoutUrl}`;
+}
+
+function attachContinueHint(text, count) {
+  const remaining = FREE_LIMIT - count;
+
+  if (remaining > 0) {
     return `${text}
 
-続きを見る👇
-${checkoutUrl}`;
+※無料相談はあと${remaining}回です。`;
   }
 
   return `${text}
 
-続きを見る`;
-}
-
-function buildOpenGuide(userId) {
-  const checkoutUrl = buildCheckoutUrl(userId);
-
-  if (checkoutUrl) {
-    return `開通はこちら👇
-${checkoutUrl}
-
-開通後、もう一度メッセージを送ってください。`;
-  }
-
-  return "開通リンクは準備中です。";
-}
-
-function attachContinueHint(text, count) {
-  if (count === 1) {
-    return `${text}
-
-※無料相談はあと2回です。`;
-  }
-
-  if (count === 2) {
-    return `${text}
-
-※無料相談はあと1回です。`;
-  }
-
-  if (count === FREE_LIMIT) {
-    return `${text}
-
 ※今回で無料相談は終了です。
 
-Proでは、返信相談を何度でも使えます。
+Proプランでは、返信くんを回数制限なくご利用いただけます。
 
 月額 ¥980（税込）
 
 __SHOW_PAY_BUTTON__`;
-  }
-
-  return text;
 }
 
 function hasQuotedLine(text = "") {
@@ -309,68 +213,17 @@ function shouldAskForLine(inputType, text = "") {
   return true;
 }
 
-function deriveConversationRules(input = "", user = {}) {
-  const t = String(input).trim();
+async function buildContext(userId, input, forcedType = null) {
+  const user = await getUser(userId);
 
-  let contactAllowed = user.contactAllowed;
-  let recommendedAction = user.recommendedAction;
-  let mainRisk = user.mainRisk;
+  let inputType = forcedType || detectInputType(input, user);
+  let aiInput = input;
+  const isFollowup = inputType === "followup";
 
-  if (/しばらく連絡しないで|連絡しないで|距離を置きたい|距離置きたい|今は話したくない|一人にして|放っておいて/.test(t)) {
-    contactAllowed = false;
-    recommendedAction = "wait";
-    mainRisk = "push_too_hard";
-  } else if (/忙しい|バタバタ|返信遅い|既読無視|未読無視|冷たい|そっけない|距離を感じる/.test(t)) {
-    contactAllowed = true;
-    recommendedAction = "soft_reply";
-    mainRisk = "pressure";
-  } else if (/喧嘩|怒ってる|怒らせた|言いすぎた|責めた|傷つけた/.test(t)) {
-    contactAllowed = true;
-    recommendedAction = "cool_down";
-    mainRisk = "escalation";
-  } else if (/別れたい|別れよう|別れた|振られた|復縁したい|戻りたい/.test(t)) {
-    contactAllowed = false;
-    recommendedAction = "reduce_pressure";
-    mainRisk = "begging";
-  } else if (/浮気|怪しい|他に好きな人|他の人|女の影|男の影/.test(t)) {
-    contactAllowed = true;
-    recommendedAction = "observe";
-    mainRisk = "accusation";
-  }
+  if (isFollowup) {
+    inputType = user.lastInputType || "situation";
 
-  return {
-    contactAllowed,
-    recommendedAction,
-    mainRisk
-  };
-}
-
-function detectFollowupStage({ scenario = "normal", user = {}, input = "" }) {
-  const usage = Number(user.replyUsageCount || user.usageCount || 0);
-  const text = String(input || "");
-
-  if (["breakup", "fight", "reunion"].includes(scenario)) {
-    if (usage <= 2) return "cooldown";
-    if (/返信|返事|戻って|話せる|普通|会話|仲直り/.test(text)) return "reconnect";
-    return "observe";
-  }
-
-  if (["ignore", "cold"].includes(scenario)) {
-    if (usage <= 2) return "wait";
-    if (/返事|返信|話題|会話|向こうから/.test(text)) return "observe";
-    return "soft_reconnect";
-  }
-
-  if (scenario === "flirt") {
-    if (usage <= 2) return "approach_light";
-    return "approach_check";
-  }
-
-  return "normal";
-}
-
-function buildFollowupInput({ user, input, followupStage = "normal" }) {
-  return `会話状況:
+    aiInput = `会話状況:
 ${user.conversationSummary || "前回の相談内容あり"}
 
 直近のLINE文脈:
@@ -382,57 +235,11 @@ ${user.lastInputType || "不明"}
 前回のシナリオ:
 ${user.lastScenario || "normal"}
 
-前回の注意:
-${user.mainRisk || "なし"}
-
-今回の会話段階:
-${followupStage}
-
 今回の質問:
 ${input}
 
 これは前回の続きです。
 前回と同じ説明を繰り返さず、今回の質問にだけ自然に答えてください。`;
-}
-
-function buildInputWithChatContext({ user, input, mode }) {
-  if (!user.lastChatContext) return input;
-
-  if (mode === MODES.DRAFT_CHECK) {
-    return `直近のLINE文脈:
-${user.lastChatContext}
-
-ユーザーが送ろうとしているLINE:
-${input}
-
-このLINEを送っていいか、文脈に合わせて判断してください。`;
-  }
-
-  return `直近のLINE文脈:
-${user.lastChatContext}
-
-今回の入力:
-${input}`;
-}
-
-async function buildContext(userId, input, forcedType = null) {
-  const user = await getUser(userId);
-
-  let inputType = forcedType || detectInputType(input, user);
-  let aiInput = input;
-  const isFollowup = inputType === "followup";
-
-  const baseScenario = user.lastScenario || detectScenario(input);
-
-  const followupStage = detectFollowupStage({
-    scenario: baseScenario,
-    user,
-    input
-  });
-
-  if (isFollowup) {
-    inputType = user.lastInputType || "situation";
-    aiInput = buildFollowupInput({ user, input, followupStage });
   }
 
   let classification = null;
@@ -453,16 +260,6 @@ async function buildContext(userId, input, forcedType = null) {
     inputType = classification.inputType;
   }
 
-  const fallbackRules = deriveConversationRules(aiInput, user);
-
-  const rules = classification
-    ? {
-        contactAllowed: classification.contactAllowed,
-        recommendedAction: classification.recommendedAction,
-        mainRisk: classification.mainRisk
-      }
-    : fallbackRules;
-
   const scenario =
     classification?.scenario ||
     detectScenario(aiInput) ||
@@ -474,6 +271,12 @@ async function buildContext(userId, input, forcedType = null) {
     user.lastRiskLevel ||
     1;
 
+  const rules = {
+    contactAllowed: classification?.contactAllowed ?? user.contactAllowed,
+    recommendedAction: classification?.recommendedAction ?? user.recommendedAction,
+    mainRisk: classification?.mainRisk ?? user.mainRisk
+  };
+
   const referenceCases = retrieveCases(input, 3);
 
   return {
@@ -484,12 +287,11 @@ async function buildContext(userId, input, forcedType = null) {
     rules,
     scenario,
     riskLevel,
-    referenceCases,
-    followupStage
+    referenceCases
   };
 }
 
-async function generateFree(userId, input, forcedType = null) {
+async function generateReply(userId, input, forcedType = null) {
   const {
     user,
     inputType,
@@ -498,8 +300,7 @@ async function generateFree(userId, input, forcedType = null) {
     rules,
     scenario,
     riskLevel,
-    referenceCases,
-    followupStage
+    referenceCases
   } = await buildContext(userId, input, forcedType);
 
   const rawReply = await generateAIResponse({
@@ -509,9 +310,8 @@ async function generateFree(userId, input, forcedType = null) {
       scenario,
       context: {
         originalInput: input,
-        entryMode: user.pendingMode,
+        entryMode: user.pendingMode || MODES.REPLY,
         isFollowup,
-        followupStage,
         lastInput: user.lastInput,
         lastInputType: user.lastInputType,
         lastScenario: user.lastScenario,
@@ -529,8 +329,13 @@ async function generateFree(userId, input, forcedType = null) {
   });
 
   const ai = naturalizeReply(rawReply);
-  const updatedUser = await incrementReplyUsage(userId);
-  const nextCount = Number(updatedUser.usageCount || 0);
+
+  let nextCount = Number(user.usageCount || 0);
+
+  if (user.plan !== "pro") {
+    const updatedUser = await incrementReplyUsage(userId);
+    nextCount = Number(updatedUser.usageCount || 0);
+  }
 
   const shouldUpdateSummary =
     isFollowup ||
@@ -561,107 +366,40 @@ async function generateFree(userId, input, forcedType = null) {
     mainRisk: rules.mainRisk
   });
 
+  if (user.plan === "pro") {
+    return ai;
+  }
+
   return attachContinueHint(ai, nextCount);
 }
 
-async function generatePro(userId, input, forcedType = null) {
-  const {
-    user,
-    inputType,
-    aiInput,
-    isFollowup,
-    rules,
-    scenario,
-    riskLevel,
-    followupStage
-  } = await buildContext(userId, input, forcedType);
-
-  const rawProReply = await generateProResponse({
-    input: aiInput,
-    scenario,
-    context: {
-      originalInput: input,
-      inputType,
-      isFollowup,
-      followupStage,
-      conversationSummary: user.conversationSummary,
-      lastChatContext: user.lastChatContext,
-      lastAdvice: user.lastAdvice,
-      contactAllowed: rules.contactAllowed,
-      recommendedAction: rules.recommendedAction,
-      mainRisk: rules.mainRisk
-    }
-  });
-
-  const proReply = naturalizeReply(rawProReply);
-
-  const shouldUpdateSummary =
-    isFollowup ||
-    inputType === "chatlog" ||
-    aiInput.length >= 400 ||
-    riskLevel >= 3 ||
-    user.plan === "pro";
-
-  const conversationSummary = shouldUpdateSummary
-    ? await updateConversationSummary({
-        previousSummary: user.conversationSummary,
-        input,
-        reply: proReply,
-        scenario
-      })
-    : user.conversationSummary;
-
-  await updateUser(userId, {
-    pendingMode: null,
-    lastInput: input,
-    lastInputType: inputType,
-    lastScenario: scenario,
-    lastAdvice: proReply,
-    lastRiskLevel: riskLevel,
-    conversationSummary,
-    contactAllowed: rules.contactAllowed,
-    recommendedAction: rules.recommendedAction,
-    mainRisk: rules.mainRisk
-  });
-
-  return proReply;
-}
-
-async function generateByPlan(userId, input, type, user) {
-  if (user.plan === "pro") {
-    return generatePro(userId, input, type);
-  }
-
-  return generateFree(userId, input, type);
-}
-
-async function handleMenuCommand(userId, input, user) {
+async function handleMenuCommand(userId, input) {
   if (/^返信アドバイス$/i.test(input)) {
     await updateUser(userId, {
-      pendingMode: MODES.DRAFT_CHECK,
+      pendingMode: MODES.REPLY,
       pendingClarify: false,
       pendingText: null
     });
 
     return `送ろうと思っている内容や、相手とのLINEスクショを送ってください😊
 
-スクショでも文章でも大丈夫です👌
+スクショでも文章でも大丈夫です。
 
-どう返すのが良いか、一緒に考えます。`;
+どう返すのがよいか、一緒に考えます。`;
   }
 
   if (/^相手の本音$/i.test(input)) {
     await updateUser(userId, {
-      pendingMode: MODES.SCREENSHOT,
+      pendingMode: MODES.MIND,
       pendingClarify: false,
       pendingText: null
     });
 
     return `LINEスクショ、または届いたメッセージを送ってください😊
 
-本音や今の温度感を見ます。
+相手の本音や今の温度感を見ます。
 
-どんな気持ちなのか、一緒に見てみます。`;
+どのような気持ちなのか、一緒に整理します。`;
   }
 
   if (/^状況相談$/i.test(input)) {
@@ -673,12 +411,11 @@ async function handleMenuCommand(userId, input, user) {
 
     return `今の状況を教えてください😊
 
-スクショでも文章でも大丈夫です👌
+スクショでも文章でも大丈夫です。
 
-復縁、告白、既読無視など、
-気になっていることをそのまま送ってください。
+復縁、告白、既読無視など、気になっていることをそのままお送りください。
 
-一緒に整理してみます。`;
+一緒に整理します。`;
   }
 
   if (/^(リセット)$/i.test(input)) {
@@ -691,46 +428,25 @@ async function handleMenuCommand(userId, input, user) {
 
 async function handlePendingMode(userId, input, user) {
   switch (user.pendingMode) {
-    case MODES.SCREENSHOT:
-      return buildImageOnlyReply();
-
-    case MODES.DRAFT_CHECK: {
-      const draftInput = user.lastChatContext
-        ? `これは「送る前チェック」です。
+    case MODES.REPLY: {
+      const replyInput = user.lastChatContext
+        ? `これは「返信アドバイス」です。
 
 直近のLINE文脈：
 ${user.lastChatContext}
 
-ユーザーが送ろうとしているLINE：
+ユーザーが送ろうとしている内容：
 ${input}
 
 やってほしいこと：
-まず、このまま送っていいかを判断してください。
-そのうえで、必要なら自然な言い方を提案してください。
-ただの言い換えではなく、
-・そのまま送っていいか
-・少し変えた方がいいか
-・送らない方がいいか
-を自然な日本語で伝えてください。
+どう返すのがよいかを判断し、必要ならそのまま送れる一言を提案してください。`
+        : input;
 
-必要なら、送るならどんな一言が自然かも提案してください。`
-        : `これは「送る前チェック」です。
+      return generateReply(userId, replyInput, "draft");
+    }
 
-ユーザーが送ろうとしているLINE：
-${input}
-
-やってほしいこと：
-まず、このまま送っていいかを判断してください。
-そのうえで、必要なら自然な言い方を提案してください。
-ただの言い換えではなく、
-・そのまま送っていいか
-・少し変えた方がいいか
-・送らない方がいいか
-を自然な日本語で伝えてください。
-
-必要なら、送るならどんな一言が自然かも提案してください。`;
-
-      return generateByPlan(userId, draftInput, "draft", user);
+    case MODES.MIND: {
+      return generateReply(userId, input, detectInputType(input, user));
     }
 
     case MODES.CONSULT: {
@@ -740,13 +456,14 @@ ${input}
         return buildAskForLineReply();
       }
 
-      return generateByPlan(userId, input, type, user);
+      return generateReply(userId, input, type);
     }
 
     default:
       return null;
   }
 }
+
 async function handleImageMessage(userId, imageBuffer) {
   const user = await getUser(userId);
 
@@ -760,15 +477,21 @@ async function handleImageMessage(userId, imageBuffer) {
   }
 
   const { analyzeLineScreenshot } = require("./services/imageAnalyzer");
-  const result = await analyzeLineScreenshot(imageBuffer);
+  const entryMode = user.pendingMode || MODES.REPLY;
+  const result = await analyzeLineScreenshot(imageBuffer, entryMode);
 
   if (!result.success) {
     return result.reply;
   }
 
   const reply = naturalizeReply(result.reply);
-  const updatedUser = await incrementReplyUsage(userId);
-  const nextCount = Number(updatedUser.usageCount || 0);
+
+  let nextCount = Number(user.usageCount || 0);
+
+  if (user.plan !== "pro") {
+    const updatedUser = await incrementReplyUsage(userId);
+    nextCount = Number(updatedUser.usageCount || 0);
+  }
 
   await updateUser(userId, {
     pendingMode: null,
@@ -781,6 +504,10 @@ async function handleImageMessage(userId, imageBuffer) {
     conversationSummary: result.chatContext || null
   });
 
+  if (user.plan === "pro") {
+    return reply;
+  }
+
   return attachContinueHint(reply, nextCount);
 }
 
@@ -788,12 +515,12 @@ async function handleMessage(userId, text) {
   const input = String(text || "").trim();
 
   if (!input) {
-    return buildGreetingReply();
+    return "メニューから選択するか、そのまま相談内容をお送りください😊";
   }
 
   if (input === "__reset__") {
     await resetUser(userId);
-    return "リセットしました";
+    return "リセットしました。";
   }
 
   const user = await getUser(userId);
@@ -802,20 +529,12 @@ async function handleMessage(userId, text) {
     return "__SHOW_AGREEMENT_BUTTON__";
   }
 
-  const menuReply = await handleMenuCommand(userId, input, user);
+  const menuReply = await handleMenuCommand(userId, input);
   if (menuReply) return menuReply;
-
-  if (isGreeting(input)) {
-    return buildGreetingReply(input);
-  }
-
-  if (/^(開通|購入|支払い|続きを見る)$/i.test(input)) {
-    return buildOpenGuide(userId);
-  }
 
   if (/^(履歴削除|データ削除)$/i.test(input)) {
     await resetConversationOnly(userId);
-    return "保存中の相談履歴を削除しました。";
+    return buildDataDeletedReply();
   }
 
   if (containsPersonalInfo(input)) {
@@ -836,7 +555,7 @@ async function handleMessage(userId, text) {
     return buildAskForLineReply();
   }
 
-  return generateByPlan(userId, input, type, user);
+  return generateReply(userId, input, type);
 }
 
 module.exports = {
