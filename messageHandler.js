@@ -509,6 +509,7 @@ async function generateFree(userId, input, forcedType = null) {
       scenario,
       context: {
         originalInput: input,
+        entryMode: user.pendingMode,
         isFollowup,
         followupStage,
         lastInput: user.lastInput,
