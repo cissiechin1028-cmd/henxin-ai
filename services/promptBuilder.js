@@ -191,7 +191,6 @@ function buildPrompt({ input, userState }) {
   const isFollowup = Boolean(context.isFollowup);
   const followupStage = context.followupStage || "normal";
   const conversationSummary = context.conversationSummary || "";
-  const referenceCases = context.referenceCases || "";
   const speechStyle = detectUserSpeechStyle(originalInput);
 
   const contactAllowed = context.contactAllowed;
