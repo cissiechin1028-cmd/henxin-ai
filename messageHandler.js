@@ -1,5 +1,4 @@
 const { generateAIResponse } = require("./services/ai");
-const { retrieveCases } = require("./services/caseRetriever");
 const { detectScenario } = require("./services/scenarioDetector");
 const { classifyMessage } = require("./services/classifier");
 const { updateConversationSummary } = require("./services/summarizer");
@@ -276,8 +275,6 @@ ${input}
     recommendedAction: classification?.recommendedAction ?? user.recommendedAction,
     mainRisk: classification?.mainRisk ?? user.mainRisk
   };
-
-  const referenceCases = retrieveCases(input, 3);
 
   return {
     user,
