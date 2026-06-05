@@ -87,7 +87,7 @@ function buildScenarioInstruction(scenario = "normal") {
 
 function buildEntryModeInstruction(entryMode = "") {
   const map = {
-    draft_check: `
+    reply: `
 現在の入口は「返信アドバイス」。
 
 役割:
