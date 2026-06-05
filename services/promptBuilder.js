@@ -192,9 +192,6 @@ ${followupStage}
 ユーザー文体:
 ${speechStyle === "polite" ? "やさしい丁寧語" : "自然なタメ口"}
 
-無料版の今回回数:
-${freeUsageCount}
-
 現在の入口:
 ${entryMode || "unknown"}
 
