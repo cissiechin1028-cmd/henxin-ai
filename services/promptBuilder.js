@@ -233,9 +233,6 @@ contactAllowed: ${contactAllowed}
 recommendedAction: ${recommendedAction}
 mainRisk: ${mainRisk}
 
-参考ケース:
-${referenceCases || "なし"}
-
 ${buildInputTypeInstruction(inputType)}
 
 シナリオ補正:
