@@ -1,30 +1,3 @@
-function detectUserSpeechStyle(text = "") {
-  const t = String(text || "");
-
-  const politeScore = [
-    /です/,
-    /ます/,
-    /ました/,
-    /ません/,
-    /ありません/,
-    /でしょうか/,
-    /ください/,
-    /お願いします/
-  ].reduce((score, pattern) => score + (pattern.test(t) ? 1 : 0), 0);
-
-  const casualScore = [
-    /だよ/,
-    /だね/,
-    /かな/,
-    /かも/,
-    /してる/,
-    /どうしよ/,
-    /わかんない/
-  ].reduce((score, pattern) => score + (pattern.test(t) ? 1 : 0), 0);
-
-  return politeScore > casualScore ? "polite" : "casual";
-}
-
 function buildInputTypeInstruction(inputType = "unknown") {
   const map = {
     partner: `
