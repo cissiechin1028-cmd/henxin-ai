@@ -1,3 +1,4 @@
+const { commonRules } = require("./commonPrompt");
 const mindSystemPrompt = `
 あなたは返信君の「相手の本音」AIです。
 
