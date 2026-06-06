@@ -17,7 +17,8 @@ const BASE_URL = process.env.BASE_URL || "";
 const MODES = {
   REPLY: "reply",
   MIND: "mind",
-  CONSULT: "consult"
+  CONSULT: "consult",
+  DELETE_CONFIRM: "delete_confirm"
 };
 
 function buildCheckoutUrl(userId) {
@@ -67,10 +68,22 @@ function buildResetReply() {
 新しいご相談がありましたら、お送りください。`;
 }
 
-function buildDataDeletedReply() {
-  return `保存中の相談履歴を削除しました。
+function buildDataDeleteConfirmReply() {
+  return `保存中の相談履歴を削除します。
 
-ご利用ありがとうございました。`;
+削除後は元に戻せません。
+
+削除する場合は、
+
+削除する
+
+と送信してください。`;
+}
+
+function buildDataDeletedReply() {
+  return `相談履歴を削除しました。
+
+新しい相談はいつでも始められます。`;
 }
 
 function buildAskForLineReply() {
@@ -283,8 +296,7 @@ ${input}
     isFollowup,
     rules,
     scenario,
-    riskLevel,
-    referenceCases
+    riskLevel
   };
 }
 
@@ -296,8 +308,7 @@ async function generateReply(userId, input, forcedType = null) {
     isFollowup,
     rules,
     scenario,
-    riskLevel,
-    referenceCases
+    riskLevel
   } = await buildContext(userId, input, forcedType);
 
   const rawReply = await generateAIResponse({
@@ -318,8 +329,7 @@ async function generateReply(userId, input, forcedType = null) {
         lastChatContext: user.lastChatContext,
         contactAllowed: rules.contactAllowed,
         recommendedAction: rules.recommendedAction,
-        mainRisk: rules.mainRisk,
-        freeUsageCount: Number(user.usageCount || 0) + 1,
+        mainRisk: rules.mainRisk
       }
     }
   });
@@ -412,6 +422,16 @@ async function handleMenuCommand(userId, input) {
 復縁、告白、既読無視など、気になっていることをそのままお送りください。
 
 一緒に整理します。`;
+  }
+
+  if (/^データ削除$/i.test(input)) {
+    await updateUser(userId, {
+      pendingMode: MODES.DELETE_CONFIRM,
+      pendingClarify: false,
+      pendingText: null
+    });
+
+    return buildDataDeleteConfirmReply();
   }
 
   if (/^(リセット)$/i.test(input)) {
@@ -525,13 +545,13 @@ async function handleMessage(userId, text) {
     return "__SHOW_AGREEMENT_BUTTON__";
   }
 
-  const menuReply = await handleMenuCommand(userId, input);
-  if (menuReply) return menuReply;
-
-  if (/^(履歴削除|データ削除)$/i.test(input)) {
+  if (user.pendingMode === MODES.DELETE_CONFIRM && /^削除する$/i.test(input)) {
     await resetConversationOnly(userId);
     return buildDataDeletedReply();
   }
+
+  const menuReply = await handleMenuCommand(userId, input);
+  if (menuReply) return menuReply;
 
   if (containsPersonalInfo(input)) {
     return buildPrivacyWarningReply();
