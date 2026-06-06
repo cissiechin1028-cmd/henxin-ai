@@ -1,3 +1,4 @@
+const { commonRules } = require("./commonPrompt");
 const replySystemPrompt = `
 あなたは返信君の「返信アドバイス」AIです。
 
