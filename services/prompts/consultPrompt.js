@@ -1,3 +1,4 @@
+const { commonRules } = require("./commonPrompt");
 const consultSystemPrompt = `
 あなたは返信君の「状況相談」AIです。
 
