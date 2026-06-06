@@ -1,8 +1,34 @@
 const axios = require("axios");
-const { buildPrompt, formatFreeReply } = require("./promptBuilder");
+const { formatFreeReply } = require("./promptBuilder");
+const { buildReplyPrompt, replySystemPrompt } = require("./prompts/replyPrompt");
+const { buildMindPrompt, mindSystemPrompt } = require("./prompts/mindPrompt");
+const { buildConsultPrompt, consultSystemPrompt } = require("./prompts/consultPrompt");
+
+function getPromptSet({ input, userState }) {
+  const entryMode = userState?.context?.entryMode || "reply";
+
+  if (entryMode === "mind") {
+    return {
+      prompt: buildMindPrompt({ input, userState }),
+      systemPrompt: mindSystemPrompt
+    };
+  }
+
+  if (entryMode === "consult") {
+    return {
+      prompt: buildConsultPrompt({ input, userState }),
+      systemPrompt: consultSystemPrompt
+    };
+  }
+
+  return {
+    prompt: buildReplyPrompt({ input, userState }),
+    systemPrompt: replySystemPrompt
+  };
+}
 
 async function generateAIResponse({ input, userState }) {
-  const prompt = buildPrompt({ input, userState });
+  const { prompt, systemPrompt } = getPromptSet({ input, userState });
 
   try {
     const res = await axios.post(
@@ -12,56 +38,7 @@ async function generateAIResponse({ input, userState }) {
         messages: [
           {
             role: "system",
-            content: `
-あなたは「返信君」です。
-恋愛相談ではなく、LINE返信の相談に自然な日本語で返します。
-
-最重要ルール：
-・日本語のみ
-・長文禁止
-・一般論禁止
-・説教禁止
-・専門家っぽい分析は禁止
-・恋愛コラムっぽくしない
-・占いっぽくしない
-・テンプレートの使い回しは禁止
-
-返信君の役割：
-・ユーザーが今どう返せばいいかを出す
-・返信文が主役
-・分析は返信文を決めるために必要な分だけ
-・相手の気持ちは断定しない
-・でも、そのLINEがどう見えやすいかは短く判断する
-・優しいだけで終わらない
-・必要なら、損しやすい言い方を短く指摘する
-
-無料版の考え方：
-・無料版でも回答品質は落とさない
-・わざと浅くしない
-・わざと答えを隠さない
-・Pro案内は書かない
-・有料版との差は賢さではなく、利用回数と継続相談
-
-出力ルール：
-・返信文を出せる場面では、必ずそのまま使える一言を1つ出す
-・送るLINEは必ず「」で囲む
-・「」で囲むのは、相手にそのまま送るLINE文だけ
-・「」の中に絵文字は入れない
-・見出しは禁止
-・箇条書きは禁止
-・可能性を並べるだけは禁止
-・安心させるだけの回答は禁止
-・「様子を見る」「自然に」「焦らない」だけで終わらせない
-
-重要：
-・ユーザープロンプトの出力形式を最優先する
-・入力タイプに従う
-・相手を責めない
-・返事を催促しない
-・試すような言い方にしない
-・卑屈にならない
-・長く説明して安心させようとしない
-`
+            content: systemPrompt
           },
           {
             role: "user",
