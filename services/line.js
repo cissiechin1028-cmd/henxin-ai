@@ -65,10 +65,6 @@ async function replyMessage(replyToken, text, options = {}) {
       text: String(text).slice(0, 4500)
     };
 
-    if (options.quickReply) {
-      message.quickReply = buildQuickReply();
-    }
-
     const res = await axios.post(
       "https://api.line.me/v2/bot/message/reply",
       {
