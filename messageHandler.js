@@ -196,11 +196,11 @@ function detectInputType(text = "", user = {}) {
   }
 
   if (
-    user.lastInput &&
-    /(でも|じゃあ|それなら|まだ|次|返事|返信|送る|待つ|タイミング|大丈夫|どうすれば|どうしたら|これでいい|この場合)/.test(t)
-  ) {
-    return "followup";
-  }
+  user.lastInput &&
+  /^(でも|じゃあ|それなら|まだ|どうすれば|どうしたら|これでいい|この場合)$/.test(t)
+) {
+  return "followup";
+}
 
   if (looksLikeChatlog(t)) return "chatlog";
   if (looksLikeDraft(t)) return "draft";
