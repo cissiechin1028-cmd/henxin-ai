@@ -56,6 +56,25 @@ function containsPersonalInfo(text = "") {
   );
 }
 
+function containsSelfHarmRisk(text = "") {
+  const t = String(text || "");
+
+  return /死にたい|消えたい|自殺|自害|リスカ|首吊り|飛び降り|ODしたい|オーバードーズ|生きていたくない|もう生きたくない|全部終わらせたい|殺してほしい|死ぬしかない/.test(t);
+}
+
+function buildSelfHarmReply() {
+  return `今の内容は、返信の相談としてそのまま扱わない方がよさそうです。
+
+まず、今すぐ一人にならないでください。
+近くにいる人、家族、友だち、学校や職場の人に「今かなり危ない」と伝えてください。
+
+今すぐ危ない場合は、ためらわずに119番または110番に連絡してください。
+
+日本では、よりそいホットライン 0120-279-338 などの相談窓口もあります。
+
+ここでは恋愛の返信文を作るより、まずあなたの安全を優先したいです。`;
+}
+
 function buildPrivacyWarningReply() {
   return `個人情報が含まれている可能性があります。
 
