@@ -419,6 +419,11 @@ app.get("/checkout", async (req, res) => {
 
 app.post("/webhook", async (req, res) => {
   try {
+    if (!verifyLineSignature(req)) {
+      console.error("LINE SIGNATURE VERIFY FAILED");
+      return res.status(401).send("Unauthorized");
+    }
+
     const events = req.body.events || [];
 
     for (const event of events) {
