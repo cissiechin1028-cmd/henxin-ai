@@ -249,29 +249,20 @@ async function updateUserByStripeSubscription(subscriptionId, data = {}) {
 async function incrementReplyUsage(userId) {
   const user = await getUser(userId);
 
-  const updated = {
-    ...user,
-    usageCount: user.usageCount + 1,
-    replyUsageCount: user.replyUsageCount + 1
-  };
-
-  const { error } = await supabase
-    .from("users")
-    .update(toDb(userId, updated))
-    .eq("user_id", userId);
+  const { data, error } = await supabase.rpc("increment_user_usage", {
+    p_user_id: userId
+  });
 
   if (error) {
-    console.error("SUPABASE INCREMENT ERROR:", error.message);
+    console.error("SUPABASE INCREMENT RPC ERROR:", error.message);
+    return user;
   }
 
-  return updated;
-}
+  const row = Array.isArray(data) ? data[0] : data;
 
-module.exports = {
-  getUser,
-  resetUser,
-  resetConversationOnly,
-  updateUser,
-  updateUserByStripeSubscription,
-  incrementReplyUsage
-};
+  return {
+    ...user,
+    usageCount: row?.usage_count ?? user.usageCount + 1,
+    replyUsageCount: row?.reply_usage_count ?? user.replyUsageCount + 1
+  };
+}
