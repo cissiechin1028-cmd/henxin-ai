@@ -28,14 +28,8 @@ function getPromptSet({ input, userState }) {
 }
 
 async function generateAIResponse({ input, userState }) {
-  console.log("🔥 AI START 🔥");
-  
   const { prompt, systemPrompt } = getPromptSet({ input, userState });
   
-  console.log("ENTRY MODE:", userState?.context?.entryMode);
-  console.log("SYSTEM PROMPT HEAD:", systemPrompt.slice(0, 80));
-  console.log("USER PROMPT HEAD:", prompt.slice(0, 120));
-
   try {
     const res = await axios.post(
       "https://api.openai.com/v1/chat/completions",
