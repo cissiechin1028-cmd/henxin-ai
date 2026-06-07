@@ -584,7 +584,7 @@ async function handleMessage(userId, text) {
   if (menuReply) return menuReply;
 
   if (containsSelfHarmRisk(input)) {
-  return buildSelfHarmReply();
+    return buildSelfHarmReply();
   }
   
   if (containsPersonalInfo(input)) {
