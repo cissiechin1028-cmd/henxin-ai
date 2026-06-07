@@ -360,7 +360,6 @@ async function generateReply(userId, input, forcedType = null) {
     : user.conversationSummary;
 
   await updateUser(userId, {
-    pendingMode: null,
     lastInput: input,
     lastInputType: inputType,
     lastScenario: scenario,
