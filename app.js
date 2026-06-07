@@ -244,7 +244,13 @@ app.post(
   }
 );
 
-app.use(express.json());
+app.use(express.json({
+  verify: (req, res, buf) => {
+    if (req.originalUrl === "/webhook") {
+      req.rawBody = buf.toString("utf8");
+    }
+  }
+}));
 
 app.get("/", (req, res) => {
   res.status(200).send("henxin-ai is running");
