@@ -442,6 +442,16 @@ async function handleMenuCommand(userId, input) {
   return null;
 }
 
+function isMeaninglessInput(text = "") {
+  const t = String(text || "").trim();
+
+  return (
+    !t ||
+    /^(テスト|test|てすと|確認|あ|ん|笑|w|ｗ|？|\?|。)$/i.test(t) ||
+    t.length <= 1
+  );
+}
+
 async function handlePendingMode(userId, input, user) {
   
   if (isMeaninglessInput(input)) {
