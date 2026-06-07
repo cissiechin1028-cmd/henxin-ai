@@ -26,6 +26,28 @@ const BASE_URL = process.env.BASE_URL || "";
 const STRIPE_PRICE_ID = process.env.STRIPE_PRICE_ID || "";
 const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET || "";
 
+const LINE_CHANNEL_SECRET = process.env.LINE_CHANNEL_SECRET || "";
+
+function verifyLineSignature(req) {
+  const signature = req.headers["x-line-signature"];
+
+  if (!signature || !LINE_CHANNEL_SECRET) {
+    return false;
+  }
+
+  const body = JSON.stringify(req.body);
+
+  const hash = crypto
+    .createHmac("sha256", LINE_CHANNEL_SECRET)
+    .update(body)
+    .digest("base64");
+
+  return crypto.timingSafeEqual(
+    Buffer.from(signature),
+    Buffer.from(hash)
+  );
+}
+
 function getPlanFromSubscriptionStatus(status = "") {
   if (status === "active" || status === "trialing") {
     return "pro";
