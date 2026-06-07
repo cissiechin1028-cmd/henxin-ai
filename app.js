@@ -31,15 +31,13 @@ const LINE_CHANNEL_SECRET = process.env.LINE_CHANNEL_SECRET || "";
 function verifyLineSignature(req) {
   const signature = req.headers["x-line-signature"];
 
-  if (!signature || !LINE_CHANNEL_SECRET) {
+  if (!signature || !LINE_CHANNEL_SECRET || !req.rawBody) {
     return false;
   }
 
-  const body = JSON.stringify(req.body);
-
   const hash = crypto
     .createHmac("sha256", LINE_CHANNEL_SECRET)
-    .update(body)
+    .update(req.rawBody)
     .digest("base64");
 
   return crypto.timingSafeEqual(
