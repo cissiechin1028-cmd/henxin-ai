@@ -266,3 +266,12 @@ async function incrementReplyUsage(userId) {
     replyUsageCount: row?.reply_usage_count ?? user.replyUsageCount + 1
   };
 }
+
+module.exports = {
+  getUser,
+  resetUser,
+  resetConversationOnly,
+  updateUser,
+  updateUserByStripeSubscription,
+  incrementReplyUsage
+};
