@@ -583,6 +583,10 @@ async function handleMessage(userId, text) {
   const menuReply = await handleMenuCommand(userId, input);
   if (menuReply) return menuReply;
 
+  if (containsSelfHarmRisk(input)) {
+  return buildSelfHarmReply();
+  }
+  
   if (containsPersonalInfo(input)) {
     return buildPrivacyWarningReply();
   }
