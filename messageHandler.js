@@ -443,6 +443,11 @@ async function handleMenuCommand(userId, input) {
 }
 
 async function handlePendingMode(userId, input, user) {
+  
+  if (isMeaninglessInput(input)) {
+    return "LINEスクショや相談内容を送ってください😊";
+  }
+
   switch (user.pendingMode) {
     case MODES.REPLY: {
       const replyInput = user.lastChatContext
