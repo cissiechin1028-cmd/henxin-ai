@@ -494,37 +494,34 @@ async function handleImageMessage(userId, imageBuffer) {
 
   const { analyzeLineScreenshot } = require("./services/imageAnalyzer");
   const entryMode = user.pendingMode || MODES.REPLY;
+
   const result = await analyzeLineScreenshot(imageBuffer, entryMode);
 
   if (!result.success) {
     return result.reply;
   }
 
-  const reply = naturalizeReply(result.reply);
+  const chatContext = result.chatContext || "";
 
-  let nextCount = Number(user.usageCount || 0);
-
-  if (user.plan !== "pro") {
-    const updatedUser = await incrementReplyUsage(userId);
-    nextCount = Number(updatedUser.usageCount || 0);
+  if (!chatContext) {
+    return "画像の内容をうまく読み取れませんでした。相手から来たLINEか、直近のやり取りをテキストで送ってください。";
   }
+
+  const inputForAI = `これはLINEスクショから読み取った直近の会話です。
+
+${chatContext}
+
+現在の入口：
+${entryMode}
+
+この会話内容をもとに、現在の入口に合わせて答えてください。`;
 
   await updateUser(userId, {
-    pendingMode: null,
-    lastInput: "[LINEスクショ]",
-    lastInputType: "chatlog",
-    lastScenario: "normal",
-    lastAdvice: reply,
-    lastRiskLevel: 1,
-    lastChatContext: result.chatContext || null,
-    conversationSummary: result.chatContext || null
+    lastChatContext: chatContext,
+    conversationSummary: chatContext
   });
 
-  if (user.plan === "pro") {
-    return reply;
-  }
-
-  return attachContinueHint(reply, nextCount);
+  return generateReply(userId, inputForAI, "chatlog");
 }
 
 async function handleMessage(userId, text) {
