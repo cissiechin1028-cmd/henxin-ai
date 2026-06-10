@@ -442,6 +442,18 @@ async function handleMenuCommand(userId, input) {
 一緒に整理します。`;
   }
 
+if (/^(サブスク管理|会員プラン)$/i.test(input)) {
+  const user = await getUser(userId);
+
+  if (!user.stripeCustomerId) {
+    return `現在、有効なサブスク情報が見つかりませんでした。`;
+  }
+
+  return `サブスクの確認・解約はこちらから行えます。
+
+${BASE_URL}/billing?userId=${encodeURIComponent(userId)}`;
+}
+  
   if (/^データ削除$/i.test(input)) {
     await updateUser(userId, {
       pendingMode: MODES.DELETE_CONFIRM,
