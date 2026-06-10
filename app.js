@@ -432,6 +432,33 @@ app.get("/checkout", async (req, res) => {
   }
 });
 
+app.get("/billing", async (req, res) => {
+  try {
+    const userId = String(req.query.userId || "").trim();
+
+    if (!userId) {
+      return res.status(400).send("userId is required");
+    }
+
+    const { getUser } = require("./userStore");
+    const user = await getUser(userId);
+
+    if (!user.stripeCustomerId) {
+      return res.status(400).send("サブスク情報が見つかりませんでした。");
+    }
+
+    const session = await stripe.billingPortal.sessions.create({
+      customer: user.stripeCustomerId,
+      return_url: `${BASE_URL}/success`
+    });
+
+    res.redirect(303, session.url);
+  } catch (err) {
+    console.error("STRIPE BILLING PORTAL ERROR:", err.message);
+    res.status(500).send("Billing portal error");
+  }
+});
+
 app.post("/webhook", async (req, res) => {
   try {
     if (!verifyLineSignature(req)) {
