@@ -459,6 +459,37 @@ app.get("/billing", async (req, res) => {
   }
 });
 
+app.post("/contact", async (req, res) => {
+  try {
+    const { name, email, category, message } = req.body;
+
+    console.log("========== CONTACT ==========");
+    console.log("Name:", name);
+    console.log("Email:", email);
+    console.log("Category:", category);
+    console.log("Message:", message);
+    console.log("=============================");
+
+    res.send(`
+      <!DOCTYPE html>
+      <html lang="ja">
+      <head>
+        <meta charset="UTF-8">
+        <title>送信完了</title>
+      </head>
+      <body style="font-family:sans-serif;text-align:center;padding-top:80px;">
+        <h2>お問い合わせを受け付けました。</h2>
+        <p>通常2営業日以内にご返信いたします。</p>
+      </body>
+      </html>
+    `);
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).send("Error");
+  }
+});
+
 app.post("/webhook", async (req, res) => {
   try {
     if (!verifyLineSignature(req)) {
