@@ -28,7 +28,8 @@ function normalizeReply(raw) {
         })).filter((item) => item.text)
       : [],
     reason: String(raw.reason || "").trim(),
-    caution: raw.caution ? String(raw.caution).trim() : undefined
+    caution: raw.caution ? String(raw.caution).trim() : undefined,
+    conversationRead: String(raw.conversationRead || "").trim()
   };
 }
 
@@ -43,17 +44,23 @@ function normalizeAnalysis(raw) {
     relationshipTrend: trend,
     progressRisk: clampScore(raw?.progressRisk),
     summary: String(raw?.summary || "").trim(),
-    evidence: Array.isArray(raw?.evidence) ? raw.evidence.slice(0, 4).map(String) : [],
-    actions: Array.isArray(raw?.actions) ? raw.actions.slice(0, 3).map(String) : []
+    currentPsychology: String(raw?.currentPsychology || "").trim(),
+    evidence: Array.isArray(raw?.evidence) ? raw.evidence.slice(0, 4).map(String).filter(Boolean) : [],
+    keyMoments: Array.isArray(raw?.keyMoments) ? raw.keyMoments.slice(0, 3).map((item) => ({
+      quote: String(item?.quote || "").trim(),
+      interpretation: String(item?.interpretation || "").trim()
+    })).filter((item) => item.quote && item.interpretation) : [],
+    actions: Array.isArray(raw?.actions) ? raw.actions.slice(0, 3).map(String).filter(Boolean) : [],
+    nextBestMove: String(raw?.nextBestMove || "").trim()
   };
 }
 
 function systemPrompt(mode) {
   const common = `あなたは日本語の恋愛チャット支援AIです。LINE画面の左右を慎重に読み、見えない内容を捏造しないでください。相手の心理を事実として断定せず、観察できる会話の特徴と推測を分けてください。個人情報は結果に転記しないでください。JSON以外を返さないでください。`;
   if (mode === "reply") {
-    return `${common}\n次に送る自然な返信を提案してください。次の形式のみを返してください：{"naturalness":0,"recommendedReply":"","alternatives":[{"tone":"","text":""}],"reason":"","caution":""}`;
+    return `${common}\n次に送る自然な返信を提案してください。recommendedReplyは最も自然な第一候補、alternativesは必ず「やさしい」「軽やか」「距離を保つ」の3案にしてください。すべてそのままコピーして送れる完成文にします。次の形式のみを返してください：{"naturalness":0,"conversationRead":"会話状況の短い読み取り","recommendedReply":"","alternatives":[{"tone":"やさしい","text":""},{"tone":"軽やか","text":""},{"tone":"距離を保つ","text":""}],"reason":"","caution":""}`;
   }
-  return `${common}\n会話全体の傾向を分析してください。数値は0〜100です。次の形式のみを返してください：{"affection":0,"intentConsistency":0,"relationshipTrend":"rising|stable|falling","progressRisk":0,"summary":"","evidence":[""],"actions":[""]}`;
+  return `${common}\n会話全体の傾向を分析し、ブランドレポート用の構造化データを作ってください。数値は0〜100です。quoteは画像内で実際に確認できる短い発言だけを引用してください。次の形式のみを返してください：{"affection":0,"intentConsistency":0,"relationshipTrend":"rising|stable|falling","progressRisk":0,"summary":"","currentPsychology":"","evidence":[""],"keyMoments":[{"quote":"","interpretation":""}],"actions":[""],"nextBestMove":""}`;
 }
 
 async function analyzeForWeb({ imageBuffer, mimeType, mode }) {
@@ -91,4 +98,3 @@ async function analyzeForWeb({ imageBuffer, mimeType, mode }) {
 }
 
 module.exports = { analyzeForWeb };
-
