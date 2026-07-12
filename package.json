@@ -4,7 +4,9 @@
   "description": "LINE webhook server",
   "main": "app.js",
   "scripts": {
-    "start": "node app.js"
+    "start": "node app.js",
+    "start:web": "node webApp.js",
+    "check": "node --check webApp.js && node --check services/webAnalysis.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.4",
