@@ -33,7 +33,7 @@ app.use((req, res, next) => {
     res.setHeader("Vary", "Origin");
   }
   res.setHeader("Access-Control-Allow-Headers", "Authorization, Content-Type, X-Analysis-Mode");
-  res.setHeader("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS");
   res.setHeader("X-Content-Type-Options", "nosniff");
   if (req.method === "OPTIONS") return res.sendStatus(204);
   next();
@@ -52,6 +52,43 @@ async function requireAdmin(req, res, next) {
   const { data } = await supabase.from("profiles").select("role").eq("id", req.user.id).maybeSingle();
   if (data?.role !== "admin") return res.status(403).json({ error: "ADMIN_REQUIRED" });
   next();
+}
+
+function cleanTimelineInput(body = {}, partial = false) {
+  const result = {};
+  if (!partial || Object.prototype.hasOwnProperty.call(body, "title")) {
+    const title = String(body.title || "").trim();
+    if (!title || title.length > 120) return { error: "INVALID_EVENT_TITLE" };
+    result.title = title;
+  }
+  if (!partial || Object.prototype.hasOwnProperty.call(body, "eventDate")) {
+    const eventDate = String(body.eventDate || "");
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(eventDate) || Number.isNaN(Date.parse(`${eventDate}T00:00:00Z`))) {
+      return { error: "INVALID_EVENT_DATE" };
+    }
+    result.event_date = eventDate;
+  }
+  if (!partial || Object.prototype.hasOwnProperty.call(body, "eventType")) {
+    const eventType = String(body.eventType || "custom").trim();
+    if (!eventType || eventType.length > 64) return { error: "INVALID_EVENT_TYPE" };
+    result.event_type = eventType;
+  }
+  if (!partial || Object.prototype.hasOwnProperty.call(body, "note")) {
+    const note = body.note == null ? null : String(body.note).trim();
+    if (note && note.length > 2000) return { error: "EVENT_NOTE_TOO_LONG" };
+    result.note = note || null;
+  }
+  return { value: result };
+}
+
+async function findOwnedRelationship(userId, relationshipId) {
+  return supabase.from("relationships").select("*")
+    .eq("id", relationshipId).eq("user_id", userId).maybeSingle();
+}
+
+async function findActiveRelationship(userId) {
+  return supabase.from("relationships").select("id")
+    .eq("user_id", userId).eq("status", "active").maybeSingle();
 }
 
 app.get("/health", (_req, res) => res.json({ ok: true, service: "renai-web-api" }));
@@ -151,6 +188,92 @@ app.delete("/api/v1/me", requireUser, async (req, res) => {
   res.sendStatus(204);
 });
 
+app.get("/api/v1/relationships", requireUser, async (req, res) => {
+  const { data, error } = await supabase.from("relationships").select("*")
+    .eq("user_id", req.user.id)
+    .order("status", { ascending: true })
+    .order("created_at", { ascending: false });
+  if (error) return res.status(500).json({ error: "RELATIONSHIPS_READ_FAILED" });
+  res.json({ relationships: data });
+});
+
+app.post("/api/v1/relationships", requireUser, express.json(), async (req, res) => {
+  if (req.body?.archiveCurrent !== true) {
+    return res.status(400).json({ error: "ARCHIVE_CONFIRMATION_REQUIRED" });
+  }
+  const title = req.body?.title == null ? null : String(req.body.title).trim();
+  if (title && title.length > 120) return res.status(400).json({ error: "INVALID_RELATIONSHIP_TITLE" });
+  const startedOn = req.body?.startedOn || new Date().toISOString().slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(startedOn)) return res.status(400).json({ error: "INVALID_START_DATE" });
+
+  const { data, error } = await supabase.rpc("switch_relationship", {
+    target_user_id: req.user.id,
+    archive_current: true,
+    new_title: title,
+    new_started_on: startedOn
+  });
+  if (error) return res.status(500).json({ error: "RELATIONSHIP_SWITCH_FAILED" });
+  res.status(201).json({ relationship: data });
+});
+
+app.get("/api/v1/relationships/:relationshipId/events", requireUser, async (req, res) => {
+  const { data: relationship, error: relationshipError } = await findOwnedRelationship(req.user.id, req.params.relationshipId);
+  if (relationshipError) return res.status(500).json({ error: "RELATIONSHIP_READ_FAILED" });
+  if (!relationship) return res.status(404).json({ error: "RELATIONSHIP_NOT_FOUND" });
+
+  const { data, error } = await supabase.from("timeline_events").select("*")
+    .eq("relationship_id", relationship.id)
+    .eq("user_id", req.user.id)
+    .is("deleted_at", null)
+    .order("event_date", { ascending: true })
+    .order("created_at", { ascending: true });
+  if (error) return res.status(500).json({ error: "TIMELINE_READ_FAILED" });
+  res.json({ events: data });
+});
+
+app.post("/api/v1/relationships/:relationshipId/events", requireUser, express.json(), async (req, res) => {
+  const { data: relationship, error: relationshipError } = await findOwnedRelationship(req.user.id, req.params.relationshipId);
+  if (relationshipError) return res.status(500).json({ error: "RELATIONSHIP_READ_FAILED" });
+  if (!relationship) return res.status(404).json({ error: "RELATIONSHIP_NOT_FOUND" });
+  if (relationship.status !== "active") return res.status(409).json({ error: "RELATIONSHIP_ARCHIVED" });
+
+  const cleaned = cleanTimelineInput(req.body);
+  if (cleaned.error) return res.status(400).json({ error: cleaned.error });
+  const { data, error } = await supabase.from("timeline_events").insert({
+    relationship_id: relationship.id,
+    user_id: req.user.id,
+    source: "user",
+    ...cleaned.value
+  }).select("*").single();
+  if (error) return res.status(500).json({ error: "TIMELINE_EVENT_CREATE_FAILED" });
+  res.status(201).json({ event: data });
+});
+
+app.patch("/api/v1/timeline-events/:id", requireUser, express.json(), async (req, res) => {
+  const cleaned = cleanTimelineInput(req.body, true);
+  if (cleaned.error) return res.status(400).json({ error: cleaned.error });
+  if (!Object.keys(cleaned.value).length) return res.status(400).json({ error: "NO_EVENT_CHANGES" });
+
+  const { data, error } = await supabase.from("timeline_events").update({
+    ...cleaned.value,
+    user_edited: true
+  }).eq("id", req.params.id).eq("user_id", req.user.id).is("deleted_at", null)
+    .select("*").maybeSingle();
+  if (error) return res.status(500).json({ error: "TIMELINE_EVENT_UPDATE_FAILED" });
+  if (!data) return res.status(404).json({ error: "TIMELINE_EVENT_NOT_FOUND" });
+  res.json({ event: data });
+});
+
+app.delete("/api/v1/timeline-events/:id", requireUser, async (req, res) => {
+  const { data, error } = await supabase.from("timeline_events")
+    .update({ deleted_at: new Date().toISOString() })
+    .eq("id", req.params.id).eq("user_id", req.user.id).is("deleted_at", null)
+    .select("id").maybeSingle();
+  if (error) return res.status(500).json({ error: "TIMELINE_EVENT_DELETE_FAILED" });
+  if (!data) return res.status(404).json({ error: "TIMELINE_EVENT_NOT_FOUND" });
+  res.sendStatus(204);
+});
+
 app.get("/api/v1/analyses", requireUser, async (req, res) => {
   const limit = Math.min(50, Math.max(1, Number(req.query.limit || 20)));
   const { data, error } = await supabase.from("analyses")
@@ -191,8 +314,15 @@ app.post(
     if (creditError) return res.status(500).json({ error: "CREDIT_CHECK_FAILED" });
     if (!credit?.allowed) return res.status(402).json({ error: "CREDIT_LIMIT_REACHED", usage: credit });
 
+    const { data: activeRelationship, error: relationshipError } = await findActiveRelationship(req.user.id);
+    if (relationshipError || !activeRelationship) {
+      await supabase.rpc("refund_analysis_credit", { target_user_id: req.user.id, charged_plan: credit.plan });
+      return res.status(500).json({ error: "ACTIVE_RELATIONSHIP_NOT_FOUND" });
+    }
+
     const { data: analysis, error: insertError } = await supabase.from("analyses").insert({
       user_id: req.user.id,
+      relationship_id: activeRelationship.id,
       mode,
       status: "processing",
       title: mode === "reply" ? "返信アドバイス" : "チャット分析",
@@ -216,6 +346,21 @@ app.post(
         status: "completed", result: output.result, model_name: output.model,
         processing_ms: output.processingMs, completed_at: completedAt
       }).eq("id", analysis.id).eq("user_id", req.user.id);
+      if (mode === "analysis" && output.result.timelineEvent?.shouldRecord) {
+        const timelineEvent = output.result.timelineEvent;
+        const { error: timelineError } = await supabase.from("timeline_events").insert({
+          relationship_id: activeRelationship.id,
+          user_id: req.user.id,
+          source: "ai",
+          event_type: timelineEvent.eventType || "custom",
+          title: timelineEvent.title,
+          event_date: completedAt.slice(0, 10),
+          note: timelineEvent.note || null,
+          analysis_id: analysis.id,
+          ai_origin_key: `analysis:${analysis.id}`
+        });
+        if (timelineError) console.error("TIMELINE EVENT STORE FAILED", timelineError.message);
+      }
       await supabase.from("usage_events").insert({
         user_id: req.user.id, analysis_id: analysis.id, event_type: "analysis_completed",
         metadata: { processing_ms: output.processingMs, model: output.model }
