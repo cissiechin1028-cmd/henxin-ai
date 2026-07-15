@@ -51,7 +51,15 @@ function normalizeAnalysis(raw) {
       interpretation: String(item?.interpretation || "").trim()
     })).filter((item) => item.quote && item.interpretation) : [],
     actions: Array.isArray(raw?.actions) ? raw.actions.slice(0, 3).map(String).filter(Boolean) : [],
-    nextBestMove: String(raw?.nextBestMove || "").trim()
+    nextBestMove: String(raw?.nextBestMove || "").trim(),
+    timelineEvent: raw?.timelineEvent?.shouldRecord && raw.timelineEvent?.title
+      ? {
+          shouldRecord: true,
+          eventType: String(raw.timelineEvent.eventType || "custom").slice(0, 64),
+          title: String(raw.timelineEvent.title).trim().slice(0, 120),
+          note: String(raw.timelineEvent.note || "").trim().slice(0, 2000)
+        }
+      : { shouldRecord: false }
   };
 }
 
@@ -60,7 +68,7 @@ function systemPrompt(mode) {
   if (mode === "reply") {
     return `${common}\n次に送る自然な返信を提案してください。recommendedReplyは最も自然な第一候補、alternativesは必ず「やさしい」「軽やか」「距離を保つ」の3案にしてください。すべてそのままコピーして送れる完成文にします。次の形式のみを返してください：{"naturalness":0,"conversationRead":"会話状況の短い読み取り","recommendedReply":"","alternatives":[{"tone":"やさしい","text":""},{"tone":"軽やか","text":""},{"tone":"距離を保つ","text":""}],"reason":"","caution":""}`;
   }
-  return `${common}\n会話全体の傾向を分析し、ブランドレポート用の構造化データを作ってください。数値は0〜100です。quoteは画像内で実際に確認できる短い発言だけを引用してください。次の形式のみを返してください：{"affection":0,"intentConsistency":0,"relationshipTrend":"rising|stable|falling","progressRisk":0,"summary":"","currentPsychology":"","evidence":[""],"keyMoments":[{"quote":"","interpretation":""}],"actions":[""],"nextBestMove":""}`;
+  return `${common}\n会話全体の傾向を分析し、ブランドレポート用の構造化データを作ってください。数値は0〜100です。quoteは画像内で実際に確認できる短い発言だけを引用してください。誕生日、旅行、交際確認、喧嘩、仲直りなど関係の節目が画像から明確に確認できる場合だけtimelineEvent.shouldRecordをtrueにし、個人情報や会話本文を含めない短い出来事としてまとめてください。通常の会話ならfalseにしてください。次の形式のみを返してください：{"affection":0,"intentConsistency":0,"relationshipTrend":"rising|stable|falling","progressRisk":0,"summary":"","currentPsychology":"","evidence":[""],"keyMoments":[{"quote":"","interpretation":""}],"actions":[""],"nextBestMove":"","timelineEvent":{"shouldRecord":false,"eventType":"custom","title":"","note":""}}`;
 }
 
 async function analyzeForWeb({ imageBuffer, mimeType, mode }) {
