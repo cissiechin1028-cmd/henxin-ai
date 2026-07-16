@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node app.js",
     "start:web": "node webApp.js",
-    "check": "node --check webApp.js && node --check services/webAnalysis.js"
+    "check": "node --check webApp.js && node --check services/webAnalysis.js && node --check services/relationshipReports.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.4",
