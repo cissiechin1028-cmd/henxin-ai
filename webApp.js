@@ -4,6 +4,7 @@ const express = require("express");
 const Stripe = require("stripe");
 const { createClient } = require("@supabase/supabase-js");
 const { analyzeForWeb } = require("./services/webAnalysis");
+const { generateRelationshipReport, periodBounds } = require("./services/relationshipReports");
 
 const app = express();
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || "sk_test_placeholder");
@@ -272,6 +273,69 @@ app.delete("/api/v1/timeline-events/:id", requireUser, async (req, res) => {
   if (error) return res.status(500).json({ error: "TIMELINE_EVENT_DELETE_FAILED" });
   if (!data) return res.status(404).json({ error: "TIMELINE_EVENT_NOT_FOUND" });
   res.sendStatus(204);
+});
+
+app.get("/api/v1/relationships/:relationshipId/reports", requireUser, async (req, res) => {
+  const { data: relationship, error: relationshipError } = await findOwnedRelationship(req.user.id, req.params.relationshipId);
+  if (relationshipError) return res.status(500).json({ error: "RELATIONSHIP_READ_FAILED" });
+  if (!relationship) return res.status(404).json({ error: "RELATIONSHIP_NOT_FOUND" });
+  const { data, error } = await supabase.from("relationship_reports").select("*")
+    .eq("relationship_id", relationship.id).eq("user_id", req.user.id)
+    .order("period_start", { ascending: false });
+  if (error) return res.status(500).json({ error: "REPORTS_READ_FAILED" });
+  res.json({ reports: data });
+});
+
+app.post("/api/v1/relationships/:relationshipId/reports/generate", requireUser, express.json(), async (req, res) => {
+  const { data: relationship, error: relationshipError } = await findOwnedRelationship(req.user.id, req.params.relationshipId);
+  if (relationshipError) return res.status(500).json({ error: "RELATIONSHIP_READ_FAILED" });
+  if (!relationship) return res.status(404).json({ error: "RELATIONSHIP_NOT_FOUND" });
+
+  const periodType = String(req.body?.periodType || "");
+  const locale = ["ja", "zh-TW", "en"].includes(req.body?.locale) ? req.body.locale : "ja";
+  let bounds;
+  try { bounds = periodBounds(periodType, req.body?.anchorDate); }
+  catch (error) { return res.status(400).json({ error: error.message }); }
+  const startTime = `${bounds.start}T00:00:00.000Z`;
+  const endTime = `${bounds.end}T23:59:59.999Z`;
+  const [analysisQuery, eventQuery] = await Promise.all([
+    supabase.from("analyses").select("created_at,completed_at,result")
+      .eq("relationship_id", relationship.id).eq("user_id", req.user.id)
+      .eq("mode", "analysis").eq("status", "completed")
+      .gte("created_at", startTime).lte("created_at", endTime)
+      .order("created_at", { ascending: true }),
+    supabase.from("timeline_events").select("event_date,title,note,source")
+      .eq("relationship_id", relationship.id).eq("user_id", req.user.id)
+      .is("deleted_at", null).gte("event_date", bounds.start).lte("event_date", bounds.end)
+      .order("event_date", { ascending: true }),
+  ]);
+  if (analysisQuery.error || eventQuery.error) return res.status(500).json({ error: "REPORT_SOURCE_READ_FAILED" });
+  if (!(analysisQuery.data?.length || eventQuery.data?.length)) {
+    return res.status(422).json({ error: "REPORT_DATA_INSUFFICIENT" });
+  }
+
+  try {
+    const generated = await generateRelationshipReport({
+      periodType, locale, periodStart: bounds.start, periodEnd: bounds.end,
+      analyses: analysisQuery.data || [], events: eventQuery.data || [],
+    });
+    const { data, error } = await supabase.from("relationship_reports").upsert({
+      relationship_id: relationship.id,
+      user_id: req.user.id,
+      period_type: periodType,
+      period_start: bounds.start,
+      period_end: bounds.end,
+      locale,
+      content: generated.content,
+      model_name: generated.model,
+      generated_at: new Date().toISOString(),
+    }, { onConflict: "relationship_id,period_type,period_start,locale" }).select("*").single();
+    if (error) return res.status(500).json({ error: "REPORT_STORE_FAILED" });
+    res.status(201).json({ report: data });
+  } catch (error) {
+    console.error("REPORT GENERATION FAILED", String(error.message || error));
+    res.status(502).json({ error: "REPORT_GENERATION_FAILED" });
+  }
 });
 
 app.get("/api/v1/analyses", requireUser, async (req, res) => {
