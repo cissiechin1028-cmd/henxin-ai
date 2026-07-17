@@ -5,6 +5,7 @@
   "main": "webApp.js",
   "scripts": {
     "start": "node webApp.js",
+    "start:web": "node webApp.js",
     "check": "node --check webApp.js && node --check services/webAnalysis.js && node --check services/relationshipReports.js"
   },
   "dependencies": {
