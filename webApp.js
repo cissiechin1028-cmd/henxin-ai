@@ -94,6 +94,24 @@ async function findActiveRelationship(userId) {
 
 app.get("/health", (_req, res) => res.json({ ok: true, service: "renai-web-api" }));
 
+function webAppReturnUrl(req) {
+  const requestedReturnUrl = String(req.body?.returnUrl || "").trim();
+  if (requestedReturnUrl) {
+    try {
+      const requested = new URL(requestedReturnUrl);
+      const normalizedPath = requested.pathname.replace(/\/$/, "");
+      if (allowedOrigins.includes(requested.origin) && normalizedPath === "/app") {
+        return `${requested.origin}/app`;
+      }
+    } catch {
+      // Ignore malformed return URLs and fall back to the verified request origin.
+    }
+  }
+  const requestOrigin = String(req.headers.origin || "").replace(/\/$/, "");
+  const origin = allowedOrigins.includes(requestOrigin) ? requestOrigin : allowedOrigins[0];
+  return `${origin}/app`;
+}
+
 app.get("/api/v1/me", requireUser, async (req, res) => {
   const { data, error } = await supabase.from("profiles").select("*").eq("id", req.user.id).single();
   if (error) return res.status(500).json({ error: "PROFILE_READ_FAILED" });
@@ -104,14 +122,14 @@ app.post("/api/v1/billing/checkout", requireUser, express.json(), async (req, re
   if (!process.env.STRIPE_SECRET_KEY || !process.env.STRIPE_PRICE_ID) return res.status(503).json({ error: "BILLING_NOT_CONFIGURED" });
   const { data: profile } = await supabase.from("profiles").select("stripe_customer_id,plan").eq("id", req.user.id).single();
   if (profile?.plan === "pro") return res.status(409).json({ error: "ALREADY_PRO" });
-  const origin = allowedOrigins[0];
+  const returnUrl = webAppReturnUrl(req);
   const checkout = await stripe.checkout.sessions.create({
     mode: "subscription",
     customer: profile?.stripe_customer_id || undefined,
     customer_email: profile?.stripe_customer_id ? undefined : req.user.email,
     line_items: [{ price: process.env.STRIPE_PRICE_ID, quantity: 1 }],
-    success_url: `${origin}/?checkout=success`,
-    cancel_url: `${origin}/?checkout=cancelled`,
+    success_url: `${returnUrl}?checkout=success`,
+    cancel_url: `${returnUrl}?checkout=cancelled`,
     client_reference_id: req.user.id,
     metadata: { userId: req.user.id },
     subscription_data: { metadata: { userId: req.user.id } },
@@ -120,10 +138,10 @@ app.post("/api/v1/billing/checkout", requireUser, express.json(), async (req, re
   res.json({ url: checkout.url });
 });
 
-app.post("/api/v1/billing/portal", requireUser, async (req, res) => {
+app.post("/api/v1/billing/portal", requireUser, express.json(), async (req, res) => {
   const { data: profile } = await supabase.from("profiles").select("stripe_customer_id").eq("id", req.user.id).single();
   if (!profile?.stripe_customer_id) return res.status(404).json({ error: "BILLING_ACCOUNT_NOT_FOUND" });
-  const portal = await stripe.billingPortal.sessions.create({ customer: profile.stripe_customer_id, return_url: `${allowedOrigins[0]}/` });
+  const portal = await stripe.billingPortal.sessions.create({ customer: profile.stripe_customer_id, return_url: webAppReturnUrl(req) });
   res.json({ url: portal.url });
 });
 
