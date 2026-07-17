@@ -49,9 +49,9 @@ function normalizeReport(raw) {
 }
 
 function languageInstruction(locale) {
-  if (locale === "zh-TW") return "請使用台灣繁體中文，語氣自然、溫和且清楚。";
-  if (locale === "en") return "Write in clear, warm, natural English.";
-  return "自然でやさしく、読みやすい日本語で書いてください。";
+  if (locale === "zh-TW") return "請使用台灣繁體中文與台灣常用詞，語氣自然、溫和且清楚；可以真誠直接，但不要催促對方表態，也不要使用中國大陸用語或翻譯腔。";
+  if (locale === "en") return "Write in clear, warm, natural English. Respect direct communication, consent and personal boundaries; do not overread brevity or reply delays.";
+  return "自然でやさしく、読みやすい日本語で書いてください。敬語とため口の距離感や婉曲表現を尊重し、短文や返信間隔だけで関係を決めつけないでください。";
 }
 
 async function generateRelationshipReport({ periodType, locale, periodStart, periodEnd, analyses, events }) {
@@ -69,15 +69,35 @@ async function generateRelationshipReport({ periodType, locale, periodStart, per
     note: String(item.note || "").slice(0, 300),
     source: item.source,
   }));
-  const prompt = `あなたは恋愛関係の成長を振り返るAIです。${languageInstruction(locale)}
-期間: ${periodType} ${periodStart}〜${periodEnd}
-以下は会話本文や画像ではなく、既存の分析結論と重要な出来事だけです。記録にない事実を作らず、相手の心理を断定せず、利用回数には触れないでください。個人情報や会話本文を出力しないでください。
+  const periodFocus = periodType === "weekly"
+    ? "直近一週間の小さな変化と、次の一週間に実行できる一歩を重視してください。"
+    : periodType === "monthly"
+      ? "一か月の重要な出来事と、関係の流れや段階の変化を重視してください。"
+      : "一年を通した転機、関係の成長過程、現在地を長期的な視点で振り返ってください。";
+  const systemPrompt = `あなたは恋愛関係の記録を丁寧に振り返るAIです。${languageInstruction(locale)}
+与えられるのは会話本文ではなく、既存の分析結論と利用者が保存した出来事です。記録にない事実を作らず、相手の心理や関係段階を事実として断定しないでください。個人情報、会話本文、AI利用回数、分析回数、返信回数には触れないでください。
+各出力欄の役割を分け、同じ出来事や結論を複数の欄で繰り返さないでください。記録が少ない場合は不足を率直に示し、無理に変化を作らないでください。出力は指定されたJSONだけにしてください。`;
+  const userPrompt = `対象期間: ${periodType} ${periodStart}〜${periodEnd}
+${periodFocus}
+
 分析結論: ${JSON.stringify(safeAnalyses)}
 重要な出来事: ${JSON.stringify(safeEvents)}
-JSONのみを返してください: {"relationshipChange":"期間中の関係変化","importantEvents":["重要な出来事"],"relationshipStage":"現在の関係段階","aiSummary":"期間全体のAIまとめ","nextSuggestion":"次の期間への具体的で穏やかな提案","trend":"rising|stable|falling|unclear"}`;
+
+フィールドの役割:
+- relationshipChange: 期間の始めから終わりまでに見られる変化。出来事の列挙はしない。
+- importantEvents: 関係の理解に影響した出来事だけを最大6件。入力にある日付と内容を忠実に使う。
+- relationshipStage: 現在地を、断定を避けた短い表現で示す。
+- aiSummary: 変化、出来事、現在地を統合した新しい洞察。前の欄の文章を繰り返さない。
+- nextSuggestion: 次の期間に実行できる具体的で穏やかな提案を1〜2件。相手を操作したり返信を迫ったりしない。
+- trend: rising、stable、falling、unclearのいずれか。材料不足ならunclear。
+
+次の形式のみを返してください: {"relationshipChange":"","importantEvents":[""],"relationshipStage":"","aiSummary":"","nextSuggestion":"","trend":"rising|stable|falling|unclear"}`;
   const response = await axios.post("https://api.openai.com/v1/chat/completions", {
     model: process.env.OPENAI_TEXT_MODEL || process.env.OPENAI_VISION_MODEL || "gpt-4.1-mini",
-    messages: [{ role: "user", content: prompt }],
+    messages: [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: userPrompt },
+    ],
     temperature: 0.25,
     max_tokens: periodType === "yearly" ? 1400 : 1000,
     response_format: { type: "json_object" },

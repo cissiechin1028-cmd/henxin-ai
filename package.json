@@ -1,11 +1,10 @@
 {
   "name": "henxin-ai",
   "version": "1.0.0",
-  "description": "LINE webhook server",
-  "main": "app.js",
+  "description": "RenAI Web App API",
+  "main": "webApp.js",
   "scripts": {
-    "start": "node app.js",
-    "start:web": "node webApp.js",
+    "start": "node webApp.js",
     "check": "node --check webApp.js && node --check services/webAnalysis.js && node --check services/relationshipReports.js"
   },
   "dependencies": {

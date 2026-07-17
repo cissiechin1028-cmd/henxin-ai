@@ -33,7 +33,7 @@ app.use((req, res, next) => {
     res.setHeader("Access-Control-Allow-Origin", origin);
     res.setHeader("Vary", "Origin");
   }
-  res.setHeader("Access-Control-Allow-Headers", "Authorization, Content-Type, X-Analysis-Mode");
+  res.setHeader("Access-Control-Allow-Headers", "Authorization, Content-Type, X-Analysis-Mode, X-Locale");
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS");
   res.setHeader("X-Content-Type-Options", "nosniff");
   if (req.method === "OPTIONS") return res.sendStatus(204);
@@ -386,6 +386,8 @@ app.post(
   express.raw({ type: ["image/jpeg", "image/png", "image/webp"], limit: "10mb" }),
   async (req, res) => {
     const mode = req.headers["x-analysis-mode"];
+    const requestedLocale = String(req.headers["x-locale"] || "ja");
+    const locale = ["ja", "zh-TW", "en"].includes(requestedLocale) ? requestedLocale : "ja";
     const mimeType = String(req.headers["content-type"] || "").split(";")[0];
     if (!Buffer.isBuffer(req.body) || !req.body.length) return res.status(400).json({ error: "IMAGE_REQUIRED" });
     if (!isSupportedImage(req.body, mimeType)) return res.status(415).json({ error: "INVALID_IMAGE_FILE" });
@@ -422,7 +424,7 @@ app.post(
     });
 
     try {
-      const output = await analyzeForWeb({ imageBuffer: req.body, mimeType, mode });
+      const output = await analyzeForWeb({ imageBuffer: req.body, mimeType, mode, locale });
       const completedAt = new Date().toISOString();
       await supabase.from("analyses").update({
         status: "completed", result: output.result, model_name: output.model,

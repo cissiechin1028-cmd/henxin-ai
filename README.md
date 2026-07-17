@@ -1,11 +1,8 @@
-# henxin-ai
-LINE webhook server
-# RenAI backend
+# RenAI Web App API
 
-The original LINE entry point remains in `app.js` for reference. The Web App
-uses the separate `webApp.js` entry point and does not call LINE messaging or
-webhook code.
+Backend API for the RenAI Web App. It provides Supabase-authenticated analysis,
+relationship timelines and reports, plus Stripe subscription endpoints.
 
-Run the Web API with `npm run start:web`. It expects Supabase, OpenAI and Web
-App origin environment values. Browser requests must provide a valid Supabase
-access token. Analysis images are processed in memory and are not persisted.
+Run with `npm start`. The service expects Supabase, OpenAI, Stripe and allowed
+Web App origin environment values. Uploaded analysis images are processed in
+memory and are not persisted.
