@@ -485,6 +485,7 @@ app.post(
     if (!Buffer.isBuffer(req.body) || !req.body.length) return res.status(400).json({ error: "IMAGE_REQUIRED" });
     if (!isSupportedImage(req.body, mimeType)) return res.status(415).json({ error: "INVALID_IMAGE_FILE" });
     if (!["reply", "analysis"].includes(mode)) return res.status(400).json({ error: "INVALID_MODE" });
+    const contentFingerprint = crypto.createHash("sha256").update(req.body).digest("hex");
 
     const { data: creditRows, error: creditError } = await supabase.rpc("reserve_analysis_credit", { target_user_id: req.user.id });
     const credit = creditRows?.[0];
@@ -503,7 +504,7 @@ app.post(
       mode,
       status: "processing",
       title: mode === "reply" ? "返信アドバイス" : "チャット分析",
-      input_metadata: { mime_type: mimeType, bytes: req.body.length }
+      input_metadata: { mime_type: mimeType, bytes: req.body.length, content_fingerprint: contentFingerprint }
     }).select("id").single();
 
     if (insertError) {
@@ -539,20 +540,34 @@ app.post(
         status: "completed", result: output.result, model_name: output.model,
         processing_ms: output.processingMs, completed_at: completedAt
       }).eq("id", analysis.id).eq("user_id", req.user.id);
-      if (mode === "analysis" && output.result.timelineEvent?.shouldRecord) {
+      if (output.result.timelineEvent?.shouldRecord) {
         const timelineEvent = output.result.timelineEvent;
-        const { error: timelineError } = await supabase.from("timeline_events").insert({
-          relationship_id: activeRelationship.id,
-          user_id: req.user.id,
-          source: "ai",
-          event_type: timelineEvent.eventType || "custom",
-          title: timelineEvent.title,
-          event_date: timelineEvent.eventDate || completedAt.slice(0, 10),
-          note: timelineEvent.note || null,
-          analysis_id: analysis.id,
-          ai_origin_key: `analysis:${analysis.id}`
-        });
-        if (timelineError) console.error("TIMELINE EVENT STORE FAILED", timelineError.message);
+        const eventType = timelineEvent.eventType || "custom";
+        const eventDate = timelineEvent.eventDate || completedAt.slice(0, 10);
+        const originKey = `content:${contentFingerprint}`;
+        const [sameUpload, sameEvent] = await Promise.all([
+          supabase.from("timeline_events").select("id").eq("relationship_id", activeRelationship.id)
+            .eq("user_id", req.user.id).eq("source", "ai").eq("ai_origin_key", originKey).limit(1),
+          supabase.from("timeline_events").select("id").eq("relationship_id", activeRelationship.id)
+            .eq("user_id", req.user.id).eq("source", "ai").eq("event_type", eventType)
+            .eq("event_date", eventDate).eq("title", timelineEvent.title).limit(1)
+        ]);
+        if (sameUpload.error || sameEvent.error) {
+          console.error("TIMELINE DEDUP CHECK FAILED", sameUpload.error?.message || sameEvent.error?.message);
+        } else if (!sameUpload.data?.length && !sameEvent.data?.length) {
+          const { error: timelineError } = await supabase.from("timeline_events").insert({
+            relationship_id: activeRelationship.id,
+            user_id: req.user.id,
+            source: "ai",
+            event_type: eventType,
+            title: timelineEvent.title,
+            event_date: eventDate,
+            note: timelineEvent.note || null,
+            analysis_id: analysis.id,
+            ai_origin_key: originKey
+          });
+          if (timelineError && timelineError.code !== "23505") console.error("TIMELINE EVENT STORE FAILED", timelineError.message);
+        }
       }
       await supabase.from("usage_events").insert({
         user_id: req.user.id, analysis_id: analysis.id, event_type: "analysis_completed",

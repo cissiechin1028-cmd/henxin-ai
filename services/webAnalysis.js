@@ -48,37 +48,58 @@ async function analyzeForWeb({ imageBuffer, mimeType, mode, locale = "ja", conte
   const imageDataUrl = `data:${mimeType};base64,${imageBuffer.toString("base64")}`;
 
   if (mode === "reply") {
-    const main = await callStructured({
-      prompt: replyProposalPrompt(locale, context),
-      task: "Create reply proposals from this screenshot. Use only visible evidence and verified context.",
-      imageDataUrl, schema: replyProposalSchema, maxTokens: 900, temperature: 0.3,
-    });
+    const [main, eventAttempt] = await Promise.all([
+      callStructured({
+        prompt: replyProposalPrompt(locale, context),
+        task: "Create reply proposals from this screenshot. Use only visible evidence and verified context.",
+        imageDataUrl, schema: replyProposalSchema, maxTokens: 900, temperature: 0.3,
+      }),
+      callStructured({
+        prompt: relationshipEventPrompt(locale),
+        task: "Independently determine whether this screenshot contains one clearly evidenced relationship-significant event.",
+        imageDataUrl, schema: relationshipEventSchema, maxTokens: 500, temperature: 0,
+      }).catch((error) => ({ error })),
+    ]);
+    const result = normalizeReply(main.raw, locale);
+    const auxiliaryUsages = [];
+    if (eventAttempt.error) {
+      console.error("RELATIONSHIP EVENT EXTRACTION FAILED", String(eventAttempt.error.message || eventAttempt.error));
+      result.timelineEvent = { shouldRecord: false };
+    } else {
+      result.timelineEvent = normalizeTimelineEvent(eventAttempt.raw);
+      auxiliaryUsages.push(aiUsageProperties(eventAttempt.response, eventAttempt.response.data?.model || model, "relationship_event_extraction"));
+    }
     return {
-      result: normalizeReply(main.raw, locale), model: main.response.data?.model || model,
+      result, model: main.response.data?.model || model,
       processingMs: Date.now() - startedAt,
       usage: aiUsageProperties(main.response, main.response.data?.model || model, "reply_idea"),
-      auxiliaryUsages: [],
+      auxiliaryUsages,
     };
   }
 
-  const main = await callStructured({
-    prompt: chatAnalysisPrompt(locale, context),
-    task: "Analyse this exchange. Keep facts, interpretations, and actions distinct.",
-    imageDataUrl, schema: chatAnalysisSchema, maxTokens: 1500, temperature: 0.2,
-  });
-  const result = normalizeAnalysis(main.raw);
-  const auxiliaryUsages = [];
-  try {
-    const event = await callStructured({
+  // The relationship-event extraction is independent of the analysis result.
+  // Run both calls together so a mobile request does not wait for two complete
+  // model round trips and get reported as a network failure by the browser.
+  const [main, eventAttempt] = await Promise.all([
+    callStructured({
+      prompt: chatAnalysisPrompt(locale, context),
+      task: "Analyse this exchange. Keep facts, interpretations, and actions distinct.",
+      imageDataUrl, schema: chatAnalysisSchema, maxTokens: 1500, temperature: 0.2,
+    }),
+    callStructured({
       prompt: relationshipEventPrompt(locale),
       task: "Independently determine whether this screenshot contains one clearly evidenced relationship-significant event.",
       imageDataUrl, schema: relationshipEventSchema, maxTokens: 500, temperature: 0,
-    });
-    result.timelineEvent = normalizeTimelineEvent(event.raw);
-    auxiliaryUsages.push(aiUsageProperties(event.response, event.response.data?.model || model, "relationship_event_extraction"));
-  } catch (error) {
-    console.error("RELATIONSHIP EVENT EXTRACTION FAILED", String(error.message || error));
+    }).catch((error) => ({ error })),
+  ]);
+  const result = normalizeAnalysis(main.raw);
+  const auxiliaryUsages = [];
+  if (eventAttempt.error) {
+    console.error("RELATIONSHIP EVENT EXTRACTION FAILED", String(eventAttempt.error.message || eventAttempt.error));
     result.timelineEvent = { shouldRecord: false };
+  } else {
+    result.timelineEvent = normalizeTimelineEvent(eventAttempt.raw);
+    auxiliaryUsages.push(aiUsageProperties(eventAttempt.response, eventAttempt.response.data?.model || model, "relationship_event_extraction"));
   }
   return {
     result, model: main.response.data?.model || model,

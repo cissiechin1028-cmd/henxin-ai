@@ -37,6 +37,12 @@ test("locale rules are independently selected", () => {
   assert.match(replyProposalPrompt("en", {}), /natural English/);
 });
 
+test("reply prompt may recommend no further message after a natural ending", () => {
+  const prompt = replyProposalPrompt("ja", {});
+  assert.match(prompt, /natural, mutually understood ending/);
+  assert.match(prompt, /ending the exchange without another reply/);
+});
+
 test("context separates user facts, saved events, and prior AI interpretation", () => {
   const text = buildContext({
     userGoal: "set a boundary",
