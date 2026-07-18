@@ -37,6 +37,21 @@ test("locale rules are independently selected", () => {
   assert.match(replyProposalPrompt("en", {}), /natural English/);
 });
 
+test("normalizers reject mixed-language user-facing output", () => {
+  const baseReply = {
+    conversationTemperature: 60,
+    currentState: "会話は自然に続いています。",
+    options: [
+      { strategy: "recommended", text: "そうなんだね。", reason: "自然な返信です。" },
+      { strategy: "assertive", text: "今度会わない？", reason: "少し積極的な返信です。" },
+      { strategy: "cautious", text: "教えてくれてありがとう。", reason: "慎重な返信です。" },
+    ],
+  };
+  assert.throws(() => normalizeReply({ ...baseReply, options: [{ ...baseReply.options[0], text: "這樣很好呀。" }, ...baseReply.options.slice(1)] }, "ja"), /AI_LANGUAGE_MISMATCH/);
+  assert.throws(() => normalizeReply({ ...baseReply, currentState: "The conversation is continuing.", options: baseReply.options.map((item, index) => ({ ...item, text: ["Sure.", "そうなんだね。", "Thank you."][index], reason: "This is natural." })) }, "en"), /AI_LANGUAGE_MISMATCH/);
+  assert.throws(() => normalizeAnalysis({ conversation_balance: 50, communication_quality: 50, relationship_trend: 50, progression_risk: 50, core_reason: "目前還需要觀察。", action_advice: "焦らず待ちましょう。", signals_to_observe: ["對方是否主動"] }, "zh-TW"), /AI_LANGUAGE_MISMATCH/);
+});
+
 test("reply prompt may recommend no further message after a natural ending", () => {
   const prompt = replyProposalPrompt("ja", {});
   assert.match(prompt, /natural, mutually understood ending/);

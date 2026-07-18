@@ -11,7 +11,7 @@ function parseJson(text = "") {
   try { return JSON.parse(cleaned); } catch { throw new Error("AI_INVALID_JSON"); }
 }
 
-async function callStructured({ prompt, task, imageDataUrl, schema, maxTokens, temperature }) {
+async function callStructured({ prompt, task, imageDataUrl, schema, maxTokens, temperature, validate }) {
   let lastError;
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
@@ -31,7 +31,9 @@ async function callStructured({ prompt, task, imageDataUrl, schema, maxTokens, t
         timeout: 60000,
         headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}`, "Content-Type": "application/json" },
       });
-      return { raw: parseJson(response.data?.choices?.[0]?.message?.content), response };
+      const raw = parseJson(response.data?.choices?.[0]?.message?.content);
+      validate?.(raw);
+      return { raw, response };
     } catch (error) {
       lastError = error;
       const status = Number(error?.response?.status || 0);
@@ -53,11 +55,13 @@ async function analyzeForWeb({ imageBuffer, mimeType, mode, locale = "ja", conte
         prompt: replyProposalPrompt(locale, context),
         task: "Create reply proposals from this screenshot. Use only visible evidence and verified context.",
         imageDataUrl, schema: replyProposalSchema, maxTokens: 900, temperature: 0.3,
+        validate: raw => normalizeReply(raw, locale),
       }),
       callStructured({
         prompt: relationshipEventPrompt(locale),
         task: "Independently determine whether this screenshot contains one clearly evidenced relationship-significant event.",
         imageDataUrl, schema: relationshipEventSchema, maxTokens: 500, temperature: 0,
+        validate: raw => normalizeTimelineEvent(raw, locale),
       }).catch((error) => ({ error })),
     ]);
     const result = normalizeReply(main.raw, locale);
@@ -66,7 +70,7 @@ async function analyzeForWeb({ imageBuffer, mimeType, mode, locale = "ja", conte
       console.error("RELATIONSHIP EVENT EXTRACTION FAILED", String(eventAttempt.error.message || eventAttempt.error));
       result.timelineEvent = { shouldRecord: false };
     } else {
-      result.timelineEvent = normalizeTimelineEvent(eventAttempt.raw);
+      result.timelineEvent = normalizeTimelineEvent(eventAttempt.raw, locale);
       auxiliaryUsages.push(aiUsageProperties(eventAttempt.response, eventAttempt.response.data?.model || model, "relationship_event_extraction"));
     }
     return {
@@ -85,20 +89,22 @@ async function analyzeForWeb({ imageBuffer, mimeType, mode, locale = "ja", conte
       prompt: chatAnalysisPrompt(locale, context),
       task: "Analyse this exchange. Keep facts, interpretations, and actions distinct.",
       imageDataUrl, schema: chatAnalysisSchema, maxTokens: 1500, temperature: 0.2,
+      validate: raw => normalizeAnalysis(raw, locale),
     }),
     callStructured({
       prompt: relationshipEventPrompt(locale),
       task: "Independently determine whether this screenshot contains one clearly evidenced relationship-significant event.",
       imageDataUrl, schema: relationshipEventSchema, maxTokens: 500, temperature: 0,
+      validate: raw => normalizeTimelineEvent(raw, locale),
     }).catch((error) => ({ error })),
   ]);
-  const result = normalizeAnalysis(main.raw);
+  const result = normalizeAnalysis(main.raw, locale);
   const auxiliaryUsages = [];
   if (eventAttempt.error) {
     console.error("RELATIONSHIP EVENT EXTRACTION FAILED", String(eventAttempt.error.message || eventAttempt.error));
     result.timelineEvent = { shouldRecord: false };
   } else {
-    result.timelineEvent = normalizeTimelineEvent(eventAttempt.raw);
+    result.timelineEvent = normalizeTimelineEvent(eventAttempt.raw, locale);
     auxiliaryUsages.push(aiUsageProperties(eventAttempt.response, eventAttempt.response.data?.model || model, "relationship_event_extraction"));
   }
   return {
