@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node webApp.js",
     "start:web": "node webApp.js",
-    "check": "node --check webApp.js && node --check services/webAnalysis.js && node --check services/relationshipReports.js"
+    "check": "node --check webApp.js && node --check services/webAnalysis.js && node --check services/relationshipReports.js && node --check services/resultNormalizers.js && node --check prompts/globalRules.js && node --check prompts/locales.js && node --check prompts/context.js && node --check prompts/replyProposal.js && node --check prompts/chatAnalysis.js && node --check prompts/relationshipEvent.js && node --check prompts/relationshipReport.js && node --check schemas/outputs.js",
+    "test": "node --test tests/*.test.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.4",

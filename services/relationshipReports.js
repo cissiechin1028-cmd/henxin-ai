@@ -1,5 +1,7 @@
 const axios = require("axios");
 const { aiUsageProperties } = require("../tracking/cost");
+const { relationshipReportSystemPrompt } = require("../prompts/relationshipReport");
+const { relationshipReportSchema } = require("../schemas/outputs");
 
 function parseJson(text = "") {
   const cleaned = String(text).replace(/```json|```/g, "").trim();
@@ -39,20 +41,19 @@ function normalizeReport(raw) {
       ? raw.importantEvents.slice(0, 6).map((item) => String(item).trim().slice(0, 180)).filter(Boolean)
       : [],
     relationshipStage: String(raw?.relationshipStage || "").trim().slice(0, 240),
+    positiveSignals: Array.isArray(raw?.positiveSignals) ? raw.positiveSignals.slice(0, 3).map(String).filter(Boolean) : [],
+    recurringPatterns: Array.isArray(raw?.recurringPatterns) ? raw.recurringPatterns.slice(0, 3).map(String).filter(Boolean) : [],
+    principalRisks: Array.isArray(raw?.principalRisks) ? raw.principalRisks.slice(0, 3).map(String).filter(Boolean) : [],
+    growth: String(raw?.growth || "").trim().slice(0, 800),
     aiSummary: String(raw?.aiSummary || "").trim().slice(0, 1600),
     nextSuggestion: raw?.nextSuggestion ? String(raw.nextSuggestion).trim().slice(0, 800) : null,
+    signalToObserve: String(raw?.signalToObserve || "").trim().slice(0, 500),
     trend,
   };
-  if (!content.relationshipChange || !content.relationshipStage || !content.aiSummary) {
+  if (!content.relationshipChange || !content.relationshipStage || !content.growth || !content.aiSummary || !content.signalToObserve) {
     throw new Error("AI_INVALID_RESULT");
   }
   return content;
-}
-
-function languageInstruction(locale) {
-  if (locale === "zh-TW") return "請使用台灣繁體中文與台灣常用詞，語氣自然、溫和且清楚；可以真誠直接，但不要催促對方表態，也不要使用中國大陸用語或翻譯腔。";
-  if (locale === "en") return "Write in clear, warm, natural English. Respect direct communication, consent and personal boundaries; do not overread brevity or reply delays.";
-  return "自然でやさしく、読みやすい日本語で書いてください。敬語とため口の距離感や婉曲表現を尊重し、短文や返信間隔だけで関係を決めつけないでください。";
 }
 
 async function generateRelationshipReport({ periodType, locale, periodStart, periodEnd, analyses, events }) {
@@ -75,9 +76,6 @@ async function generateRelationshipReport({ periodType, locale, periodStart, per
     : periodType === "monthly"
       ? "一か月の重要な出来事と、関係の流れや段階の変化を重視してください。"
       : "一年を通した転機、関係の成長過程、現在地を長期的な視点で振り返ってください。";
-  const systemPrompt = `あなたは恋愛関係の記録を丁寧に振り返るAIです。${languageInstruction(locale)}
-与えられるのは会話本文ではなく、既存の分析結論と利用者が保存した出来事です。記録にない事実を作らず、相手の心理や関係段階を事実として断定しないでください。個人情報、会話本文、AI利用回数、分析回数、返信回数には触れないでください。
-各出力欄の役割を分け、同じ出来事や結論を複数の欄で繰り返さないでください。記録が少ない場合は不足を率直に示し、無理に変化を作らないでください。出力は指定されたJSONだけにしてください。`;
   const userPrompt = `対象期間: ${periodType} ${periodStart}〜${periodEnd}
 ${periodFocus}
 
@@ -88,20 +86,25 @@ ${periodFocus}
 - relationshipChange: 期間の始めから終わりまでに見られる変化。出来事の列挙はしない。
 - importantEvents: 関係の理解に影響した出来事だけを最大6件。入力にある日付と内容を忠実に使う。
 - relationshipStage: 現在地を、断定を避けた短い表現で示す。
+- positiveSignals: 入力に裏付けられた前向きな兆候だけを最大3件。
+- recurringPatterns: 複数回確認できる反復パターンだけを最大3件。単発なら空配列。
+- principalRisks: 現実的に注意すべき点だけを最大3件。価値を演出するために誇張しない。
+- growth: ふたりの関係やコミュニケーションに見られる成長・発展。材料不足なら不足を明記する。
 - aiSummary: 変化、出来事、現在地を統合した新しい洞察。前の欄の文章を繰り返さない。
 - nextSuggestion: 次の期間に実行できる具体的で穏やかな提案を1〜2件。相手を操作したり返信を迫ったりしない。
+- signalToObserve: 次に関係の変化を判断するために観察すべき具体的な兆候を1件。
 - trend: rising、stable、falling、unclearのいずれか。材料不足ならunclear。
 
-次の形式のみを返してください: {"relationshipChange":"","importantEvents":[""],"relationshipStage":"","aiSummary":"","nextSuggestion":"","trend":"rising|stable|falling|unclear"}`;
+各欄を重複させずに、指定された構造で返してください。`;
   const response = await axios.post("https://api.openai.com/v1/chat/completions", {
     model: process.env.OPENAI_TEXT_MODEL || process.env.OPENAI_VISION_MODEL || "gpt-4.1-mini",
     messages: [
-      { role: "system", content: systemPrompt },
+      { role: "system", content: relationshipReportSystemPrompt(locale) },
       { role: "user", content: userPrompt },
     ],
     temperature: 0.25,
     max_tokens: periodType === "yearly" ? 1400 : 1000,
-    response_format: { type: "json_object" },
+    response_format: { type: "json_schema", json_schema: relationshipReportSchema },
   }, {
     timeout: 60000,
     headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}`, "Content-Type": "application/json" },

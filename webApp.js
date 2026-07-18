@@ -517,7 +517,23 @@ app.post(
     });
 
     try {
-      const output = await analyzeForWeb({ imageBuffer: req.body, mimeType, mode, locale });
+      const [recentAnalysisQuery, recentEventsQuery] = await Promise.all([
+        supabase.from("analyses").select("result,completed_at")
+          .eq("relationship_id", activeRelationship.id).eq("user_id", req.user.id)
+          .eq("mode", "analysis").eq("status", "completed")
+          .order("completed_at", { ascending: false }).limit(1),
+        supabase.from("timeline_events").select("event_date,title,source")
+          .eq("relationship_id", activeRelationship.id).eq("user_id", req.user.id)
+          .is("deleted_at", null).order("event_date", { ascending: false }).limit(5)
+      ]);
+      const priorResult = recentAnalysisQuery.data?.[0]?.result;
+      const context = {
+        priorAnalysis: recentAnalysisQuery.error ? "" : String(priorResult?.overallReason || priorResult?.summary || ""),
+        recentEvents: recentEventsQuery.error ? [] : (recentEventsQuery.data || []).map((item) => ({
+          date: item.event_date, title: item.title, source: item.source
+        }))
+      };
+      const output = await analyzeForWeb({ imageBuffer: req.body, mimeType, mode, locale, context });
       const completedAt = new Date().toISOString();
       await supabase.from("analyses").update({
         status: "completed", result: output.result, model_name: output.model,
@@ -531,7 +547,7 @@ app.post(
           source: "ai",
           event_type: timelineEvent.eventType || "custom",
           title: timelineEvent.title,
-          event_date: completedAt.slice(0, 10),
+          event_date: timelineEvent.eventDate || completedAt.slice(0, 10),
           note: timelineEvent.note || null,
           analysis_id: analysis.id,
           ai_origin_key: `analysis:${analysis.id}`
@@ -546,6 +562,12 @@ app.post(
         name: "ai_usage_completed", businessKey: `ai_usage_completed:${analysis.id}`,
         userId: req.user.id, source: "ai", properties: { ...output.usage, mode }
       });
+      for (const [index, usage] of (output.auxiliaryUsages || []).entries()) {
+        await tracking.record({
+          name: "ai_usage_completed", businessKey: `ai_usage_completed:${analysis.id}:aux:${index}`,
+          userId: req.user.id, source: "ai", properties: { ...usage, mode }
+        });
+      }
       await tracking.record({
         name: "first_ai_usage_completed", businessKey: `first_ai_usage_completed:${req.user.id}`,
         userId: req.user.id, source: "ai", properties: { mode }
