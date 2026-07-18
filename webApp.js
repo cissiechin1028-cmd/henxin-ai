@@ -445,7 +445,16 @@ app.post("/api/v1/relationships/:relationshipId/reports/generate", requireUser, 
     res.status(201).json({ report: data });
   } catch (error) {
     console.error("REPORT GENERATION FAILED", String(error.message || error));
-    res.status(502).json({ error: "REPORT_GENERATION_FAILED" });
+    const status = Number(error?.response?.status || 0);
+    const code = String(error?.code || "");
+    const message = String(error?.message || "");
+    if (message === "OPENAI_NOT_CONFIGURED") return res.status(503).json({ error: "REPORT_AI_NOT_CONFIGURED" });
+    if (status === 401 || status === 403) return res.status(503).json({ error: "REPORT_AI_AUTH_FAILED" });
+    if (status === 429) return res.status(503).json({ error: "REPORT_AI_RATE_LIMITED" });
+    if (message === "AI_INVALID_JSON" || message === "AI_INVALID_RESULT") return res.status(502).json({ error: "REPORT_AI_INVALID_RESPONSE" });
+    if (code === "ECONNABORTED" || code === "ETIMEDOUT") return res.status(504).json({ error: "REPORT_AI_TIMEOUT" });
+    if (["ENOTFOUND", "ECONNRESET", "ECONNREFUSED", "EAI_AGAIN"].includes(code)) return res.status(503).json({ error: "REPORT_AI_NETWORK_FAILED" });
+    res.status(500).json({ error: "REPORT_GENERATION_FAILED" });
   }
 });
 
