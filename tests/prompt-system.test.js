@@ -49,30 +49,27 @@ test("context separates user facts, saved events, and prior AI interpretation", 
   assert.match(text, /Current screenshot evidence takes priority/);
 });
 
-test("reply output requires exactly three distinct-purpose options", () => {
+test("reply output requires the three fixed strategies", () => {
   const value = normalizeReply({
     conversationTemperature: 64,
     currentState: "会話は続いているが、相手の積極性までは確認できない。",
     options: [
-      { purpose: "自然に続ける", text: "そうなんだ、最近はどう？" },
-      { purpose: "少し様子を見る", text: "教えてくれてありがとう。" },
-      { purpose: "境界を伝える", text: "今は少し考える時間がほしいな。" }
-    ],
-    recommendedOption: "option_1",
-    overallRationale: "相手が話題に応じているため、まず会話を自然に続ける案が合う。",
-    caution: ""
+      { strategy: "recommended", text: "そうなんだ、最近はどう？", reason: "相手の温度感に自然に合わせられる返信です。" },
+      { strategy: "assertive", text: "今度会ってゆっくり話さない？", reason: "少し早く関係を進めたい場合の返信です。" },
+      { strategy: "cautious", text: "教えてくれてありがとう。", reason: "相手に圧をかけず今の関係を保てます。" }
+    ]
   });
   assert.equal(value.recommendedReply, "そうなんだ、最近はどう？");
   assert.equal(value.alternatives.length, 2);
-  assert.equal(value.reason, value.overallRationale);
+  assert.equal(value.recommendedReason, "相手の温度感に自然に合わせられる返信です。");
+  assert.equal(value.alternatives[0].strategy, "assertive");
 });
 
 test("reply output rejects missing options and invalid scores", () => {
   assert.throws(() => normalizeReply({ options: [] }), /AI_INVALID_RESULT/);
   assert.throws(() => normalizeReply({
     conversationTemperature: 120, currentState: "x",
-    options: [{ purpose: "a", text: "a" }, { purpose: "b", text: "b" }, { purpose: "c", text: "c" }],
-    recommendedOption: "option_1", overallRationale: "x", caution: ""
+    options: [{ strategy: "recommended", text: "a", reason: "a" }, { strategy: "assertive", text: "b", reason: "b" }, { strategy: "cautious", text: "c", reason: "c" }]
   }), /AI_INVALID_SCORE/);
 });
 
@@ -80,38 +77,32 @@ test("reply output enforces locale-aware safety length ceilings", () => {
   assert.throws(() => normalizeReply({
     conversationTemperature: 50, currentState: "判断材料は限られる。",
     options: [
-      { purpose: "自然に続ける", text: "あ".repeat(121) },
-      { purpose: "確認する", text: "そうなんだね。" },
-      { purpose: "待つ", text: "教えてくれてありがとう。" }
-    ],
-    recommendedOption: "option_1", overallRationale: "現在の会話に合わせた。", caution: ""
+      { strategy: "recommended", text: "あ".repeat(121), reason: "自然です。" },
+      { strategy: "assertive", text: "そうなんだね。", reason: "積極的です。" },
+      { strategy: "cautious", text: "教えてくれてありがとう。", reason: "慎重です。" }
+    ]
   }, "ja"), /AI_REPLY_TOO_LONG/);
 });
 
-test("analysis supports explicit uncertainty without inventing a trend", () => {
+test("analysis returns four internal metrics and concise guidance", () => {
   const value = normalizeAnalysis({
-    affection: 50, intentConsistency: 50, relationshipTrend: "unclear", progressRisk: 50,
-    confidence: "low",
-    scoreReasons: { affection: "材料不足", intentConsistency: "材料不足", relationshipTrend: "比較材料がない", progressRisk: "判断材料が限られる" },
-    headline: "現時点では判断材料が限られる",
-    whatCanBeConfirmed: "短いやり取りがある。",
-    whatCannotBeConfirmed: "好意や今後の意図は確認できない。",
-    evidence: ["会話が短い"], conclusion: "追加のやり取りを見る必要がある。",
-    actions: ["一度だけ自然に返す", "返答内容を観察する", "追いかけて送らない"],
-    nextBestMove: "一度だけ自然に返し、相手が話題を広げるかを見る。",
-    signalToObserve: "相手から質問や具体的な提案が出るか"
+    conversation_balance: 50, communication_quality: 62, relationship_trend: 50, progression_risk: 55,
+    core_reason: "会話は成立していますが、関係変化を示す比較材料はまだ限られます。",
+    action_advice: "今は自然に一度返し、相手が話題を広げるか見てください。",
+    signals_to_observe: ["相手から質問が出るか", "具体的な提案が出るか"]
   });
-  assert.equal(value.relationshipTrend, "unclear");
-  assert.equal(value.confidence, "low");
-  assert.equal(value.actions.length, 3);
+  assert.equal(value.relationshipTrend, 50);
+  assert.equal(value.conversationBalance, 50);
+  assert.equal(value.signalsToObserve.length, 2);
 });
 
 test("timeline records only clear significant events", () => {
   assert.deepEqual(normalizeTimelineEvent({ shouldRecord: true, evidenceStrength: "insufficient" }), { shouldRecord: false });
   const event = normalizeTimelineEvent({
     shouldRecord: true, evidenceStrength: "clear", eventType: "relationship_confirmed",
-    title: "交際することを確認した", note: "双方が交際を明確に確認した。", eventDate: "2026-07-18"
+    title: "交際することを確認した", aiSummary: "関係は明確な交際段階へ進みました。", eventDate: "2026-07-18"
   });
   assert.equal(event.shouldRecord, true);
   assert.equal(event.eventDate, "2026-07-18");
+  assert.equal(event.note, "関係は明確な交際段階へ進みました。");
 });

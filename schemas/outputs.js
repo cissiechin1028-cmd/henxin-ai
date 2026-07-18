@@ -3,14 +3,11 @@ const replyProposalSchema = {
   strict: true,
   schema: {
     type: "object", additionalProperties: false,
-    required: ["conversationTemperature", "currentState", "options", "recommendedOption", "overallRationale", "caution"],
+    required: ["conversationTemperature", "currentState", "options"],
     properties: {
       conversationTemperature: { type: "integer", minimum: 0, maximum: 100 },
       currentState: { type: "string" },
-      options: { type: "array", minItems: 3, maxItems: 3, items: { type: "object", additionalProperties: false, required: ["purpose", "text"], properties: { purpose: { type: "string" }, text: { type: "string" } } } },
-      recommendedOption: { type: "string", enum: ["option_1", "option_2", "option_3"] },
-      overallRationale: { type: "string" },
-      caution: { type: "string" }
+      options: { type: "array", minItems: 3, maxItems: 3, items: { type: "object", additionalProperties: false, required: ["strategy", "text", "reason"], properties: { strategy: { type: "string", enum: ["recommended", "assertive", "cautious"] }, text: { type: "string" }, reason: { type: "string" } } } }
     }
   }
 };
@@ -20,22 +17,15 @@ const chatAnalysisSchema = {
   strict: true,
   schema: {
     type: "object", additionalProperties: false,
-    required: ["affection", "intentConsistency", "relationshipTrend", "progressRisk", "confidence", "scoreReasons", "headline", "whatCanBeConfirmed", "whatCannotBeConfirmed", "evidence", "conclusion", "actions", "nextBestMove", "signalToObserve"],
+    required: ["conversation_balance", "communication_quality", "relationship_trend", "progression_risk", "core_reason", "action_advice", "signals_to_observe"],
     properties: {
-      affection: { type: "integer", minimum: 0, maximum: 100 },
-      intentConsistency: { type: "integer", minimum: 0, maximum: 100 },
-      relationshipTrend: { type: "string", enum: ["rising", "stable", "falling", "unclear"] },
-      progressRisk: { type: "integer", minimum: 0, maximum: 100 },
-      confidence: { type: "string", enum: ["low", "medium", "high"] },
-      scoreReasons: { type: "object", additionalProperties: false, required: ["affection", "intentConsistency", "relationshipTrend", "progressRisk"], properties: { affection: { type: "string" }, intentConsistency: { type: "string" }, relationshipTrend: { type: "string" }, progressRisk: { type: "string" } } },
-      headline: { type: "string" },
-      whatCanBeConfirmed: { type: "string" },
-      whatCannotBeConfirmed: { type: "string" },
-      evidence: { type: "array", maxItems: 4, items: { type: "string" } },
-      conclusion: { type: "string" },
-      actions: { type: "array", minItems: 3, maxItems: 3, items: { type: "string" } },
-      nextBestMove: { type: "string" },
-      signalToObserve: { type: "string" }
+      conversation_balance: { type: "integer", minimum: 0, maximum: 100 },
+      communication_quality: { type: "integer", minimum: 0, maximum: 100 },
+      relationship_trend: { type: "integer", minimum: 0, maximum: 100 },
+      progression_risk: { type: "integer", minimum: 0, maximum: 100 },
+      core_reason: { type: "string" },
+      action_advice: { type: "string" },
+      signals_to_observe: { type: "array", minItems: 1, maxItems: 3, items: { type: "string" } }
     }
   }
 };
@@ -45,12 +35,12 @@ const relationshipEventSchema = {
   strict: true,
   schema: {
     type: "object", additionalProperties: false,
-    required: ["shouldRecord", "eventType", "title", "note", "eventDate", "evidenceStrength"],
+    required: ["shouldRecord", "eventType", "title", "aiSummary", "eventDate", "evidenceStrength"],
     properties: {
       shouldRecord: { type: "boolean" },
       eventType: { type: "string", enum: ["first_date", "birthday", "trip", "first_touch", "conflict", "reconciliation", "relationship_confirmed", "met_family", "proposal", "breakup", "reunion", "future_discussion", "boundary", "contact_resumed", "cold_period", "important_decision", "custom"] },
       title: { type: "string" },
-      note: { type: "string" },
+      aiSummary: { type: "string" },
       eventDate: { type: ["string", "null"] },
       evidenceStrength: { type: "string", enum: ["insufficient", "clear"] }
     }
