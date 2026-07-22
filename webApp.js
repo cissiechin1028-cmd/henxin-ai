@@ -168,7 +168,8 @@ app.post("/api/v1/billing/portal", requireUser, express.json(), async (req, res)
   res.json({ url: portal.url });
 });
 
-app.post("/api/v1/stripe/webhook", express.raw({ type: "application/json" }), async (req, res) => {
+const stripeWebhookRaw = express.raw({ type: "application/json" });
+async function handleStripeWebhook(req, res) {
   let event;
   try {
     event = stripe.webhooks.constructEvent(req.body, req.headers["stripe-signature"], process.env.STRIPE_WEBHOOK_SECRET);
@@ -259,7 +260,9 @@ app.post("/api/v1/stripe/webhook", express.raw({ type: "application/json" }), as
   }
   await tracking.record({ name: "stripe_webhook_processed", businessKey: `stripe_webhook_processed:${event.id}`, userId, source: "stripe", properties: { stripe_event_type: event.type } });
   res.json({ received: true });
-});
+}
+app.post("/api/v1/stripe/webhook", stripeWebhookRaw, handleStripeWebhook);
+app.post("/stripe/webhook", stripeWebhookRaw, handleStripeWebhook);
 
 app.get("/api/v1/admin/dashboard", requireUser, requireAdmin, async (req, res) => {
   const requestedTimeZone = String(req.query.timeZone || "Asia/Tokyo");
