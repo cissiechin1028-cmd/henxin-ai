@@ -7,7 +7,7 @@ const replyProposalSchema = {
     properties: {
       conversationTemperature: { type: "integer", minimum: 0, maximum: 100 },
       currentState: { type: "string" },
-      options: { type: "array", minItems: 3, maxItems: 3, items: { type: "object", additionalProperties: false, required: ["strategy", "text", "reason"], properties: { strategy: { type: "string", enum: ["recommended", "assertive", "cautious"] }, text: { type: "string" }, reason: { type: "string" } } } }
+      options: { type: "array", minItems: 3, maxItems: 3, items: { type: "object", additionalProperties: false, required: ["strategy", "text", "reason"], properties: { strategy: { type: "string", enum: ["option_1", "option_2", "option_3"] }, text: { type: "string" }, reason: { type: "string" } } } }
     }
   }
 };

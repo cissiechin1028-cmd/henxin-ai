@@ -35,7 +35,7 @@ function assertLocale(strings, locale) {
 
 function normalizeReply(raw, locale = "ja") {
   if (!Array.isArray(raw?.options) || raw.options.length !== 3) throw new Error("AI_INVALID_RESULT");
-  const expectedStrategies = ["recommended", "assertive", "cautious"];
+  const expectedStrategies = ["option_1", "option_2", "option_3"];
   const options = raw.options.map((item) => ({
     strategy: cleanString(item?.strategy, 24, true),
     text: cleanReplyText(item?.text, locale),

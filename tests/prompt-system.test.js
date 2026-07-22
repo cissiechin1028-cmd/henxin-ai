@@ -42,9 +42,9 @@ test("normalizers reject mixed-language user-facing output", () => {
     conversationTemperature: 60,
     currentState: "会話は自然に続いています。",
     options: [
-      { strategy: "recommended", text: "そうなんだね。", reason: "自然な返信です。" },
-      { strategy: "assertive", text: "今度会わない？", reason: "少し積極的な返信です。" },
-      { strategy: "cautious", text: "教えてくれてありがとう。", reason: "慎重な返信です。" },
+      { strategy: "option_1", text: "そうなんだね。", reason: "自然な返信です。" },
+      { strategy: "option_2", text: "今度会わない？", reason: "少し温かさを出せる返信です。" },
+      { strategy: "option_3", text: "教えてくれてありがとう。", reason: "圧をかけずに返せます。" },
     ],
   };
   assert.throws(() => normalizeReply({ ...baseReply, options: [{ ...baseReply.options[0], text: "這樣很好呀。" }, ...baseReply.options.slice(1)] }, "ja"), /AI_LANGUAGE_MISMATCH/);
@@ -70,27 +70,27 @@ test("context separates user facts, saved events, and prior AI interpretation", 
   assert.match(text, /Current screenshot evidence takes priority/);
 });
 
-test("reply output requires the three fixed strategies", () => {
+test("reply output requires the three v2 candidate slots", () => {
   const value = normalizeReply({
     conversationTemperature: 64,
     currentState: "会話は続いているが、相手の積極性までは確認できない。",
     options: [
-      { strategy: "recommended", text: "そうなんだ、最近はどう？", reason: "相手の温度感に自然に合わせられる返信です。" },
-      { strategy: "assertive", text: "今度会ってゆっくり話さない？", reason: "少し早く関係を進めたい場合の返信です。" },
-      { strategy: "cautious", text: "教えてくれてありがとう。", reason: "相手に圧をかけず今の関係を保てます。" }
+      { strategy: "option_1", text: "そうなんだ、最近はどう？", reason: "相手の温度感に自然に合わせられる返信です。" },
+      { strategy: "option_2", text: "今度会ってゆっくり話さない？", reason: "目的に沿って少し踏み込める返信です。" },
+      { strategy: "option_3", text: "教えてくれてありがとう。", reason: "相手に圧をかけず今の関係を保てます。" }
     ]
   });
   assert.equal(value.recommendedReply, "そうなんだ、最近はどう？");
   assert.equal(value.alternatives.length, 2);
   assert.equal(value.recommendedReason, "相手の温度感に自然に合わせられる返信です。");
-  assert.equal(value.alternatives[0].strategy, "assertive");
+  assert.equal(value.alternatives[0].strategy, "option_2");
 });
 
 test("reply output rejects missing options and invalid scores", () => {
   assert.throws(() => normalizeReply({ options: [] }), /AI_INVALID_RESULT/);
   assert.throws(() => normalizeReply({
-    conversationTemperature: 120, currentState: "x",
-    options: [{ strategy: "recommended", text: "a", reason: "a" }, { strategy: "assertive", text: "b", reason: "b" }, { strategy: "cautious", text: "c", reason: "c" }]
+    conversationTemperature: 120, currentState: "判断材料は限られる。",
+    options: [{ strategy: "option_1", text: "そうですね。", reason: "自然です。" }, { strategy: "option_2", text: "また話そう。", reason: "自然です。" }, { strategy: "option_3", text: "教えてくれてありがとう。", reason: "自然です。" }]
   }), /AI_INVALID_SCORE/);
 });
 
@@ -98,9 +98,9 @@ test("reply output enforces locale-aware safety length ceilings", () => {
   assert.throws(() => normalizeReply({
     conversationTemperature: 50, currentState: "判断材料は限られる。",
     options: [
-      { strategy: "recommended", text: "あ".repeat(121), reason: "自然です。" },
-      { strategy: "assertive", text: "そうなんだね。", reason: "積極的です。" },
-      { strategy: "cautious", text: "教えてくれてありがとう。", reason: "慎重です。" }
+      { strategy: "option_1", text: "あ".repeat(121), reason: "自然です。" },
+      { strategy: "option_2", text: "そうなんだね。", reason: "自然です。" },
+      { strategy: "option_3", text: "教えてくれてありがとう。", reason: "自然です。" }
     ]
   }, "ja"), /AI_REPLY_TOO_LONG/);
 });

@@ -36,7 +36,7 @@ app.use((req, res, next) => {
     res.setHeader("Access-Control-Allow-Origin", origin);
     res.setHeader("Vary", "Origin");
   }
-  res.setHeader("Access-Control-Allow-Headers", "Authorization, Content-Type, X-Analysis-Mode, X-Locale");
+  res.setHeader("Access-Control-Allow-Headers", "Authorization, Content-Type, X-Analysis-Mode, X-Locale, X-Reply-Goal, X-Reply-Style, X-Relationship-Status");
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS");
   res.setHeader("X-Content-Type-Options", "nosniff");
   if (req.method === "OPTIONS") return res.sendStatus(204);
@@ -97,6 +97,22 @@ async function findActiveRelationship(userId) {
 }
 
 app.get("/health", (_req, res) => res.json({ ok: true, service: "renai-web-api" }));
+
+function cleanReplySettings(req) {
+  const replyGoal = String(req.headers["x-reply-goal"] || "").trim().slice(0, 150);
+  const replyStyle = String(req.headers["x-reply-style"] || "natural").trim();
+  const relationshipStatus = String(req.headers["x-relationship-status"] || "unknown").trim();
+  const allowedStyles = new Set(["natural", "get_closer", "reassure", "humor", "honest", "distance"]);
+  const allowedStatuses = new Set(["unknown", "crush", "talking", "dating", "long_term", "cold", "conflict", "breakup", "reconciliation"]);
+  if (replyGoal && /system|developer|instruction|ignore|override|jailbreak|prompt/i.test(replyGoal)) return { error: "INVALID_REPLY_GOAL" };
+  return {
+    value: {
+      replyGoal,
+      replyStyle: allowedStyles.has(replyStyle) ? replyStyle : "natural",
+      relationshipStatus: allowedStatuses.has(relationshipStatus) ? relationshipStatus : "unknown",
+    }
+  };
+}
 
 app.post("/api/v1/tracking/page-view", express.json({ limit: "8kb" }), async (req, res) => {
   const anonymousId = String(req.body?.anonymousId || "").trim();
@@ -497,6 +513,8 @@ app.post(
     if (!Buffer.isBuffer(req.body) || !req.body.length) return res.status(400).json({ error: "IMAGE_REQUIRED" });
     if (!isSupportedImage(req.body, mimeType)) return res.status(415).json({ error: "INVALID_IMAGE_FILE" });
     if (!["reply", "analysis"].includes(mode)) return res.status(400).json({ error: "INVALID_MODE" });
+    const replySettings = cleanReplySettings(req);
+    if (mode === "reply" && replySettings.error) return res.status(400).json({ error: replySettings.error });
     const contentFingerprint = crypto.createHash("sha256").update(req.body).digest("hex");
 
     const { data: creditRows, error: creditError } = await supabase.rpc("reserve_analysis_credit", { target_user_id: req.user.id });
@@ -516,7 +534,7 @@ app.post(
       mode,
       status: "processing",
       title: mode === "reply" ? "返信アドバイス" : "チャット分析",
-      input_metadata: { mime_type: mimeType, bytes: req.body.length, content_fingerprint: contentFingerprint }
+      input_metadata: { mime_type: mimeType, bytes: req.body.length, content_fingerprint: contentFingerprint, ...(mode === "reply" ? replySettings.value : {}) }
     }).select("id").single();
 
     if (insertError) {
@@ -546,7 +564,7 @@ app.post(
           date: item.event_date, title: item.title, source: item.source
         }))
       };
-      const output = await analyzeForWeb({ imageBuffer: req.body, mimeType, mode, locale, context });
+      const output = await analyzeForWeb({ imageBuffer: req.body, mimeType, mode, locale, context: { ...context, ...(mode === "reply" ? replySettings.value : {}) } });
       const completedAt = new Date().toISOString();
       await supabase.from("analyses").update({
         status: "completed", result: output.result, model_name: output.model,
