@@ -22,6 +22,10 @@ function cleanReplyText(value, locale) {
   return text;
 }
 
+function compactForDiversity(text) {
+  return text.toLowerCase().replace(/[\s、。！？!?.,~〜ー…「」『』（）()]/g, "");
+}
+
 function assertLocale(strings, locale) {
   const text = strings.filter(Boolean).join("\n");
   if (!text) throw new Error("AI_INVALID_RESULT");
@@ -47,6 +51,8 @@ function normalizeReply(raw, locale = "ja") {
   const currentState = cleanString(raw.currentState, 300, true);
   const conversationTemperature = score(raw.conversationTemperature);
   assertLocale([currentState, ...options.flatMap(item => [item.text, item.reason])], locale);
+  const compactReplies = options.map((item) => compactForDiversity(item.text));
+  if (new Set(compactReplies).size !== 3) throw new Error("AI_DUPLICATE_REPLIES");
   return {
     kind: "reply", conversationTemperature, currentState,
     temperatureReason: currentState, recommendedReply: recommended.text, recommendedPurpose: recommended.strategy,

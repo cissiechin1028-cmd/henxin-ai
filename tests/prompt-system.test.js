@@ -25,7 +25,7 @@ test("module prompts have separate responsibilities", () => {
   const event = relationshipEventPrompt("ja");
   const report = relationshipReportSystemPrompt("ja");
   assert.match(reply, /What should the user reply now/);
-  assert.match(reply, /Do not provide a long relationship analysis/);
+  assert.match(reply, /Do not produce a long relationship analysis/);
   assert.match(analysis, /Do not produce ready-to-send reply candidates/);
   assert.match(event, /Do not analyse the whole relationship/);
   assert.match(report, /Do not create reply proposals/);
@@ -54,8 +54,18 @@ test("normalizers reject mixed-language user-facing output", () => {
 
 test("reply prompt may recommend no further message after a natural ending", () => {
   const prompt = replyProposalPrompt("ja", {});
-  assert.match(prompt, /natural, mutually understood ending/);
-  assert.match(prompt, /ending the exchange without another reply/);
+  assert.match(prompt, /visible conversation has already ended naturally/);
+  assert.match(prompt, /no further reply needed/);
+});
+
+test("reply prompt uses relationship goal style architecture without legacy strategy modes", () => {
+  const prompt = replyProposalPrompt("ja", { relationshipStatus: "in_contact", replyGoal: "lead_to_date", replyStyle: "amaeru" });
+  assert.match(prompt, /USER INPUT DIMENSIONS/);
+  assert.match(prompt, /amaeru/);
+  assert.match(prompt, /Validation Criteria/);
+  assert.match(prompt, /OPENING DIVERSITY RULE/);
+  assert.match(prompt, /忙しいと思うけど/);
+  assert.doesNotMatch(prompt, /assertive|cautious|recommended/i);
 });
 
 test("context separates user facts, saved events, and prior AI interpretation", () => {
@@ -92,6 +102,17 @@ test("reply output rejects missing options and invalid scores", () => {
     conversationTemperature: 120, currentState: "判断材料は限られる。",
     options: [{ strategy: "option_1", text: "そうですね。", reason: "自然です。" }, { strategy: "option_2", text: "また話そう。", reason: "自然です。" }, { strategy: "option_3", text: "教えてくれてありがとう。", reason: "自然です。" }]
   }), /AI_INVALID_SCORE/);
+});
+
+test("reply output rejects exact duplicate replies", () => {
+  assert.throws(() => normalizeReply({
+    conversationTemperature: 50, currentState: "会話は自然に続いています。",
+    options: [
+      { strategy: "option_1", text: "そうなんだね。", reason: "自然です。" },
+      { strategy: "option_2", text: "そうなんだね。", reason: "自然です。" },
+      { strategy: "option_3", text: "教えてくれてありがとう。", reason: "自然です。" }
+    ]
+  }, "ja"), /AI_DUPLICATE_REPLIES/);
 });
 
 test("reply output enforces locale-aware safety length ceilings", () => {

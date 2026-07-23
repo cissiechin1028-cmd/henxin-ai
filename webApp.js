@@ -101,15 +101,19 @@ app.get("/health", (_req, res) => res.json({ ok: true, service: "renai-web-api" 
 function cleanReplySettings(req) {
   const replyGoal = String(req.headers["x-reply-goal"] || "").trim().slice(0, 150);
   const replyStyle = String(req.headers["x-reply-style"] || "natural").trim();
-  const relationshipStatus = String(req.headers["x-relationship-status"] || "unknown").trim();
-  const allowedStyles = new Set(["natural", "get_closer", "reassure", "humor", "honest", "distance"]);
-  const allowedStatuses = new Set(["unknown", "crush", "talking", "dating", "long_term", "cold", "conflict", "breakup", "reconciliation"]);
-  if (replyGoal && /system|developer|instruction|ignore|override|jailbreak|prompt/i.test(replyGoal)) return { error: "INVALID_REPLY_GOAL" };
+  const relationshipStatus = String(req.headers["x-relationship-status"] || "").trim();
+  const styleAliases = { reassure: "gentle" };
+  const statusAliases = { unknown: "", crush: "interested", talking: "in_contact", pre_relationship: "in_contact", cold: "", conflict: "", breakup: "ex", reconciliation: "ex" };
+  const allowedGoals = new Set(["", "continue_conversation", "get_closer", "understand_feelings", "clear_misunderstanding", "make_up", "lead_to_date", "express_feelings", "decline_politely"]);
+  const allowedStyles = new Set(["natural", "get_closer", "gentle", "humor", "amaeru", "honest", "distance"]);
+  const allowedStatuses = new Set(["", "interested", "in_contact", "dating", "long_term", "ex"]);
+  const normalizedStyle = styleAliases[replyStyle] || replyStyle;
+  const normalizedStatus = statusAliases[relationshipStatus] ?? relationshipStatus;
   return {
     value: {
-      replyGoal,
-      replyStyle: allowedStyles.has(replyStyle) ? replyStyle : "natural",
-      relationshipStatus: allowedStatuses.has(relationshipStatus) ? relationshipStatus : "unknown",
+      replyGoal: allowedGoals.has(replyGoal) ? replyGoal : "",
+      replyStyle: allowedStyles.has(normalizedStyle) ? normalizedStyle : "natural",
+      relationshipStatus: allowedStatuses.has(normalizedStatus) ? normalizedStatus : "",
     }
   };
 }
