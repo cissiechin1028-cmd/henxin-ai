@@ -438,8 +438,12 @@ app.post("/api/v1/relationships/:relationshipId/reports/generate", requireUser, 
       .order("event_date", { ascending: true }),
   ]);
   if (analysisQuery.error || eventQuery.error) return res.status(500).json({ error: "REPORT_SOURCE_READ_FAILED" });
-  if (!(analysisQuery.data?.length || eventQuery.data?.length)) {
+  const sourceCount = (analysisQuery.data?.length || 0) + (eventQuery.data?.length || 0);
+  if (!sourceCount) {
     return res.status(422).json({ error: "REPORT_DATA_INSUFFICIENT" });
+  }
+  if (sourceCount < 2) {
+    return res.status(422).json({ error: "REPORT_DATA_TOO_SPARSE" });
   }
 
   try {
