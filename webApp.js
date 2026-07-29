@@ -7,6 +7,7 @@ const { createClient } = require("@supabase/supabase-js");
 const { analyzeForWeb } = require("./services/webAnalysis");
 const { generateRelationshipReport, periodBounds } = require("./services/relationshipReports");
 const { createTracking } = require("./tracking/service");
+const { createUsageService } = require("./services/usageService");
 
 const app = express();
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || "sk_test_placeholder");
@@ -20,6 +21,7 @@ const supabase = createClient(
   { auth: { persistSession: false, autoRefreshToken: false } }
 );
 const tracking = createTracking({ supabase });
+const usageService = createUsageService({ supabase });
 
 function isSupportedImage(buffer, mimeType) {
   if (!Buffer.isBuffer(buffer) || buffer.length < 12) return false;
@@ -27,6 +29,27 @@ function isSupportedImage(buffer, mimeType) {
   if (mimeType === "image/png") return buffer.subarray(0, 8).equals(Buffer.from([0x89,0x50,0x4e,0x47,0x0d,0x0a,0x1a,0x0a]));
   if (mimeType === "image/webp") return buffer.subarray(0, 4).toString() === "RIFF" && buffer.subarray(8, 12).toString() === "WEBP";
   return false;
+}
+
+function normalizeTimelineText(value) {
+  return String(value || "").normalize("NFKC").toLowerCase()
+    .replace(/[\s\p{P}\p{S}]+/gu, "");
+}
+
+function timelineTextSimilarity(left, right) {
+  const a = normalizeTimelineText(left);
+  const b = normalizeTimelineText(right);
+  if (!a || !b) return 0;
+  if (a === b || a.includes(b) || b.includes(a)) return 1;
+  const bigrams = (value) => {
+    if (value.length < 2) return new Set([value]);
+    return new Set(Array.from({ length: value.length - 1 }, (_, index) => value.slice(index, index + 2)));
+  };
+  const aa = bigrams(a);
+  const bb = bigrams(b);
+  let overlap = 0;
+  for (const item of aa) if (bb.has(item)) overlap += 1;
+  return (2 * overlap) / (aa.size + bb.size);
 }
 
 app.disable("x-powered-by");
@@ -447,6 +470,8 @@ app.post("/api/v1/relationships/:relationshipId/reports/generate", requireUser, 
   }
 
   try {
+    const usage = await usageService.check(req.user.id, "relationshipLog");
+    if (!usage.allowed) return res.status(429).json({ error: "FAIR_USE_LIMIT_REACHED" });
     const reportCallId = crypto.randomUUID();
     const generated = await generateRelationshipReport({
       periodType, locale, periodStart: bounds.start, periodEnd: bounds.end,
@@ -469,6 +494,7 @@ app.post("/api/v1/relationships/:relationshipId/reports/generate", requireUser, 
       generated_at: new Date().toISOString(),
     }, { onConflict: "relationship_id,period_type,period_start,locale" }).select("*").single();
     if (error) return res.status(500).json({ error: "REPORT_STORE_FAILED" });
+    await usageService.recordSuccess(usage);
     res.status(201).json({ report: data });
   } catch (error) {
     console.error("REPORT GENERATION FAILED", String(error.message || error));
@@ -525,14 +551,26 @@ app.post(
     if (mode === "reply" && replySettings.error) return res.status(400).json({ error: replySettings.error });
     const contentFingerprint = crypto.createHash("sha256").update(req.body).digest("hex");
 
-    const { data: creditRows, error: creditError } = await supabase.rpc("reserve_analysis_credit", { target_user_id: req.user.id });
-    const credit = creditRows?.[0];
-    if (creditError) return res.status(500).json({ error: "CREDIT_CHECK_FAILED" });
-    if (!credit?.allowed) return res.status(402).json({ error: "CREDIT_LIMIT_REACHED", usage: credit });
+    let fairUse;
+    try {
+      fairUse = await usageService.check(req.user.id, mode);
+    } catch (error) {
+      console.error("FAIR USE CHECK FAILED", String(error.message || error));
+      return res.status(500).json({ error: "USAGE_CHECK_FAILED" });
+    }
+    if (!fairUse.allowed) return res.status(429).json({ error: "FAIR_USE_LIMIT_REACHED" });
+
+    let credit = { allowed: true, plan: "pro", reserved: false };
+    if (fairUse.plan === "free") {
+      const { data: creditRows, error: creditError } = await supabase.rpc("reserve_analysis_credit", { target_user_id: req.user.id });
+      credit = { ...(creditRows?.[0] || {}), reserved: true };
+      if (creditError) return res.status(500).json({ error: "CREDIT_CHECK_FAILED" });
+      if (!credit?.allowed) return res.status(402).json({ error: "CREDIT_LIMIT_REACHED" });
+    }
 
     const { data: activeRelationship, error: relationshipError } = await findActiveRelationship(req.user.id);
     if (relationshipError || !activeRelationship) {
-      await supabase.rpc("refund_analysis_credit", { target_user_id: req.user.id, charged_plan: credit.plan });
+      if (credit.reserved) await supabase.rpc("refund_analysis_credit", { target_user_id: req.user.id, charged_plan: credit.plan });
       return res.status(500).json({ error: "ACTIVE_RELATIONSHIP_NOT_FOUND" });
     }
 
@@ -546,7 +584,7 @@ app.post(
     }).select("id").single();
 
     if (insertError) {
-      await supabase.rpc("refund_analysis_credit", { target_user_id: req.user.id, charged_plan: credit.plan });
+      if (credit.reserved) await supabase.rpc("refund_analysis_credit", { target_user_id: req.user.id, charged_plan: credit.plan });
       return res.status(500).json({ error: "ANALYSIS_CREATE_FAILED" });
     }
 
@@ -583,16 +621,25 @@ app.post(
         const eventType = timelineEvent.eventType || "custom";
         const eventDate = timelineEvent.eventDate || completedAt.slice(0, 10);
         const originKey = `content:${contentFingerprint}`;
+        const nearbyStart = new Date(`${eventDate}T00:00:00Z`);
+        nearbyStart.setUTCDate(nearbyStart.getUTCDate() - 3);
+        const nearbyEnd = new Date(`${eventDate}T00:00:00Z`);
+        nearbyEnd.setUTCDate(nearbyEnd.getUTCDate() + 3);
         const [sameUpload, sameEvent] = await Promise.all([
-          supabase.from("timeline_events").select("id").eq("relationship_id", activeRelationship.id)
+          supabase.from("timeline_events").select("id,title,note").eq("relationship_id", activeRelationship.id)
             .eq("user_id", req.user.id).eq("source", "ai").eq("ai_origin_key", originKey).limit(1),
           supabase.from("timeline_events").select("id").eq("relationship_id", activeRelationship.id)
             .eq("user_id", req.user.id).eq("source", "ai").eq("event_type", eventType)
-            .eq("event_date", eventDate).eq("title", timelineEvent.title).limit(1)
+            .gte("event_date", nearbyStart.toISOString().slice(0, 10))
+            .lte("event_date", nearbyEnd.toISOString().slice(0, 10))
+            .is("deleted_at", null).limit(1)
         ]);
         if (sameUpload.error || sameEvent.error) {
           console.error("TIMELINE DEDUP CHECK FAILED", sameUpload.error?.message || sameEvent.error?.message);
-        } else if (!sameUpload.data?.length && !sameEvent.data?.length) {
+        } else if (!sameUpload.data?.length && !(sameEvent.data || []).some((item) =>
+          timelineTextSimilarity(item.title, timelineEvent.title) >= 0.72
+          || (item.note && timelineEvent.note && timelineTextSimilarity(item.note, timelineEvent.note) >= 0.78)
+        )) {
           const { error: timelineError } = await supabase.from("timeline_events").insert({
             relationship_id: activeRelationship.id,
             user_id: req.user.id,
@@ -625,6 +672,7 @@ app.post(
         name: "first_ai_usage_completed", businessKey: `first_ai_usage_completed:${req.user.id}`,
         userId: req.user.id, source: "ai", properties: { mode }
       });
+      await usageService.recordSuccess(fairUse);
       if (credit.plan === "free" && Number(credit.used) >= Number(credit.credit_limit)) {
         await tracking.record({
           name: "free_limit_reached", businessKey: `free_limit_reached:${req.user.id}`,
@@ -636,7 +684,9 @@ app.post(
     } catch (error) {
       await Promise.all([
         supabase.from("analyses").update({ status: "failed", error_code: String(error.message || "AI_FAILED").slice(0, 80) }).eq("id", analysis.id).eq("user_id", req.user.id),
-        supabase.rpc("refund_analysis_credit", { target_user_id: req.user.id, charged_plan: credit.plan }),
+        credit.reserved
+          ? supabase.rpc("refund_analysis_credit", { target_user_id: req.user.id, charged_plan: credit.plan })
+          : Promise.resolve(),
         supabase.from("usage_events").insert({ user_id: req.user.id, analysis_id: analysis.id, event_type: "analysis_failed", credit_delta: 1 })
       ]);
       await tracking.record({
