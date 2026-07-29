@@ -185,8 +185,10 @@ app.post("/api/v1/billing/checkout", requireUser, express.json(), async (req, re
   const { data: profile } = await supabase.from("profiles").select("stripe_customer_id,plan").eq("id", req.user.id).single();
   if (profile?.plan === "pro") return res.status(409).json({ error: "ALREADY_PRO" });
   const returnUrl = webAppReturnUrl(req);
+  const checkoutLocale = { ja: "ja", "zh-TW": "zh-TW", en: "en" }[String(req.body?.locale || "")] || "ja";
   const checkout = await stripe.checkout.sessions.create({
     mode: "subscription",
+    locale: checkoutLocale,
     customer: profile?.stripe_customer_id || undefined,
     customer_email: profile?.stripe_customer_id ? undefined : req.user.email,
     line_items: [{ price: process.env.STRIPE_PRICE_ID, quantity: 1 }],
