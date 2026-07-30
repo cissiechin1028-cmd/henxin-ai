@@ -23,6 +23,70 @@ const supabase = createClient(
 const tracking = createTracking({ supabase });
 const usageService = createUsageService({ supabase });
 
+function sha256(value) {
+  return crypto.createHash("sha256").update(String(value || "").trim().toLowerCase()).digest("hex");
+}
+
+function subscriptionPeriod(subscription) {
+  const item = subscription?.items?.data?.[0];
+  return {
+    start: subscription?.current_period_start || item?.current_period_start || null,
+    end: subscription?.current_period_end || item?.current_period_end || null
+  };
+}
+
+function invoiceSubscriptionId(invoice) {
+  const value = invoice?.subscription
+    || invoice?.parent?.subscription_details?.subscription
+    || invoice?.lines?.data?.[0]?.parent?.subscription_item_details?.subscription;
+  return typeof value === "string" ? value : value?.id || null;
+}
+
+async function requireProfileUpdate(userId, update) {
+  const { data, error } = await supabase.from("profiles").update(update).eq("id", userId).select("id").maybeSingle();
+  if (error) throw new Error(`PROFILE_UPDATE_FAILED:${error.message}`);
+  if (!data?.id) throw new Error("PROFILE_UPDATE_FAILED:PROFILE_NOT_FOUND");
+}
+
+async function sendTikTokPurchase({ eventId, userId, email, amount, currency }) {
+  const pixelId = process.env.TIKTOK_PIXEL_ID;
+  const token = process.env.TIKTOK_EVENTS_API_ACCESS_TOKEN;
+  if (!pixelId || !token) {
+    console.error("TIKTOK_PURCHASE_SKIPPED", "TIKTOK_NOT_CONFIGURED", eventId);
+    return { delivered: false, skipped: true };
+  }
+  const response = await fetch("https://business-api.tiktok.com/open_api/v1.2/pixel/track/", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "Access-Token": token },
+    body: JSON.stringify({
+      pixel_code: pixelId,
+      event: "Purchase",
+      event_id: eventId,
+      timestamp: new Date().toISOString(),
+      context: {
+        user: {
+          ...(email ? { email: sha256(email) } : {}),
+          external_id: sha256(userId)
+        }
+      },
+      properties: {
+        content_id: "renai_premium_monthly",
+        content_name: "RenAI Premium Monthly",
+        content_type: "product",
+        quantity: 1,
+        value: Number(amount || 0) / 100,
+        currency: String(currency || "jpy").toUpperCase()
+      }
+    })
+  });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok || Number(result?.code || 0) !== 0) {
+    throw new Error(`TIKTOK_PURCHASE_FAILED:${response.status}:${result?.code || "UNKNOWN"}:${result?.message || "UNKNOWN"}`);
+  }
+  console.log("TIKTOK_PURCHASE_DELIVERED", eventId);
+  return { delivered: true };
+}
+
 function isSupportedImage(buffer, mimeType) {
   if (!Buffer.isBuffer(buffer) || buffer.length < 12) return false;
   if (mimeType === "image/jpeg") return buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff;
@@ -231,19 +295,34 @@ async function handleStripeWebhook(req, res) {
   if (eventInsertError && eventInsertError.code !== "23505") {
     return res.status(500).json({ error: "EVENT_STORE_FAILED" });
   }
-  if (event.type === "checkout.session.completed" && userId) {
-    const subscription = object.subscription ? await stripe.subscriptions.retrieve(object.subscription) : null;
-    console.log(subscription);
-    await supabase.from("profiles").update({
-      plan: "pro", stripe_customer_id: object.customer, stripe_subscription_id: object.subscription,
-      subscription_status: subscription?.status || "active", pro_period_usage: 0,
-      pro_period_start: subscription ? new Date(subscription.current_period_start * 1000).toISOString() : new Date().toISOString(),
-      pro_period_end: subscription ? new Date(subscription.current_period_end * 1000).toISOString() : null
-    }).eq("id", userId);
-  }
-  if (["invoice.paid", "invoice.payment_failed"].includes(event.type)) {
+  try {
+    if (event.type === "checkout.session.completed" && userId && object.payment_status === "paid") {
+      const subscriptionId = typeof object.subscription === "string" ? object.subscription : object.subscription?.id;
+      const subscription = subscriptionId ? await stripe.subscriptions.retrieve(subscriptionId) : null;
+      const period = subscriptionPeriod(subscription);
+      await requireProfileUpdate(userId, {
+        plan: "pro", stripe_customer_id: object.customer, stripe_subscription_id: subscriptionId,
+        subscription_status: subscription?.status || "active", pro_period_usage: 0,
+        pro_period_start: period.start ? new Date(period.start * 1000).toISOString() : new Date().toISOString(),
+        pro_period_end: period.end ? new Date(period.end * 1000).toISOString() : null
+      });
+      try {
+        await sendTikTokPurchase({
+          eventId: `stripe_checkout_${object.id}`,
+          userId,
+          email: object.customer_details?.email || object.customer_email,
+          amount: object.amount_total,
+          currency: object.currency
+        });
+      } catch (error) {
+        // Payment and membership are authoritative. Tracking is retried by invoice.paid.
+        console.error(String(error.message || error));
+      }
+    }
+    if (["invoice.paid", "invoice.payment_failed"].includes(event.type)) {
     const invoice = object;
-    const subscription = invoice.subscription ? await stripe.subscriptions.retrieve(invoice.subscription) : null;
+    const subscriptionId = invoiceSubscriptionId(invoice);
+    const subscription = subscriptionId ? await stripe.subscriptions.retrieve(subscriptionId) : null;
     const invoiceUserId = subscription?.metadata?.userId || userId;
     const price = subscription?.items?.data?.[0]?.price;
     const recurring = price?.recurring;
@@ -252,6 +331,13 @@ async function handleStripeWebhook(req, res) {
         : recurring?.interval === "month" ? Math.round(price.unit_amount / Math.max(1, recurring.interval_count || 1)) : 0;
     if (event.type === "invoice.paid" && invoiceUserId) {
       const first = invoice.billing_reason === "subscription_create";
+      const period = subscriptionPeriod(subscription);
+      await requireProfileUpdate(invoiceUserId, {
+        plan: "pro", stripe_customer_id: invoice.customer, stripe_subscription_id: subscriptionId,
+        subscription_status: subscription?.status || "active", pro_period_usage: 0,
+        pro_period_start: period.start ? new Date(period.start * 1000).toISOString() : new Date().toISOString(),
+        pro_period_end: period.end ? new Date(period.end * 1000).toISOString() : null
+      });
       await tracking.record({
         name: first ? "subscription_started" : "subscription_renewed",
         businessKey: `${first ? "subscription_started" : "subscription_renewed"}:${first ? invoice.subscription : invoice.id}`,
@@ -263,22 +349,36 @@ async function handleStripeWebhook(req, res) {
         userId: invoiceUserId, source: "stripe",
         properties: { plan: "pro", subscription_status: subscription?.status || "active", currency: String(invoice.currency || "jpy").toUpperCase(), mrr_minor: monthlyMinor }
       });
+      if (first) {
+        try {
+          await sendTikTokPurchase({
+            eventId: `stripe_invoice_${invoice.id}`,
+            userId: invoiceUserId,
+            email: invoice.customer_email,
+            amount: invoice.amount_paid,
+            currency: invoice.currency
+          });
+        } catch (error) {
+          console.error(String(error.message || error));
+        }
+      }
     } else if (event.type === "invoice.payment_failed") {
       await tracking.record({
         name: "payment_failed", businessKey: `payment_failed:${invoice.id}`,
         userId: invoiceUserId, source: "stripe", properties: { currency: String(invoice.currency || "jpy").toUpperCase(), invoice_reason: invoice.billing_reason }
       });
     }
-  }
-  if (["customer.subscription.updated", "customer.subscription.deleted"].includes(event.type)) {
+    }
+    if (["customer.subscription.updated", "customer.subscription.deleted"].includes(event.type)) {
     const subscription = object;
     const subscriptionUserId = subscription.metadata?.userId;
     const active = ["active", "trialing"].includes(subscription.status);
+    const period = subscriptionPeriod(subscription);
     const update = {
       plan: active ? "pro" : "free", subscription_status: subscription.status,
       stripe_customer_id: subscription.customer, stripe_subscription_id: subscription.id,
-      pro_period_start: new Date(subscription.current_period_start * 1000).toISOString(),
-      pro_period_end: new Date(subscription.current_period_end * 1000).toISOString()
+      pro_period_start: period.start ? new Date(period.start * 1000).toISOString() : null,
+      pro_period_end: period.end ? new Date(period.end * 1000).toISOString() : null
     };
     if (subscriptionUserId) await supabase.from("profiles").update(update).eq("id", subscriptionUserId);
     else await supabase.from("profiles").update(update).eq("stripe_subscription_id", subscription.id);
@@ -304,9 +404,13 @@ async function handleStripeWebhook(req, res) {
         await tracking.record({ name: "subscription_cancelled", businessKey: `subscription_cancelled:${subscription.id}`, userId: resolvedUserId, source: "stripe", properties: { subscription_status: subscription.status } });
       }
     }
+    }
+    await tracking.record({ name: "stripe_webhook_processed", businessKey: `stripe_webhook_processed:${event.id}`, userId, source: "stripe", properties: { stripe_event_type: event.type } });
+    return res.json({ received: true, processed: true });
+  } catch (error) {
+    console.error("STRIPE_WEBHOOK_PROCESSING_FAILED", event.id, event.type, String(error.message || error));
+    return res.status(500).json({ error: "WEBHOOK_PROCESSING_FAILED", eventId: event.id });
   }
-  await tracking.record({ name: "stripe_webhook_processed", businessKey: `stripe_webhook_processed:${event.id}`, userId, source: "stripe", properties: { stripe_event_type: event.type } });
-  res.json({ received: true });
 }
 app.post("/api/v1/stripe/webhook", stripeWebhookRaw, handleStripeWebhook);
 app.post("/stripe/webhook", stripeWebhookRaw, handleStripeWebhook);
