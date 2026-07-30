@@ -232,6 +232,7 @@ async function handleStripeWebhook(req, res) {
   if (eventInsertError) return res.status(500).json({ error: "EVENT_STORE_FAILED" });
   if (event.type === "checkout.session.completed" && userId) {
     const subscription = object.subscription ? await stripe.subscriptions.retrieve(object.subscription) : null;
+    console.log(subscription);
     await supabase.from("profiles").update({
       plan: "pro", stripe_customer_id: object.customer, stripe_subscription_id: object.subscription,
       subscription_status: subscription?.status || "active", pro_period_usage: 0,
