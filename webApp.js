@@ -273,7 +273,12 @@ app.post("/api/v1/billing/checkout", requireUser, express.json(), async (req, re
 app.post("/api/v1/billing/portal", requireUser, express.json(), async (req, res) => {
   const { data: profile } = await supabase.from("profiles").select("stripe_customer_id").eq("id", req.user.id).single();
   if (!profile?.stripe_customer_id) return res.status(404).json({ error: "BILLING_ACCOUNT_NOT_FOUND" });
-  const portal = await stripe.billingPortal.sessions.create({ customer: profile.stripe_customer_id, return_url: webAppReturnUrl(req) });
+  const portalLocale = { ja: "ja", "zh-TW": "zh-TW", en: "en" }[String(req.body?.locale || "")] || "ja";
+  const portal = await stripe.billingPortal.sessions.create({
+    customer: profile.stripe_customer_id,
+    return_url: webAppReturnUrl(req),
+    locale: portalLocale
+  });
   res.json({ url: portal.url });
 });
 
@@ -658,6 +663,7 @@ app.post(
     const replySettings = cleanReplySettings(req);
     if (mode === "reply" && replySettings.error) return res.status(400).json({ error: replySettings.error });
     const contentFingerprint = crypto.createHash("sha256").update(req.body).digest("hex");
+    console.log("ANALYSIS_REQUEST_RECEIVED", req.user.id, mode, req.body.length);
 
     let fairUse;
     try {
@@ -788,8 +794,10 @@ app.post(
           properties: { usage_count: Number(credit.used), usage_limit: Number(credit.credit_limit), plan: credit.plan }
         });
       }
+      console.log("ANALYSIS_REQUEST_COMPLETED", analysis.id, mode, output.processingMs);
       res.status(201).json({ analysis: { id: analysis.id, mode, status: "completed", result: output.result, completed_at: completedAt }, usage: credit });
     } catch (error) {
+      console.error("ANALYSIS_REQUEST_FAILED", analysis.id, mode, String(error.message || error));
       await Promise.all([
         supabase.from("analyses").update({ status: "failed", error_code: String(error.message || "AI_FAILED").slice(0, 80) }).eq("id", analysis.id).eq("user_id", req.user.id),
         credit.reserved
