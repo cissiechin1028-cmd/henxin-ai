@@ -228,8 +228,9 @@ async function handleStripeWebhook(req, res) {
     user_id: userId, stripe_event_id: event.id, event_type: event.type,
     payload: { object_id: object.id, created: event.created }
   });
-  if (eventInsertError?.code === "23505") return res.json({ received: true, duplicate: true });
-  if (eventInsertError) return res.status(500).json({ error: "EVENT_STORE_FAILED" });
+  if (eventInsertError && eventInsertError.code !== "23505") {
+    return res.status(500).json({ error: "EVENT_STORE_FAILED" });
+  }
   if (event.type === "checkout.session.completed" && userId) {
     const subscription = object.subscription ? await stripe.subscriptions.retrieve(object.subscription) : null;
     console.log(subscription);
