@@ -308,7 +308,7 @@ async function handleStripeWebhook(req, res) {
       });
       try {
         await sendTikTokPurchase({
-          eventId: `stripe_checkout_${object.id}`,
+          eventId: `stripe_subscription_${object.subscription || object.id}`,
           userId,
           email: object.customer_details?.email || object.customer_email,
           amount: object.amount_total,
@@ -352,7 +352,7 @@ async function handleStripeWebhook(req, res) {
       if (first) {
         try {
           await sendTikTokPurchase({
-            eventId: `stripe_invoice_${invoice.id}`,
+            eventId: `stripe_subscription_${subscriptionId || invoice.id}`,
             userId: invoiceUserId,
             email: invoice.customer_email,
             amount: invoice.amount_paid,
