@@ -5,7 +5,9 @@ const SAFE_PROPERTY_KEYS = new Set([
   "prompt_tokens", "cached_tokens", "completion_tokens", "total_tokens", "cost_micros",
   "cost_status", "plan", "subscription_status", "currency", "mrr_minor", "invoice_reason",
   "stripe_event_type", "error_code", "usage_count", "usage_limit", "revenue_minor",
-  "provider", "creative_id", "campaign", "failure_message"
+  "provider", "creative_id", "campaign", "failure_message", "source", "medium",
+  "campaign_id", "ad_group", "ad_group_id", "ad", "ad_id", "utm_content",
+  "utm_term", "placement", "ttclid", "landing_page", "captured_at"
 ]);
 
 function environment() {
