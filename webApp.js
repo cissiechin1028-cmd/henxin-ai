@@ -22,7 +22,7 @@ const supabase = createClient(
 );
 const tracking = createTracking({ supabase });
 const usageService = createUsageService({ supabase });
-const dashboardStatsStartAt = new Date(process.env.ADMIN_STATS_START_AT || "2026-07-31T15:00:00.000Z").toISOString();
+const dashboardStatsStartAt = new Date(process.env.ADMIN_STATS_START_AT || "2026-08-01T10:00:00.000Z").toISOString();
 
 function sha256(value) {
   return crypto.createHash("sha256").update(String(value || "").trim().toLowerCase()).digest("hex");
@@ -488,7 +488,7 @@ app.get("/api/v1/admin/dashboard", requireUser, requireAdmin, async (req, res) =
     supabase.from("profiles").select("id,display_name,plan,lifetime_free_usage,pro_period_usage,subscription_status,role,is_test_account,created_at"),
     supabase.from("analyses").select("id", { count: "exact", head: true }).gte("created_at", since30d),
     supabase.from("analyses").select("id", { count: "exact", head: true }).eq("status", "failed").gte("created_at", since30d),
-    supabase.from("tracking_events").select("id,event_name,user_id,anonymous_id,source,properties,occurred_at").eq("environment", "production").order("occurred_at", { ascending: false }).limit(5000),
+    supabase.from("tracking_events").select("id,event_name,user_id,anonymous_id,source,properties,occurred_at").eq("environment", "production").gte("occurred_at", dashboardStatsStartAt).order("occurred_at", { ascending: false }).limit(5000),
     supabase.from("ai_usage_periods").select("user_id,used_units,budget_units,updated_at"),
     supabase.auth.admin.listUsers({ page: 1, perPage: 1000 })
   ]);
@@ -498,6 +498,11 @@ app.get("/api/v1/admin/dashboard", requireUser, requireAdmin, async (req, res) =
   const authById = new Map(authUsers.map((user) => [user.id, user]));
   const customerIds = new Set(profiles.map((profile) => profile.id));
   const operationalEvents = events.filter((event) => !event.user_id || customerIds.has(event.user_id));
+  const aiEvents = operationalEvents.filter((event) => event.event_name === "ai_usage_completed");
+  const aiCalls = aiEvents.length;
+  const aiTokens = aiEvents.reduce((sum, event) => sum + Number(event.properties?.total_tokens || 0), 0);
+  const aiCostMicros = aiEvents.reduce((sum, event) => sum + Number(event.properties?.cost_micros || 0), 0);
+  const pricingUnconfigured = aiEvents.filter((event) => event.properties?.cost_status === "unconfigured").length;
   const funnelNames = [
     "page_viewed", "free_trial_clicked", "login_opened", "google_login_succeeded",
     "line_login_succeeded", "email_login_succeeded", "first_screenshot_uploaded",
@@ -539,22 +544,26 @@ app.get("/api/v1/admin/dashboard", requireUser, requireAdmin, async (req, res) =
       freeRestricted: profile.plan === "free" && profile.lifetime_free_usage >= 5,
       fairUseTriggered: Boolean(fair && fair.used_units >= fair.budget_units) };
   });
-  const total = profiles.length;
-  const pro = profiles.filter((profile) => profile.plan === "pro" && ["active", "trialing"].includes(profile.subscription_status)).length;
+  const periodProfiles = profiles.filter((profile) => profile.created_at >= dashboardStatsStartAt);
+  const total = periodProfiles.length;
+  const pro = periodProfiles.filter((profile) => profile.plan === "pro" && ["active", "trialing"].includes(profile.subscription_status)).length;
   const analysisCount = analyses30d.count || 0;
   res.json({ ...data, funnel, timeZone,
     core: { registeredUsers: total, proUsers: pro, analyses30d: analysisCount,
       proConversionRate: total ? Number((pro / total * 100).toFixed(1)) : 0,
       aiSuccessRate: analysisCount ? Number(((analysisCount - (failed30d.count || 0)) / analysisCount * 100).toFixed(1)) : 100 },
-    ai: { ...data.ai, averageAnalysisCostMicros: data.ai.callsTotal ? Math.round(data.ai.costMicrosTotal / data.ai.callsTotal) : 0,
+    ai: { ...data.ai, callsToday: aiCalls, tokensToday: aiTokens, costMicrosToday: aiCostMicros,
+      callsTotal: aiCalls, costMicrosTotal: aiCostMicros, pricingUnconfigured,
+      averageAnalysisCostMicros: aiCalls ? Math.round(aiCostMicros / aiCalls) : 0,
       replyCostMicros: costForMode("reply"), analysisCostMicros: costForMode("analysis") },
-    payments: { todayRevenueMinor: revenue(dayStart), monthRevenueMinor: revenue(monthStart), newSubscriptions: data.subscriptions.startedToday,
-      cancellations: data.subscriptions.cancelledToday, refunds: refunds.length,
+    payments: { todayRevenueMinor: revenue(dashboardStatsStartAt), monthRevenueMinor: revenue(dashboardStatsStartAt),
+      newSubscriptions: operationalEvents.filter((event) => event.event_name === "subscription_started").length,
+      cancellations: operationalEvents.filter((event) => event.event_name === "subscription_cancelled").length, refunds: refunds.length,
       refundMinor: refunds.reduce((sum, event) => sum + Number(event.properties?.revenue_minor || 0), 0),
-      mrrMinor: data.subscriptions.mrrMinor, currency: data.subscriptions.currency },
+      mrrMinor: revenue(dashboardStatsStartAt), currency: data.subscriptions.currency },
     errors: errorEvents.map((event) => ({ id: event.id, type: event.event_name, source: event.source, code: event.properties?.error_code || null,
       message: event.properties?.failure_message || null, statusCode: event.properties?.status_code || null, occurredAt: event.occurred_at })),
-    users, collectionNote: "Token、成本、漏斗及錯誤統計從各追蹤事件啟用後開始累計。" });
+    users, collectionNote: "所有运营统计均从 2026 年 8 月 1 日 19:00（东京时间）开始累计。" });
 });
 
 app.get("/api/v1/admin/summary", requireUser, requireAdmin, async (_req, res) => {
