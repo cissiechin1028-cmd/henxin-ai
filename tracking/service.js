@@ -33,6 +33,18 @@ function createTracking({ supabase }) {
         if (anonymousId) {
           const { error: cleanupError } = await supabase.from("tracking_events").delete().eq("anonymous_id", anonymousId);
           if (cleanupError && cleanupError.code !== "42P01") console.error("TEST TRACKING CLEANUP FAILED", cleanupError.message);
+          const marker = {
+            event_id: crypto.randomUUID(), event_name: "test_actor_linked",
+            business_key: `test_actor_linked:${userId}:${anonymousId}`,
+            user_id: userId, anonymous_id: anonymousId, source: "browser",
+            environment: environment(), properties: {}, occurred_at: new Date().toISOString()
+          };
+          const { error: markerError } = await supabase.from("tracking_events").upsert(marker, {
+            onConflict: "business_key", ignoreDuplicates: true
+          });
+          if (markerError && markerError.code !== "23505" && markerError.code !== "42P01") {
+            console.error("TEST ACTOR MARKER FAILED", markerError.message);
+          }
         }
         return null;
       }
