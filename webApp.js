@@ -481,14 +481,14 @@ app.get("/api/v1/admin/dashboard", requireUser, requireAdmin, async (req, res) =
   const { data, error } = await supabase.rpc("developer_dashboard_summary", { day_start: dayStart });
   if (error) return res.status(500).json({ error: "DASHBOARD_READ_FAILED" });
   const [profilesResult, analyses30d, failed30d, eventsResult, usageResult, authResult] = await Promise.all([
-    supabase.from("profiles").select("id,display_name,plan,lifetime_free_usage,pro_period_usage,subscription_status,role,created_at"),
+    supabase.from("profiles").select("id,display_name,plan,lifetime_free_usage,pro_period_usage,subscription_status,role,is_test_account,created_at"),
     supabase.from("analyses").select("id", { count: "exact", head: true }).gte("created_at", since30d),
     supabase.from("analyses").select("id", { count: "exact", head: true }).eq("status", "failed").gte("created_at", since30d),
     supabase.from("tracking_events").select("id,event_name,user_id,source,properties,occurred_at").eq("environment", "production").order("occurred_at", { ascending: false }).limit(5000),
     supabase.from("ai_usage_periods").select("user_id,used_units,budget_units,updated_at"),
     supabase.auth.admin.listUsers({ page: 1, perPage: 1000 })
   ]);
-  const profiles = (profilesResult.data || []).filter((profile) => profile.role !== "admin");
+  const profiles = (profilesResult.data || []).filter((profile) => profile.role !== "admin" && !profile.is_test_account);
   const events = eventsResult.data || [];
   const authUsers = authResult.data?.users || [];
   const authById = new Map(authUsers.map((user) => [user.id, user]));
