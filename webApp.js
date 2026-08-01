@@ -22,6 +22,7 @@ const supabase = createClient(
 );
 const tracking = createTracking({ supabase });
 const usageService = createUsageService({ supabase });
+const dashboardStatsStartAt = new Date(process.env.ADMIN_STATS_START_AT || "2026-07-31T15:00:00.000Z").toISOString();
 
 function sha256(value) {
   return crypto.createHash("sha256").update(String(value || "").trim().toLowerCase()).digest("hex");
@@ -476,7 +477,7 @@ app.get("/api/v1/admin/dashboard", requireUser, requireAdmin, async (req, res) =
   const offset = timeZone === "UTC" ? "+00:00" : timeZone === "Asia/Taipei" ? "+08:00" : "+09:00";
   const dayStart = new Date(`${localDate}T00:00:00${offset}`).toISOString();
   const monthStart = new Date(`${localDate.slice(0, 7)}-01T00:00:00${offset}`).toISOString();
-  const since30d = new Date(Date.now() - 30 * 86400000).toISOString();
+  const since30d = new Date(Math.max(Date.now() - 30 * 86400000, Date.parse(dashboardStatsStartAt))).toISOString();
   const { data, error } = await supabase.rpc("developer_dashboard_summary", { day_start: dayStart });
   if (error) return res.status(500).json({ error: "DASHBOARD_READ_FAILED" });
   const [profilesResult, analyses30d, failed30d, eventsResult, usageResult, authResult] = await Promise.all([
@@ -510,8 +511,8 @@ app.get("/api/v1/admin/dashboard", requireUser, requireAdmin, async (req, res) =
       freeRestricted: profile.plan === "free" && profile.lifetime_free_usage >= 5,
       fairUseTriggered: Boolean(fair && fair.used_units >= fair.budget_units) };
   });
-  const total = profiles.length;
-  const pro = profiles.filter((profile) => profile.plan === "pro").length;
+  const total = Number(data.users?.total || 0);
+  const pro = Number(data.users?.subscribed || 0);
   const analysisCount = analyses30d.count || 0;
   res.json({ ...data, timeZone,
     core: { registeredUsers: total, proUsers: pro, analyses30d: analysisCount,
