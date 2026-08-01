@@ -239,6 +239,28 @@ app.post("/api/v1/tracking/page-view", express.json({ limit: "8kb" }), async (re
   res.status(202).json({ eventId: event?.event_id || null });
 });
 
+const browserEventNames = new Set([
+  "free_trial_clicked", "login_opened", "google_login_succeeded", "line_login_succeeded",
+  "email_login_succeeded", "google_login_failed", "line_login_failed", "email_otp_failed",
+  "first_screenshot_uploaded", "upgrade_clicked", "stripe_checkout_opened"
+]);
+app.post("/api/v1/tracking/event", express.json({ limit: "8kb" }), async (req, res) => {
+  const name = String(req.body?.name || "").trim();
+  const occurrenceId = String(req.body?.occurrenceId || "").trim();
+  const anonymousId = String(req.body?.anonymousId || "").trim();
+  if (!browserEventNames.has(name) || !/^[a-zA-Z0-9_-]{16,120}$/.test(occurrenceId)) {
+    return res.status(400).json({ error: "INVALID_TRACKING_EVENT" });
+  }
+  let userId = null;
+  const token = String(req.headers.authorization || "").replace(/^Bearer\s+/i, "");
+  if (token) userId = (await supabase.auth.getUser(token)).data?.user?.id || null;
+  const event = await tracking.record({
+    name, businessKey: `${name}:${occurrenceId}`, userId,
+    anonymousId: anonymousId || null, source: "browser", properties: req.body?.properties || {}
+  });
+  res.status(202).json({ eventId: event?.event_id || null });
+});
+
 function webAppReturnUrl(req) {
   const requestedReturnUrl = String(req.body?.returnUrl || "").trim();
   if (requestedReturnUrl) {
@@ -366,7 +388,7 @@ async function handleStripeWebhook(req, res) {
         name: first ? "subscription_started" : "subscription_renewed",
         businessKey: `${first ? "subscription_started" : "subscription_renewed"}:${first ? invoice.subscription : invoice.id}`,
         userId: invoiceUserId, source: "stripe",
-        properties: { currency: String(invoice.currency || price?.currency || "jpy").toUpperCase(), mrr_minor: monthlyMinor, invoice_reason: invoice.billing_reason }
+        properties: { currency: String(invoice.currency || price?.currency || "jpy").toUpperCase(), mrr_minor: monthlyMinor, revenue_minor: invoice.amount_paid || 0, invoice_reason: invoice.billing_reason }
       });
       await tracking.record({
         name: "user_plan_snapshot", businessKey: `user_plan_snapshot:${invoiceUserId}:${event.id}`,
@@ -390,6 +412,14 @@ async function handleStripeWebhook(req, res) {
       await tracking.record({
         name: "payment_failed", businessKey: `payment_failed:${invoice.id}`,
         userId: invoiceUserId, source: "stripe", properties: { currency: String(invoice.currency || "jpy").toUpperCase(), invoice_reason: invoice.billing_reason }
+      });
+    }
+    if (event.type === "charge.refunded") {
+      await tracking.record({
+        name: "payment_refunded", businessKey: `payment_refunded:${object.id}:${object.amount_refunded}`,
+        userId, source: "stripe", properties: {
+          currency: String(object.currency || "jpy").toUpperCase(), revenue_minor: object.amount_refunded || 0
+        }
       });
     }
     }
@@ -445,9 +475,57 @@ app.get("/api/v1/admin/dashboard", requireUser, requireAdmin, async (req, res) =
   const localDate = new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
   const offset = timeZone === "UTC" ? "+00:00" : timeZone === "Asia/Taipei" ? "+08:00" : "+09:00";
   const dayStart = new Date(`${localDate}T00:00:00${offset}`).toISOString();
+  const monthStart = new Date(`${localDate.slice(0, 7)}-01T00:00:00${offset}`).toISOString();
+  const since30d = new Date(Date.now() - 30 * 86400000).toISOString();
   const { data, error } = await supabase.rpc("developer_dashboard_summary", { day_start: dayStart });
   if (error) return res.status(500).json({ error: "DASHBOARD_READ_FAILED" });
-  res.json({ ...data, timeZone, collectionNote: "Token and cost totals are accurate for AI calls recorded after this tracking migration." });
+  const [profilesResult, analyses30d, failed30d, eventsResult, usageResult, authResult] = await Promise.all([
+    supabase.from("profiles").select("id,display_name,plan,lifetime_free_usage,pro_period_usage,subscription_status,role,created_at"),
+    supabase.from("analyses").select("id", { count: "exact", head: true }).gte("created_at", since30d),
+    supabase.from("analyses").select("id", { count: "exact", head: true }).eq("status", "failed").gte("created_at", since30d),
+    supabase.from("tracking_events").select("id,event_name,user_id,source,properties,occurred_at").eq("environment", "production").order("occurred_at", { ascending: false }).limit(5000),
+    supabase.from("ai_usage_periods").select("user_id,used_units,budget_units,updated_at"),
+    supabase.auth.admin.listUsers({ page: 1, perPage: 1000 })
+  ]);
+  const profiles = (profilesResult.data || []).filter((profile) => profile.role !== "admin");
+  const events = eventsResult.data || [];
+  const authUsers = authResult.data?.users || [];
+  const authById = new Map(authUsers.map((user) => [user.id, user]));
+  const costForMode = (mode) => events.filter((event) => event.event_name === "ai_usage_completed" && event.properties?.mode === mode)
+    .reduce((sum, event) => sum + Number(event.properties?.cost_micros || 0), 0);
+  const errorEvents = events.filter((event) => ["api_request_failed", "ai_usage_failed", "stripe_webhook_failed", "google_login_failed", "line_login_failed", "email_otp_failed"].includes(event.event_name)).slice(0, 100);
+  const revenue = (start) => events.filter((event) => ["subscription_started", "subscription_renewed"].includes(event.event_name) && event.occurred_at >= start)
+    .reduce((sum, event) => sum + Number(event.properties?.revenue_minor || 0), 0);
+  const refunds = events.filter((event) => event.event_name === "payment_refunded");
+  const usageById = new Map((usageResult.data || []).map((usage) => [usage.user_id, usage]));
+  const users = profiles.map((profile) => {
+    const auth = authById.get(profile.id);
+    const provider = auth?.app_metadata?.provider || auth?.identities?.[0]?.provider || "email";
+    const totalCostMicros = events.filter((event) => event.user_id === profile.id && event.event_name === "ai_usage_completed")
+      .reduce((sum, event) => sum + Number(event.properties?.cost_micros || 0), 0);
+    const fair = usageById.get(profile.id);
+    return { id: profile.id, email: auth?.email || "", displayName: profile.display_name, createdAt: profile.created_at,
+      provider, plan: profile.plan, lifetimeUsage: profile.lifetime_free_usage, lastSignInAt: auth?.last_sign_in_at || null,
+      bannedUntil: auth?.banned_until || null, totalCostMicros, freeLimitReached: profile.plan === "free" && profile.lifetime_free_usage >= 5,
+      freeRestricted: profile.plan === "free" && profile.lifetime_free_usage >= 5,
+      fairUseTriggered: Boolean(fair && fair.used_units >= fair.budget_units) };
+  });
+  const total = profiles.length;
+  const pro = profiles.filter((profile) => profile.plan === "pro").length;
+  const analysisCount = analyses30d.count || 0;
+  res.json({ ...data, timeZone,
+    core: { registeredUsers: total, proUsers: pro, analyses30d: analysisCount,
+      proConversionRate: total ? Number((pro / total * 100).toFixed(1)) : 0,
+      aiSuccessRate: analysisCount ? Number(((analysisCount - (failed30d.count || 0)) / analysisCount * 100).toFixed(1)) : 100 },
+    ai: { ...data.ai, averageAnalysisCostMicros: data.ai.callsTotal ? Math.round(data.ai.costMicrosTotal / data.ai.callsTotal) : 0,
+      replyCostMicros: costForMode("reply"), analysisCostMicros: costForMode("analysis") },
+    payments: { todayRevenueMinor: revenue(dayStart), monthRevenueMinor: revenue(monthStart), newSubscriptions: data.subscriptions.startedToday,
+      cancellations: data.subscriptions.cancelledToday, refunds: refunds.length,
+      refundMinor: refunds.reduce((sum, event) => sum + Number(event.properties?.revenue_minor || 0), 0),
+      mrrMinor: data.subscriptions.mrrMinor, currency: data.subscriptions.currency },
+    errors: errorEvents.map((event) => ({ id: event.id, type: event.event_name, source: event.source, code: event.properties?.error_code || null,
+      message: event.properties?.failure_message || null, statusCode: event.properties?.status_code || null, occurredAt: event.occurred_at })),
+    users, collectionNote: "Token、成本、漏斗及錯誤統計從各追蹤事件啟用後開始累計。" });
 });
 
 app.get("/api/v1/admin/summary", requireUser, requireAdmin, async (_req, res) => {
