@@ -23,6 +23,11 @@ function safeProperties(input = {}) {
 function createTracking({ supabase }) {
   async function record({ name, businessKey, userId = null, anonymousId = null, source = "api", properties = {}, occurredAt }) {
     if (!name || !businessKey) return null;
+    if (userId) {
+      const { data: profile, error: profileError } = await supabase.from("profiles")
+        .select("role,is_test_account").eq("id", userId).maybeSingle();
+      if (!profileError && (profile?.role === "admin" || profile?.is_test_account)) return null;
+    }
     const payload = {
       event_id: crypto.randomUUID(), event_name: name, business_key: String(businessKey).slice(0, 500),
       user_id: userId, anonymous_id: anonymousId, source,
