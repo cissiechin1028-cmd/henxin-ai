@@ -416,7 +416,10 @@ async function handleStripeWebhook(req, res) {
     } else if (event.type === "invoice.payment_failed") {
       await tracking.record({
         name: "payment_failed", businessKey: `payment_failed:${invoice.id}`,
-        userId: invoiceUserId, source: "stripe", properties: { currency: String(invoice.currency || "jpy").toUpperCase(), invoice_reason: invoice.billing_reason }
+        userId: invoiceUserId, source: "stripe", properties: {
+          currency: String(invoice.currency || "jpy").toUpperCase(), invoice_reason: invoice.billing_reason,
+          error_code: "PAYMENT_FAILED", failure_message: "Stripe invoice payment failed"
+        }
       });
     }
     if (event.type === "charge.refunded") {
@@ -527,7 +530,7 @@ app.get("/api/v1/admin/dashboard", requireUser, requireAdmin, async (req, res) =
   const funnel = Object.fromEntries([...funnelActors].map(([name, actors]) => [name, actors.size]));
   const costForMode = (mode) => events.filter((event) => event.event_name === "ai_usage_completed" && event.properties?.mode === mode)
     .reduce((sum, event) => sum + Number(event.properties?.cost_micros || 0), 0);
-  const errorEvents = events.filter((event) => ["api_request_failed", "ai_usage_failed", "stripe_webhook_failed", "google_login_failed", "line_login_failed", "email_otp_failed"].includes(event.event_name)).slice(0, 100);
+  const errorEvents = events.filter((event) => ["api_request_failed", "ai_usage_failed", "stripe_webhook_failed", "payment_failed", "google_login_failed", "line_login_failed", "email_otp_failed"].includes(event.event_name)).slice(0, 100);
   const revenue = (start) => events.filter((event) => ["subscription_started", "subscription_renewed"].includes(event.event_name) && event.occurred_at >= start)
     .reduce((sum, event) => sum + Number(event.properties?.revenue_minor || 0), 0);
   const refunds = events.filter((event) => event.event_name === "payment_refunded");
