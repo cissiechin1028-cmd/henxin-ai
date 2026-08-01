@@ -504,10 +504,9 @@ app.get("/api/v1/admin/dashboard", requireUser, requireAdmin, async (req, res) =
   if (periodStart >= periodEnd) return res.status(400).json({ error: "INVALID_DASHBOARD_PERIOD" });
   const { data, error } = await supabase.rpc("developer_dashboard_summary", { day_start: dayStart });
   if (error) return res.status(500).json({ error: "DASHBOARD_READ_FAILED" });
-  const [profilesResult, analyses30d, failed30d, eventsResult, usageResult, authResult] = await Promise.all([
+  const [profilesResult, analyses30d, eventsResult, usageResult, authResult] = await Promise.all([
     supabase.from("profiles").select("id,display_name,plan,lifetime_free_usage,pro_period_usage,subscription_status,role,is_test_account,created_at"),
-    supabase.from("analyses").select("id", { count: "exact", head: true }).gte("created_at", periodStart).lt("created_at", periodEnd),
-    supabase.from("analyses").select("id", { count: "exact", head: true }).eq("status", "failed").gte("created_at", periodStart).lt("created_at", periodEnd),
+    supabase.from("analyses").select("id,user_id,status").gte("created_at", periodStart).lt("created_at", periodEnd),
     trackingEventsBetween(periodStart, periodEnd),
     supabase.from("ai_usage_periods").select("user_id,used_units,budget_units,updated_at"),
     supabase.auth.admin.listUsers({ page: 1, perPage: 1000 })
@@ -568,11 +567,13 @@ app.get("/api/v1/admin/dashboard", requireUser, requireAdmin, async (req, res) =
   const periodProfiles = profiles.filter((profile) => profile.created_at >= periodStart && profile.created_at < periodEnd);
   const total = periodProfiles.length;
   const pro = periodProfiles.filter((profile) => profile.plan === "pro" && ["active", "trialing"].includes(profile.subscription_status)).length;
-  const analysisCount = analyses30d.count || 0;
+  const customerAnalyses = (analyses30d.data || []).filter((analysis) => customerIds.has(analysis.user_id));
+  const analysisCount = customerAnalyses.length;
+  const failedAnalysisCount = customerAnalyses.filter((analysis) => analysis.status === "failed").length;
   res.json({ ...data, funnel, timeZone, period: { startAt: periodStart, endAt: periodEnd },
     core: { registeredUsers: total, proUsers: pro, analyses30d: analysisCount,
       proConversionRate: total ? Number((pro / total * 100).toFixed(1)) : 0,
-      aiSuccessRate: analysisCount ? Number(((analysisCount - (failed30d.count || 0)) / analysisCount * 100).toFixed(1)) : 100 },
+      aiSuccessRate: analysisCount ? Number(((analysisCount - failedAnalysisCount) / analysisCount * 100).toFixed(1)) : 100 },
     ai: { ...data.ai, callsToday: aiCalls, tokensToday: aiTokens, costMicrosToday: aiCostMicros,
       callsTotal: aiCalls, costMicrosTotal: aiCostMicros, pricingUnconfigured,
       averageAnalysisCostMicros: aiCalls ? Math.round(aiCostMicros / aiCalls) : 0,
@@ -589,17 +590,20 @@ app.get("/api/v1/admin/dashboard", requireUser, requireAdmin, async (req, res) =
 
 app.get("/api/v1/admin/summary", requireUser, requireAdmin, async (_req, res) => {
   const since = new Date(Date.now() - 30 * 86400000).toISOString();
-  const [users, proUsers, analyses, failed] = await Promise.all([
-    supabase.from("profiles").select("id", { count: "exact", head: true }),
-    supabase.from("profiles").select("id", { count: "exact", head: true }).eq("plan", "pro"),
-    supabase.from("analyses").select("id", { count: "exact", head: true }).gte("created_at", since),
-    supabase.from("analyses").select("id", { count: "exact", head: true }).eq("status", "failed").gte("created_at", since)
+  const [profilesResult, analysesResult] = await Promise.all([
+    supabase.from("profiles").select("id,plan,role,is_test_account"),
+    supabase.from("analyses").select("id,user_id,status").gte("created_at", since)
   ]);
-  const analysisCount = analyses.count || 0;
+  const customers = (profilesResult.data || []).filter((profile) => profile.role !== "admin" && !profile.is_test_account);
+  const customerIds = new Set(customers.map((profile) => profile.id));
+  const analyses = (analysesResult.data || []).filter((analysis) => customerIds.has(analysis.user_id));
+  const proUsers = customers.filter((profile) => profile.plan === "pro").length;
+  const analysisCount = analyses.length;
+  const failedCount = analyses.filter((analysis) => analysis.status === "failed").length;
   res.json({
-    users: users.count || 0, proUsers: proUsers.count || 0, analyses30d: analysisCount,
-    conversionRate: users.count ? Number((((proUsers.count || 0) / users.count) * 100).toFixed(1)) : 0,
-    successRate: analysisCount ? Number((((analysisCount - (failed.count || 0)) / analysisCount) * 100).toFixed(1)) : 100
+    users: customers.length, proUsers, analyses30d: analysisCount,
+    conversionRate: customers.length ? Number(((proUsers / customers.length) * 100).toFixed(1)) : 0,
+    successRate: analysisCount ? Number((((analysisCount - failedCount) / analysisCount) * 100).toFixed(1)) : 100
   });
 });
 
