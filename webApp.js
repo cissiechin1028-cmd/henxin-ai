@@ -477,25 +477,43 @@ async function handleStripeWebhook(req, res) {
 app.post("/api/v1/stripe/webhook", stripeWebhookRaw, handleStripeWebhook);
 app.post("/stripe/webhook", stripeWebhookRaw, handleStripeWebhook);
 
+async function trackingEventsBetween(startAt, endAt) {
+  const pageSize = 1000;
+  const rows = [];
+  for (let from = 0; ; from += pageSize) {
+    const { data, error } = await supabase.from("tracking_events")
+      .select("id,event_name,user_id,anonymous_id,source,properties,occurred_at")
+      .eq("environment", "production").gte("occurred_at", startAt).lt("occurred_at", endAt)
+      .order("occurred_at", { ascending: true }).range(from, from + pageSize - 1);
+    if (error) return { data: rows, error };
+    rows.push(...(data || []));
+    if (!data || data.length < pageSize) return { data: rows, error: null };
+  }
+}
+
 app.get("/api/v1/admin/dashboard", requireUser, requireAdmin, async (req, res) => {
   const requestedTimeZone = String(req.query.timeZone || "Asia/Tokyo");
   const timeZone = ["Asia/Tokyo", "Asia/Taipei", "UTC"].includes(requestedTimeZone) ? requestedTimeZone : "Asia/Tokyo";
   const localDate = new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
   const offset = timeZone === "UTC" ? "+00:00" : timeZone === "Asia/Taipei" ? "+08:00" : "+09:00";
   const dayStart = new Date(`${localDate}T00:00:00${offset}`).toISOString();
-  const monthStart = new Date(`${localDate.slice(0, 7)}-01T00:00:00${offset}`).toISOString();
-  const since30d = new Date(Math.max(Date.now() - 30 * 86400000, Date.parse(dashboardStatsStartAt))).toISOString();
+  const requestedStart = Date.parse(String(req.query.startAt || dayStart));
+  const requestedEnd = Date.parse(String(req.query.endAt || new Date().toISOString()));
+  const periodStart = new Date(Math.max(Date.parse(dashboardStatsStartAt), Number.isFinite(requestedStart) ? requestedStart : Date.parse(dayStart))).toISOString();
+  const periodEnd = new Date(Math.min(Date.now(), Number.isFinite(requestedEnd) ? requestedEnd : Date.now())).toISOString();
+  if (periodStart >= periodEnd) return res.status(400).json({ error: "INVALID_DASHBOARD_PERIOD" });
   const { data, error } = await supabase.rpc("developer_dashboard_summary", { day_start: dayStart });
   if (error) return res.status(500).json({ error: "DASHBOARD_READ_FAILED" });
   const [profilesResult, analyses30d, failed30d, eventsResult, usageResult, authResult] = await Promise.all([
     supabase.from("profiles").select("id,display_name,plan,lifetime_free_usage,pro_period_usage,subscription_status,role,is_test_account,created_at"),
-    supabase.from("analyses").select("id", { count: "exact", head: true }).gte("created_at", since30d),
-    supabase.from("analyses").select("id", { count: "exact", head: true }).eq("status", "failed").gte("created_at", since30d),
-    supabase.from("tracking_events").select("id,event_name,user_id,anonymous_id,source,properties,occurred_at").eq("environment", "production").gte("occurred_at", dashboardStatsStartAt).order("occurred_at", { ascending: false }).limit(5000),
+    supabase.from("analyses").select("id", { count: "exact", head: true }).gte("created_at", periodStart).lt("created_at", periodEnd),
+    supabase.from("analyses").select("id", { count: "exact", head: true }).eq("status", "failed").gte("created_at", periodStart).lt("created_at", periodEnd),
+    trackingEventsBetween(periodStart, periodEnd),
     supabase.from("ai_usage_periods").select("user_id,used_units,budget_units,updated_at"),
     supabase.auth.admin.listUsers({ page: 1, perPage: 1000 })
   ]);
   const profiles = (profilesResult.data || []).filter((profile) => profile.role !== "admin" && !profile.is_test_account);
+  if (eventsResult.error) return res.status(500).json({ error: "DASHBOARD_EVENTS_READ_FAILED" });
   const events = eventsResult.data || [];
   const authUsers = authResult.data?.users || [];
   const authById = new Map(authUsers.map((user) => [user.id, user]));
@@ -521,7 +539,7 @@ app.get("/api/v1/admin/dashboard", requireUser, requireAdmin, async (req, res) =
   // OAuth completion tracking is best effort in the browser. Supabase's
   // authoritative successful sign-in record fills any event lost on redirect.
   for (const auth of authUsers) {
-    if (!customerIds.has(auth.id) || !auth.last_sign_in_at || auth.last_sign_in_at < dashboardStatsStartAt) continue;
+    if (!customerIds.has(auth.id) || !auth.last_sign_in_at || auth.last_sign_in_at < periodStart || auth.last_sign_in_at >= periodEnd) continue;
     const provider = auth.app_metadata?.provider || auth.identities?.[0]?.provider || "email";
     const name = provider === "custom:line-oauth" || provider === "line" ? "line_login_succeeded"
       : provider === "google" ? "google_login_succeeded" : provider === "email" ? "email_login_succeeded" : null;
@@ -530,7 +548,7 @@ app.get("/api/v1/admin/dashboard", requireUser, requireAdmin, async (req, res) =
   const funnel = Object.fromEntries([...funnelActors].map(([name, actors]) => [name, actors.size]));
   const costForMode = (mode) => events.filter((event) => event.event_name === "ai_usage_completed" && event.properties?.mode === mode)
     .reduce((sum, event) => sum + Number(event.properties?.cost_micros || 0), 0);
-  const errorEvents = events.filter((event) => ["api_request_failed", "ai_usage_failed", "stripe_webhook_failed", "payment_failed", "google_login_failed", "line_login_failed", "email_otp_failed"].includes(event.event_name)).slice(0, 100);
+  const errorEvents = events.filter((event) => ["api_request_failed", "ai_usage_failed", "stripe_webhook_failed", "payment_failed", "google_login_failed", "line_login_failed", "email_otp_failed"].includes(event.event_name)).slice(-100).reverse();
   const revenue = (start) => events.filter((event) => ["subscription_started", "subscription_renewed"].includes(event.event_name) && event.occurred_at >= start)
     .reduce((sum, event) => sum + Number(event.properties?.revenue_minor || 0), 0);
   const refunds = events.filter((event) => event.event_name === "payment_refunded");
@@ -547,11 +565,11 @@ app.get("/api/v1/admin/dashboard", requireUser, requireAdmin, async (req, res) =
       freeRestricted: profile.plan === "free" && profile.lifetime_free_usage >= 5,
       fairUseTriggered: Boolean(fair && fair.used_units >= fair.budget_units) };
   });
-  const periodProfiles = profiles.filter((profile) => profile.created_at >= dashboardStatsStartAt);
+  const periodProfiles = profiles.filter((profile) => profile.created_at >= periodStart && profile.created_at < periodEnd);
   const total = periodProfiles.length;
   const pro = periodProfiles.filter((profile) => profile.plan === "pro" && ["active", "trialing"].includes(profile.subscription_status)).length;
   const analysisCount = analyses30d.count || 0;
-  res.json({ ...data, funnel, timeZone,
+  res.json({ ...data, funnel, timeZone, period: { startAt: periodStart, endAt: periodEnd },
     core: { registeredUsers: total, proUsers: pro, analyses30d: analysisCount,
       proConversionRate: total ? Number((pro / total * 100).toFixed(1)) : 0,
       aiSuccessRate: analysisCount ? Number(((analysisCount - (failed30d.count || 0)) / analysisCount * 100).toFixed(1)) : 100 },
@@ -559,14 +577,14 @@ app.get("/api/v1/admin/dashboard", requireUser, requireAdmin, async (req, res) =
       callsTotal: aiCalls, costMicrosTotal: aiCostMicros, pricingUnconfigured,
       averageAnalysisCostMicros: aiCalls ? Math.round(aiCostMicros / aiCalls) : 0,
       replyCostMicros: costForMode("reply"), analysisCostMicros: costForMode("analysis") },
-    payments: { todayRevenueMinor: revenue(dashboardStatsStartAt), monthRevenueMinor: revenue(dashboardStatsStartAt),
+    payments: { todayRevenueMinor: revenue(periodStart), monthRevenueMinor: revenue(periodStart),
       newSubscriptions: operationalEvents.filter((event) => event.event_name === "subscription_started").length,
       cancellations: operationalEvents.filter((event) => event.event_name === "subscription_cancelled").length, refunds: refunds.length,
       refundMinor: refunds.reduce((sum, event) => sum + Number(event.properties?.revenue_minor || 0), 0),
-      mrrMinor: revenue(dashboardStatsStartAt), currency: data.subscriptions.currency },
+      mrrMinor: revenue(periodStart), currency: data.subscriptions.currency },
     errors: errorEvents.map((event) => ({ id: event.id, type: event.event_name, source: event.source, code: event.properties?.error_code || null,
       message: event.properties?.failure_message || null, statusCode: event.properties?.status_code || null, occurredAt: event.occurred_at })),
-    users, collectionNote: "所有运营统计均从 2026 年 8 月 1 日 19:00（东京时间）开始累计。" });
+    users, collectionNote: `统计范围：${periodStart} 至 ${periodEnd}；最早起点固定为 2026 年 8 月 1 日 19:00（东京时间）。` });
 });
 
 app.get("/api/v1/admin/summary", requireUser, requireAdmin, async (_req, res) => {
