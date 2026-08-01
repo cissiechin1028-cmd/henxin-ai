@@ -512,13 +512,21 @@ app.get("/api/v1/admin/dashboard", requireUser, requireAdmin, async (req, res) =
     supabase.from("ai_usage_periods").select("user_id,used_units,budget_units,updated_at"),
     supabase.auth.admin.listUsers({ page: 1, perPage: 1000 })
   ]);
-  const profiles = (profilesResult.data || []).filter((profile) => profile.role !== "admin" && !profile.is_test_account);
+  const allProfiles = profilesResult.data || [];
+  const profiles = allProfiles.filter((profile) => profile.role !== "admin" && !profile.is_test_account);
   if (eventsResult.error) return res.status(500).json({ error: "DASHBOARD_EVENTS_READ_FAILED" });
   const events = eventsResult.data || [];
   const authUsers = authResult.data?.users || [];
   const authById = new Map(authUsers.map((user) => [user.id, user]));
   const customerIds = new Set(profiles.map((profile) => profile.id));
-  const operationalEvents = events.filter((event) => !event.user_id || customerIds.has(event.user_id));
+  const excludedUserIds = new Set(allProfiles.filter((profile) => profile.role === "admin" || profile.is_test_account).map((profile) => profile.id));
+  const excludedAnonymousIds = new Set(events
+    .filter((event) => event.anonymous_id && event.user_id && excludedUserIds.has(event.user_id))
+    .map((event) => event.anonymous_id));
+  const operationalEvents = events.filter((event) =>
+    (!event.user_id || customerIds.has(event.user_id)) &&
+    (!event.anonymous_id || !excludedAnonymousIds.has(event.anonymous_id))
+  );
   const aiEvents = operationalEvents.filter((event) => event.event_name === "ai_usage_completed");
   const aiCalls = aiEvents.length;
   const aiTokens = aiEvents.reduce((sum, event) => sum + Number(event.properties?.total_tokens || 0), 0);
