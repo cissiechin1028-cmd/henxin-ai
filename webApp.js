@@ -244,8 +244,20 @@ const browserEventNames = new Set([
   "free_trial_clicked", "login_opened", "google_login_succeeded", "line_login_succeeded",
   "google_login_clicked", "line_login_clicked", "email_input_started",
   "email_login_succeeded", "google_login_failed", "line_login_failed", "email_otp_failed",
-  "first_screenshot_uploaded", "upgrade_clicked", "stripe_checkout_opened"
+  "first_screenshot_uploaded", "upgrade_clicked", "stripe_checkout_opened", "attribution_linked"
 ]);
+const attributionFields = ["source", "medium", "campaign", "campaign_id", "ad_group", "ad_group_id", "ad", "ad_id", "creative_id", "utm_content", "utm_term", "placement", "ttclid", "landing_page", "captured_at"];
+async function storeFirstTouchAttribution(userId, anonymousId, properties = {}) {
+  const attribution = Object.fromEntries(attributionFields.map((field) => [field, properties[field]])
+    .filter(([, value]) => typeof value === "string" && value.trim()));
+  if (!Object.keys(attribution).length) return;
+  const { data: profile } = await supabase.from("profiles").select("role,is_test_account").eq("id", userId).maybeSingle();
+  if (profile?.role === "admin" || profile?.is_test_account) return;
+  const { error } = await supabase.from("user_ad_attributions").upsert({
+    user_id: userId, anonymous_id: anonymousId || null, ...attribution
+  }, { onConflict: "user_id", ignoreDuplicates: true });
+  if (error && error.code !== "23505" && error.code !== "42P01") console.error("ATTRIBUTION STORE FAILED", error.message);
+}
 app.post("/api/v1/tracking/event", express.json({ limit: "8kb" }), async (req, res) => {
   const name = String(req.body?.name || "").trim();
   const occurrenceId = String(req.body?.occurrenceId || "").trim();
@@ -256,6 +268,7 @@ app.post("/api/v1/tracking/event", express.json({ limit: "8kb" }), async (req, r
   let userId = null;
   const token = String(req.headers.authorization || "").replace(/^Bearer\s+/i, "");
   if (token) userId = (await supabase.auth.getUser(token)).data?.user?.id || null;
+  if (userId) await storeFirstTouchAttribution(userId, anonymousId || null, req.body?.properties || {});
   const event = await tracking.record({
     name, businessKey: `${name}:${occurrenceId}`, userId,
     anonymousId: anonymousId || null, source: "browser", properties: req.body?.properties || {}
@@ -505,12 +518,13 @@ app.get("/api/v1/admin/dashboard", requireUser, requireAdmin, async (req, res) =
   if (periodStart >= periodEnd) return res.status(400).json({ error: "INVALID_DASHBOARD_PERIOD" });
   const { data, error } = await supabase.rpc("developer_dashboard_summary", { day_start: dayStart });
   if (error) return res.status(500).json({ error: "DASHBOARD_READ_FAILED" });
-  const [profilesResult, analyses30d, eventsResult, usageResult, authResult] = await Promise.all([
+  const [profilesResult, analyses30d, eventsResult, usageResult, authResult, attributionResult] = await Promise.all([
     supabase.from("profiles").select("id,display_name,plan,lifetime_free_usage,pro_period_usage,subscription_status,role,is_test_account,created_at"),
     supabase.from("analyses").select("id,user_id,status").gte("created_at", periodStart).lt("created_at", periodEnd),
     trackingEventsBetween(periodStart, periodEnd),
     supabase.from("ai_usage_periods").select("user_id,used_units,budget_units,updated_at"),
-    supabase.auth.admin.listUsers({ page: 1, perPage: 1000 })
+    supabase.auth.admin.listUsers({ page: 1, perPage: 1000 }),
+    supabase.from("user_ad_attributions").select("user_id,source,medium,campaign,campaign_id,ad_group,ad_group_id,ad,ad_id,creative_id,utm_content,utm_term,placement,ttclid,landing_page,captured_at")
   ]);
   const allProfiles = profilesResult.data || [];
   const profiles = allProfiles.filter((profile) => profile.role !== "admin" && !profile.is_test_account);
@@ -519,6 +533,7 @@ app.get("/api/v1/admin/dashboard", requireUser, requireAdmin, async (req, res) =
   const authUsers = authResult.data?.users || [];
   const authById = new Map(authUsers.map((user) => [user.id, user]));
   const customerIds = new Set(profiles.map((profile) => profile.id));
+  const attributionByUser = new Map((attributionResult.data || []).filter((item) => customerIds.has(item.user_id)).map((item) => [item.user_id, item]));
   const excludedUserIds = new Set(allProfiles.filter((profile) => profile.role === "admin" || profile.is_test_account).map((profile) => profile.id));
   const excludedAnonymousIds = new Set(events
     .filter((event) => event.anonymous_id && event.user_id && excludedUserIds.has(event.user_id))
@@ -571,7 +586,7 @@ app.get("/api/v1/admin/dashboard", requireUser, requireAdmin, async (req, res) =
       provider, plan: profile.plan, lifetimeUsage: profile.lifetime_free_usage, lastSignInAt: auth?.last_sign_in_at || null,
       bannedUntil: auth?.banned_until || null, totalCostMicros, freeLimitReached: profile.plan === "free" && profile.lifetime_free_usage >= 5,
       freeRestricted: profile.plan === "free" && profile.lifetime_free_usage >= 5,
-      fairUseTriggered: Boolean(fair && fair.used_units >= fair.budget_units) };
+      fairUseTriggered: Boolean(fair && fair.used_units >= fair.budget_units), attribution: attributionByUser.get(profile.id) || null };
   });
   const periodProfiles = profiles.filter((profile) => profile.created_at >= periodStart && profile.created_at < periodEnd);
   const total = periodProfiles.length;
@@ -579,6 +594,31 @@ app.get("/api/v1/admin/dashboard", requireUser, requireAdmin, async (req, res) =
   const customerAnalyses = (analyses30d.data || []).filter((analysis) => customerIds.has(analysis.user_id));
   const analysisCount = customerAnalyses.length;
   const failedAnalysisCount = customerAnalyses.filter((analysis) => analysis.status === "failed").length;
+  const creativeGroups = new Map();
+  const groupForUser = (userId) => {
+    const item = attributionByUser.get(userId);
+    if (!item) return null;
+    const key = item.creative_id || item.utm_content || item.ad_id || item.campaign_id || item.campaign || "unknown";
+    if (!creativeGroups.has(key)) creativeGroups.set(key, { key, ...item, registrations: new Set(), uploads: new Set(), analyses: new Set(), payments: new Set() });
+    return creativeGroups.get(key);
+  };
+  for (const profile of periodProfiles) groupForUser(profile.id)?.registrations.add(profile.id);
+  for (const event of operationalEvents) {
+    if (!event.user_id) continue;
+    const group = groupForUser(event.user_id);
+    if (!group) continue;
+    if (event.event_name === "first_screenshot_uploaded") group.uploads.add(event.user_id);
+    if (event.event_name === "first_ai_usage_completed") group.analyses.add(event.user_id);
+    if (event.event_name === "subscription_started") group.payments.add(event.user_id);
+  }
+  const creativeFunnels = [...creativeGroups.values()].map((group) => ({
+    key: group.key, source: group.source || null, medium: group.medium || null, campaign: group.campaign || null,
+    campaignId: group.campaign_id || null, adGroup: group.ad_group || null, adGroupId: group.ad_group_id || null,
+    ad: group.ad || null, adId: group.ad_id || null, creativeId: group.creative_id || null,
+    utmContent: group.utm_content || null, placement: group.placement || null,
+    registrations: group.registrations.size, uploads: group.uploads.size,
+    analyses: group.analyses.size, payments: group.payments.size
+  })).sort((left, right) => right.registrations - left.registrations);
   res.json({ ...data, funnel, timeZone, period: { startAt: periodStart, endAt: periodEnd },
     core: { registeredUsers: total, proUsers: pro, analyses30d: analysisCount,
       proConversionRate: total ? Number((pro / total * 100).toFixed(1)) : 0,
@@ -594,7 +634,7 @@ app.get("/api/v1/admin/dashboard", requireUser, requireAdmin, async (req, res) =
       mrrMinor: revenue(periodStart), currency: data.subscriptions.currency },
     errors: errorEvents.map((event) => ({ id: event.id, type: event.event_name, source: event.source, code: event.properties?.error_code || null,
       message: event.properties?.failure_message || null, statusCode: event.properties?.status_code || null, occurredAt: event.occurred_at })),
-    users, collectionNote: `统计范围：${periodStart} 至 ${periodEnd}；最早起点固定为 2026 年 8 月 1 日 19:00（东京时间）。` });
+    users, creativeFunnels, collectionNote: `统计范围：${periodStart} 至 ${periodEnd}；最早起点固定为 2026 年 8 月 1 日 19:00（东京时间）。` });
 });
 
 app.get("/api/v1/admin/summary", requireUser, requireAdmin, async (_req, res) => {
