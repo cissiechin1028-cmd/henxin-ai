@@ -330,7 +330,11 @@ async function handleStripeWebhook(req, res) {
   try {
     event = stripe.webhooks.constructEvent(req.body, req.headers["stripe-signature"], process.env.STRIPE_WEBHOOK_SECRET);
   } catch {
-    await tracking.record({ name: "stripe_webhook_failed", businessKey: `stripe_webhook_failed:${Date.now()}:${Math.random()}`, source: "stripe", properties: { error_code: "INVALID_SIGNATURE" } });
+    // Public webhook URLs are routinely probed by bots and uptime scanners. A
+    // request without Stripe's signature is not a failed Stripe delivery.
+    if (req.headers["stripe-signature"]) {
+      await tracking.record({ name: "stripe_webhook_failed", businessKey: `stripe_webhook_failed:${Date.now()}:${Math.random()}`, source: "stripe", properties: { error_code: "INVALID_SIGNATURE" } });
+    }
     return res.status(400).send("Invalid signature");
   }
   const object = event.data.object;
@@ -484,7 +488,7 @@ app.get("/api/v1/admin/dashboard", requireUser, requireAdmin, async (req, res) =
     supabase.from("profiles").select("id,display_name,plan,lifetime_free_usage,pro_period_usage,subscription_status,role,is_test_account,created_at"),
     supabase.from("analyses").select("id", { count: "exact", head: true }).gte("created_at", since30d),
     supabase.from("analyses").select("id", { count: "exact", head: true }).eq("status", "failed").gte("created_at", since30d),
-    supabase.from("tracking_events").select("id,event_name,user_id,source,properties,occurred_at").eq("environment", "production").order("occurred_at", { ascending: false }).limit(5000),
+    supabase.from("tracking_events").select("id,event_name,user_id,anonymous_id,source,properties,occurred_at").eq("environment", "production").order("occurred_at", { ascending: false }).limit(5000),
     supabase.from("ai_usage_periods").select("user_id,used_units,budget_units,updated_at"),
     supabase.auth.admin.listUsers({ page: 1, perPage: 1000 })
   ]);
@@ -492,6 +496,30 @@ app.get("/api/v1/admin/dashboard", requireUser, requireAdmin, async (req, res) =
   const events = eventsResult.data || [];
   const authUsers = authResult.data?.users || [];
   const authById = new Map(authUsers.map((user) => [user.id, user]));
+  const customerIds = new Set(profiles.map((profile) => profile.id));
+  const operationalEvents = events.filter((event) => !event.user_id || customerIds.has(event.user_id));
+  const funnelNames = [
+    "page_viewed", "free_trial_clicked", "login_opened", "google_login_succeeded",
+    "line_login_succeeded", "email_login_succeeded", "first_screenshot_uploaded",
+    "first_ai_usage_completed", "upgrade_clicked", "stripe_checkout_opened", "subscription_started"
+  ];
+  const funnelActors = new Map(funnelNames.map((name) => [name, new Set()]));
+  for (const event of operationalEvents) {
+    const actors = funnelActors.get(event.event_name);
+    if (!actors) continue;
+    const actor = event.user_id || event.anonymous_id;
+    if (actor) actors.add(actor);
+  }
+  // OAuth completion tracking is best effort in the browser. Supabase's
+  // authoritative successful sign-in record fills any event lost on redirect.
+  for (const auth of authUsers) {
+    if (!customerIds.has(auth.id) || !auth.last_sign_in_at || auth.last_sign_in_at < dashboardStatsStartAt) continue;
+    const provider = auth.app_metadata?.provider || auth.identities?.[0]?.provider || "email";
+    const name = provider === "custom:line-oauth" || provider === "line" ? "line_login_succeeded"
+      : provider === "google" ? "google_login_succeeded" : provider === "email" ? "email_login_succeeded" : null;
+    if (name) funnelActors.get(name).add(auth.id);
+  }
+  const funnel = Object.fromEntries([...funnelActors].map(([name, actors]) => [name, actors.size]));
   const costForMode = (mode) => events.filter((event) => event.event_name === "ai_usage_completed" && event.properties?.mode === mode)
     .reduce((sum, event) => sum + Number(event.properties?.cost_micros || 0), 0);
   const errorEvents = events.filter((event) => ["api_request_failed", "ai_usage_failed", "stripe_webhook_failed", "google_login_failed", "line_login_failed", "email_otp_failed"].includes(event.event_name)).slice(0, 100);
@@ -511,10 +539,10 @@ app.get("/api/v1/admin/dashboard", requireUser, requireAdmin, async (req, res) =
       freeRestricted: profile.plan === "free" && profile.lifetime_free_usage >= 5,
       fairUseTriggered: Boolean(fair && fair.used_units >= fair.budget_units) };
   });
-  const total = Number(data.users?.total || 0);
-  const pro = Number(data.users?.subscribed || 0);
+  const total = profiles.length;
+  const pro = profiles.filter((profile) => profile.plan === "pro" && ["active", "trialing"].includes(profile.subscription_status)).length;
   const analysisCount = analyses30d.count || 0;
-  res.json({ ...data, timeZone,
+  res.json({ ...data, funnel, timeZone,
     core: { registeredUsers: total, proUsers: pro, analyses30d: analysisCount,
       proConversionRate: total ? Number((pro / total * 100).toFixed(1)) : 0,
       aiSuccessRate: analysisCount ? Number(((analysisCount - (failed30d.count || 0)) / analysisCount * 100).toFixed(1)) : 100 },
