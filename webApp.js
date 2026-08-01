@@ -242,6 +242,7 @@ app.post("/api/v1/tracking/page-view", express.json({ limit: "8kb" }), async (re
 
 const browserEventNames = new Set([
   "free_trial_clicked", "login_opened", "google_login_succeeded", "line_login_succeeded",
+  "google_login_clicked", "line_login_clicked", "email_input_started",
   "email_login_succeeded", "google_login_failed", "line_login_failed", "email_otp_failed",
   "first_screenshot_uploaded", "upgrade_clicked", "stripe_checkout_opened"
 ]);
@@ -524,7 +525,7 @@ app.get("/api/v1/admin/dashboard", requireUser, requireAdmin, async (req, res) =
   const aiCostMicros = aiEvents.reduce((sum, event) => sum + Number(event.properties?.cost_micros || 0), 0);
   const pricingUnconfigured = aiEvents.filter((event) => event.properties?.cost_status === "unconfigured").length;
   const funnelNames = [
-    "page_viewed", "free_trial_clicked", "login_opened", "google_login_succeeded",
+    "page_viewed", "free_trial_clicked", "login_opened", "google_login_clicked", "line_login_clicked", "email_input_started", "google_login_succeeded",
     "line_login_succeeded", "email_login_succeeded", "first_screenshot_uploaded",
     "first_ai_usage_completed", "upgrade_clicked", "stripe_checkout_opened", "subscription_started"
   ];
