@@ -26,7 +26,16 @@ function createTracking({ supabase }) {
     if (userId) {
       const { data: profile, error: profileError } = await supabase.from("profiles")
         .select("role,is_test_account").eq("id", userId).maybeSingle();
-      if (!profileError && (profile?.role === "admin" || profile?.is_test_account)) return null;
+      if (!profileError && (profile?.role === "admin" || profile?.is_test_account)) {
+        // Login intent happens before authentication, so it is initially
+        // anonymous. Once a test/admin account completes login, remove the
+        // whole browser actor from operational analytics.
+        if (anonymousId) {
+          const { error: cleanupError } = await supabase.from("tracking_events").delete().eq("anonymous_id", anonymousId);
+          if (cleanupError && cleanupError.code !== "42P01") console.error("TEST TRACKING CLEANUP FAILED", cleanupError.message);
+        }
+        return null;
+      }
     }
     const payload = {
       event_id: crypto.randomUUID(), event_name: name, business_key: String(businessKey).slice(0, 500),
