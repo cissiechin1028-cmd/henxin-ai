@@ -553,10 +553,13 @@ app.get("/api/v1/admin/dashboard", requireUser, requireAdmin, async (req, res) =
     "first_ai_usage_completed", "upgrade_clicked", "stripe_checkout_opened", "subscription_started"
   ];
   const funnelActors = new Map(funnelNames.map((name) => [name, new Set()]));
+  const linkedUserByAnonymous = new Map(operationalEvents
+    .filter((event) => event.anonymous_id && event.user_id && customerIds.has(event.user_id))
+    .map((event) => [event.anonymous_id, event.user_id]));
   for (const event of operationalEvents) {
     const actors = funnelActors.get(event.event_name);
     if (!actors) continue;
-    const actor = event.user_id || event.anonymous_id;
+    const actor = event.user_id || linkedUserByAnonymous.get(event.anonymous_id) || event.anonymous_id;
     if (actor) actors.add(actor);
   }
   // OAuth completion tracking is best effort in the browser. Supabase's
@@ -604,12 +607,13 @@ app.get("/api/v1/admin/dashboard", requireUser, requireAdmin, async (req, res) =
   };
   for (const profile of periodProfiles) groupForUser(profile.id)?.registrations.add(profile.id);
   for (const event of operationalEvents) {
-    if (!event.user_id) continue;
-    const group = groupForUser(event.user_id);
+    const resolvedUserId = event.user_id || linkedUserByAnonymous.get(event.anonymous_id);
+    if (!resolvedUserId) continue;
+    const group = groupForUser(resolvedUserId);
     if (!group) continue;
-    if (event.event_name === "first_screenshot_uploaded") group.uploads.add(event.user_id);
-    if (event.event_name === "first_ai_usage_completed") group.analyses.add(event.user_id);
-    if (event.event_name === "subscription_started") group.payments.add(event.user_id);
+    if (event.event_name === "first_screenshot_uploaded") group.uploads.add(resolvedUserId);
+    if (event.event_name === "first_ai_usage_completed") group.analyses.add(resolvedUserId);
+    if (event.event_name === "subscription_started") group.payments.add(resolvedUserId);
   }
   const creativeFunnels = [...creativeGroups.values()].map((group) => ({
     key: group.key, source: group.source || null, medium: group.medium || null, campaign: group.campaign || null,
