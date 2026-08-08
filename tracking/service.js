@@ -7,7 +7,7 @@ const SAFE_PROPERTY_KEYS = new Set([
   "stripe_event_type", "error_code", "usage_count", "usage_limit", "revenue_minor",
   "provider", "creative_id", "campaign", "failure_message", "source", "medium",
   "campaign_id", "ad_group", "ad_group_id", "ad", "ad_id", "utm_content",
-  "utm_term", "placement", "ttclid", "landing_page", "captured_at"
+  "utm_term", "placement", "ttclid", "landing_page", "captured_at", "anonymous"
 ]);
 
 function environment() {
