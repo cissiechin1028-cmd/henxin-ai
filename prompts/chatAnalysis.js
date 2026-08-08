@@ -1,6 +1,7 @@
 const { GLOBAL_RULES } = require("./globalRules");
 const { localeRules } = require("./locales");
 const { buildContext } = require("./context");
+const { embeddedRelationshipEventInstructions } = require("./relationshipEvent");
 
 function chatAnalysisPrompt(locale, context) {
   return `${GLOBAL_RULES}
@@ -10,6 +11,15 @@ Exclusive task: answer “What does this exchange currently indicate, and what s
 
 ${localeRules(locale)}
 ${buildContext(context)}
+
+${embeddedRelationshipEventInstructions()}
+
+USER INPUT DIMENSIONS
+- Relationship stage: ${String(context.relationshipStatus || "not selected")}
+- Analysis focus: ${String(context.analysisFocus || "full")}
+- Optional user note: ${String(context.userNote || "not provided")}
+
+Treat the optional note as user-provided context, not verified evidence. Use the selected focus to prioritize the analysis, but do not omit safety-critical or strongly contradictory visible evidence.
 
 Use observable signals such as topic continuation, emotional acknowledgement, specificity, reciprocal questions, initiative, concrete meeting suggestions, avoidance of key questions, polite-only maintenance, consistency between words and actions, and change from any verified prior context.
 
