@@ -2,9 +2,11 @@ require("dotenv").config();
 
 const express = require("express");
 const Stripe = require("stripe");
+const axios = require("axios");
 const crypto = require("crypto");
 const { createClient } = require("@supabase/supabase-js");
 const { analyzeForWeb } = require("./services/webAnalysis");
+const { aiUsageProperties } = require("./tracking/cost");
 const { generateRelationshipReport, periodBounds } = require("./services/relationshipReports");
 const { createTracking } = require("./tracking/service");
 const { createUsageService } = require("./services/usageService");
@@ -24,6 +26,64 @@ const supabase = createClient(
 const tracking = createTracking({ supabase });
 const usageService = createUsageService({ supabase });
 const dashboardStatsStartAt = new Date(process.env.ADMIN_STATS_START_AT || "2026-08-01T10:00:00.000Z").toISOString();
+
+const chatExtractionSchema = {
+  name: "renai_chat_extraction",
+  strict: true,
+  schema: {
+    type: "object", additionalProperties: false, required: ["messages"],
+    properties: { messages: { type: "array", maxItems: 200, items: {
+      type: "object", additionalProperties: false, required: ["sender", "text"],
+      properties: { sender: { type: "string", enum: ["self", "partner"] }, text: { type: "string", minLength: 1, maxLength: 1000 } },
+    } } },
+  },
+};
+
+async function extractChatMessages({ imageBuffer, mimeType }) {
+  if (!process.env.OPENAI_API_KEY) throw new Error("OPENAI_NOT_CONFIGURED");
+  const model = process.env.OPENAI_EXTRACTION_MODEL || process.env.OPENAI_VISION_MODEL || "gpt-4.1-mini";
+  const response = await axios.post("https://api.openai.com/v1/chat/completions", {
+    model,
+    messages: [
+      { role: "system", content: "Extract only visible chat messages in chronological order. Determine self versus partner from bubble alignment and UI conventions. Preserve the original message language, emoji, punctuation, and line breaks. Ignore timestamps, names, navigation labels, reactions, system notices, stickers without readable text, and invented or uncertain text. Return an empty list if reliable chat messages are not visible." },
+      { role: "user", content: [
+        { type: "text", text: "Convert this chat screenshot into editable message bubbles." },
+        { type: "image_url", image_url: { url: `data:${mimeType};base64,${imageBuffer.toString("base64")}` } },
+      ] },
+    ],
+    temperature: 0, max_tokens: 1800,
+    response_format: { type: "json_schema", json_schema: chatExtractionSchema },
+  }, { timeout: 60000, headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}`, "Content-Type": "application/json" } });
+  const raw = JSON.parse(String(response.data?.choices?.[0]?.message?.content || "").replace(/```json|```/g, "").trim());
+  const messages = Array.isArray(raw?.messages) ? raw.messages.slice(-200).map((message) => ({
+    sender: message?.sender === "self" ? "self" : "partner",
+    text: String(message?.text || "").trim().slice(0, 1000),
+  })).filter((message) => message.text) : [];
+  return { messages, model: response.data?.model || model, usage: aiUsageProperties(response, response.data?.model || model, "chat_extraction") };
+}
+
+const consultationLocaleInstruction = {
+  ja: "Reply only in natural contemporary Japanese.",
+  "zh-TW": "Reply only in natural Traditional Chinese.",
+  en: "Reply only in natural English.",
+};
+
+async function createConsultationReply({ locale = "ja", analysisResult = {}, messages = [] }) {
+  if (!process.env.OPENAI_API_KEY) throw new Error("OPENAI_NOT_CONFIGURED");
+  const model = process.env.OPENAI_CONSULTATION_MODEL || process.env.OPENAI_VISION_MODEL || "gpt-4.1-mini";
+  const compactAnalysis = JSON.stringify(analysisResult).slice(0, 8000);
+  const response = await axios.post("https://api.openai.com/v1/chat/completions", {
+    model,
+    messages: [
+      { role: "system", content: `You are RenAI's paid relationship communication consultant. ${consultationLocaleInstruction[locale] || consultationLocaleInstruction.ja}\nBase advice on the supplied analysis and the user's stated facts. Clearly distinguish visible facts, user claims, and interpretation. Never claim certainty about another person's private feelings. Give concise, practical, emotionally safe advice. Do not encourage harassment, surveillance, manipulation, coercion, repeated unwanted contact, or dependency on the assistant. If the user asks for a message, provide at most three short options.\nCurrent analysis context: ${compactAnalysis}` },
+      ...messages.slice(-12).map((message) => ({ role: message.role === "assistant" ? "assistant" : "user", content: String(message.content).slice(0, 1500) })),
+    ],
+    temperature: 0.3, max_tokens: 700,
+  }, { timeout: 60000, headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}`, "Content-Type": "application/json" } });
+  const content = String(response.data?.choices?.[0]?.message?.content || "").trim();
+  if (!content) throw new Error("AI_EMPTY_RESPONSE");
+  return { content: content.slice(0, 4000), model: response.data?.model || model, usage: aiUsageProperties(response, response.data?.model || model, "ai_consultation") };
+}
 
 function sha256(value) {
   return crypto.createHash("sha256").update(String(value || "").trim().toLowerCase()).digest("hex");
@@ -63,6 +123,39 @@ function subscriptionPeriod(subscription) {
     start: subscription?.current_period_start || item?.current_period_start || null,
     end: subscription?.current_period_end || item?.current_period_end || null
   };
+}
+
+const BILLING_TIERS = Object.freeze({
+  lite: { priceEnv: "STRIPE_LITE_PRICE_ID", replyLimit: 50, combinedLimit: 10, strategyLimit: 10 },
+  premium: { priceEnv: "STRIPE_PREMIUM_PRICE_ID", replyLimit: 150, combinedLimit: 30, strategyLimit: 30 },
+});
+
+function stripePriceIdForTier(tier) {
+  if (!BILLING_TIERS[tier]) return null;
+  return process.env[BILLING_TIERS[tier].priceEnv] || (tier === "premium" ? process.env.STRIPE_PRICE_ID : null) || null;
+}
+
+function billingTierForSubscription(subscription, fallback = "premium") {
+  const priceId = subscription?.items?.data?.[0]?.price?.id;
+  if (subscription?.metadata?.tier && BILLING_TIERS[subscription.metadata.tier]) return subscription.metadata.tier;
+  if (priceId && priceId === stripePriceIdForTier("lite")) return "lite";
+  if (priceId && priceId === stripePriceIdForTier("premium")) return "premium";
+  return fallback;
+}
+
+async function reservePaidFeature(userId, tier, feature) {
+  const limits = BILLING_TIERS[tier] || BILLING_TIERS.premium;
+  const limit = feature === "reply" ? limits.replyLimit : feature === "strategy" ? limits.strategyLimit : limits.combinedLimit;
+  const { data, error } = await supabase.rpc("reserve_paid_feature_usage", {
+    target_user_id: userId, target_feature: feature, target_limit: limit,
+  });
+  if (error) throw new Error("PAID_FEATURE_USAGE_FAILED");
+  return data?.[0] || { allowed: false, used: limit, usage_limit: limit };
+}
+
+async function refundPaidFeature(userId, feature) {
+  const { error } = await supabase.rpc("refund_paid_feature_usage", { target_user_id: userId, target_feature: feature });
+  if (error) console.error("PAID_FEATURE_REFUND_FAILED", error.message);
 }
 
 function invoiceSubscriptionId(invoice) {
@@ -153,7 +246,7 @@ app.use((req, res, next) => {
     res.setHeader("Access-Control-Allow-Origin", origin);
     res.setHeader("Vary", "Origin");
   }
-  res.setHeader("Access-Control-Allow-Headers", "Authorization, Content-Type, X-Analysis-Mode, X-Locale, X-Reply-Goal, X-Reply-Style, X-Relationship-Status, X-RenAI-Device-ID, X-RenAI-Fingerprint");
+  res.setHeader("Access-Control-Allow-Headers", "Authorization, Content-Type, X-Analysis-Mode, X-Locale, X-Reply-Goal, X-Reply-Style, X-Relationship-Status, X-User-Note, X-Analysis-Focus, X-RenAI-Device-ID, X-RenAI-Fingerprint");
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS");
   res.setHeader("X-Content-Type-Options", "nosniff");
   if (req.method === "OPTIONS") return res.sendStatus(204);
@@ -238,11 +331,14 @@ function cleanReplySettings(req) {
   const replyGoal = String(req.headers["x-reply-goal"] || "").trim().slice(0, 150);
   const replyStyle = String(req.headers["x-reply-style"] || "natural").trim();
   const relationshipStatus = String(req.headers["x-relationship-status"] || "").trim();
+  const userNote = String(req.headers["x-user-note"] || "").trim().slice(0, 300);
+  const analysisFocus = String(req.headers["x-analysis-focus"] || "full").trim();
   const styleAliases = { reassure: "gentle" };
   const statusAliases = { unknown: "", crush: "interested", talking: "in_contact", pre_relationship: "in_contact", cold: "", conflict: "", breakup: "ex", reconciliation: "ex" };
   const allowedGoals = new Set(["", "continue_conversation", "get_closer", "understand_feelings", "clear_misunderstanding", "make_up", "lead_to_date", "express_feelings", "decline_politely"]);
   const allowedStyles = new Set(["natural", "get_closer", "gentle", "humor", "amaeru", "honest", "distance"]);
   const allowedStatuses = new Set(["", "interested", "in_contact", "dating", "long_term", "ex"]);
+  const allowedAnalysisFocus = new Set(["full", "feelings", "trend", "risk", "next_action"]);
   const normalizedStyle = styleAliases[replyStyle] || replyStyle;
   const normalizedStatus = statusAliases[relationshipStatus] ?? relationshipStatus;
   return {
@@ -250,6 +346,8 @@ function cleanReplySettings(req) {
       replyGoal: allowedGoals.has(replyGoal) ? replyGoal : "",
       replyStyle: allowedStyles.has(normalizedStyle) ? normalizedStyle : "natural",
       relationshipStatus: allowedStatuses.has(normalizedStatus) ? normalizedStatus : "",
+      userNote,
+      analysisFocus: allowedAnalysisFocus.has(analysisFocus) ? analysisFocus : "full",
     }
   };
 }
@@ -330,7 +428,10 @@ app.get("/api/v1/me", requireUser, async (req, res) => {
 });
 
 app.post("/api/v1/billing/checkout", requireUser, express.json(), async (req, res) => {
-  if (!process.env.STRIPE_SECRET_KEY || !process.env.STRIPE_PRICE_ID) return res.status(503).json({ error: "BILLING_NOT_CONFIGURED" });
+  const tier = String(req.body?.tier || "premium");
+  const priceId = stripePriceIdForTier(tier);
+  if (!BILLING_TIERS[tier]) return res.status(400).json({ error: "INVALID_BILLING_TIER" });
+  if (!process.env.STRIPE_SECRET_KEY || !priceId) return res.status(503).json({ error: "BILLING_NOT_CONFIGURED" });
   const { data: profile } = await supabase.from("profiles").select("stripe_customer_id,plan").eq("id", req.user.id).single();
   if (profile?.plan === "pro") return res.status(409).json({ error: "ALREADY_PRO" });
   const returnUrl = webAppReturnUrl(req);
@@ -340,17 +441,17 @@ app.post("/api/v1/billing/checkout", requireUser, express.json(), async (req, re
     locale: checkoutLocale,
     customer: profile?.stripe_customer_id || undefined,
     customer_email: profile?.stripe_customer_id ? undefined : req.user.email,
-    line_items: [{ price: process.env.STRIPE_PRICE_ID, quantity: 1 }],
+    line_items: [{ price: priceId, quantity: 1 }],
     success_url: `${returnUrl}?checkout=success`,
     cancel_url: `${returnUrl}?checkout=cancelled`,
     client_reference_id: req.user.id,
-    metadata: { userId: req.user.id },
-    subscription_data: { metadata: { userId: req.user.id } },
+    metadata: { userId: req.user.id, tier },
+    subscription_data: { metadata: { userId: req.user.id, tier } },
     allow_promotion_codes: true
   });
   await tracking.record({
     name: "checkout_started", businessKey: `checkout_started:${checkout.id}`,
-    userId: req.user.id, source: "stripe", properties: { plan: "pro" }
+    userId: req.user.id, source: "stripe", properties: { plan: tier }
   });
   res.json({ url: checkout.url });
 });
@@ -394,8 +495,9 @@ async function handleStripeWebhook(req, res) {
       const subscriptionId = typeof object.subscription === "string" ? object.subscription : object.subscription?.id;
       const subscription = subscriptionId ? await stripe.subscriptions.retrieve(subscriptionId) : null;
       const period = subscriptionPeriod(subscription);
+      const billingTier = billingTierForSubscription(subscription, object.metadata?.tier || "premium");
       await requireProfileUpdate(userId, {
-        plan: "pro", stripe_customer_id: object.customer, stripe_subscription_id: subscriptionId,
+        plan: "pro", billing_tier: billingTier, stripe_customer_id: object.customer, stripe_subscription_id: subscriptionId,
         subscription_status: subscription?.status || "active", pro_period_usage: 0,
         pro_period_start: period.start ? new Date(period.start * 1000).toISOString() : new Date().toISOString(),
         pro_period_end: period.end ? new Date(period.end * 1000).toISOString() : null
@@ -419,6 +521,7 @@ async function handleStripeWebhook(req, res) {
     const subscription = subscriptionId ? await stripe.subscriptions.retrieve(subscriptionId) : null;
     const invoiceUserId = subscription?.metadata?.userId || userId;
     const price = subscription?.items?.data?.[0]?.price;
+    const billingTier = billingTierForSubscription(subscription);
     const recurring = price?.recurring;
     const monthlyMinor = price?.unit_amount == null ? 0
       : recurring?.interval === "year" ? Math.round(price.unit_amount / 12)
@@ -427,7 +530,7 @@ async function handleStripeWebhook(req, res) {
       const first = invoice.billing_reason === "subscription_create";
       const period = subscriptionPeriod(subscription);
       await requireProfileUpdate(invoiceUserId, {
-        plan: "pro", stripe_customer_id: invoice.customer, stripe_subscription_id: subscriptionId,
+        plan: "pro", billing_tier: billingTier, stripe_customer_id: invoice.customer, stripe_subscription_id: subscriptionId,
         subscription_status: subscription?.status || "active", pro_period_usage: 0,
         pro_period_start: period.start ? new Date(period.start * 1000).toISOString() : new Date().toISOString(),
         pro_period_end: period.end ? new Date(period.end * 1000).toISOString() : null
@@ -441,7 +544,7 @@ async function handleStripeWebhook(req, res) {
       await tracking.record({
         name: "user_plan_snapshot", businessKey: `user_plan_snapshot:${invoiceUserId}:${event.id}`,
         userId: invoiceUserId, source: "stripe",
-        properties: { plan: "pro", subscription_status: subscription?.status || "active", currency: String(invoice.currency || "jpy").toUpperCase(), mrr_minor: monthlyMinor }
+        properties: { plan: billingTier, subscription_status: subscription?.status || "active", currency: String(invoice.currency || "jpy").toUpperCase(), mrr_minor: monthlyMinor }
       });
       if (first) {
         try {
@@ -479,8 +582,9 @@ async function handleStripeWebhook(req, res) {
     const subscriptionUserId = subscription.metadata?.userId;
     const active = ["active", "trialing"].includes(subscription.status);
     const period = subscriptionPeriod(subscription);
+    const billingTier = active ? billingTierForSubscription(subscription) : "free";
     const update = {
-      plan: active ? "pro" : "free", subscription_status: subscription.status,
+      plan: active ? "pro" : "free", billing_tier: billingTier, subscription_status: subscription.status,
       stripe_customer_id: subscription.customer, stripe_subscription_id: subscription.id,
       pro_period_start: period.start ? new Date(period.start * 1000).toISOString() : null,
       pro_period_end: period.end ? new Date(period.end * 1000).toISOString() : null
@@ -501,7 +605,7 @@ async function handleStripeWebhook(req, res) {
       await tracking.record({
         name: "user_plan_snapshot", businessKey: `user_plan_snapshot:${resolvedUserId}:${event.id}`,
         userId: resolvedUserId, source: "stripe", properties: {
-          plan: active ? "pro" : "free", subscription_status: subscription.status,
+          plan: active ? billingTier : "free", subscription_status: subscription.status,
           currency: String(snapshotPrice?.currency || "jpy").toUpperCase(), mrr_minor: active ? snapshotMrr : 0
         }
       });
@@ -548,7 +652,7 @@ app.get("/api/v1/admin/dashboard", requireUser, requireAdmin, async (req, res) =
   const { data, error } = await supabase.rpc("developer_dashboard_summary", { day_start: dayStart });
   if (error) return res.status(500).json({ error: "DASHBOARD_READ_FAILED" });
   const [profilesResult, analyses30d, eventsResult, usageResult, authResult, attributionResult] = await Promise.all([
-    supabase.from("profiles").select("id,display_name,plan,lifetime_free_usage,pro_period_usage,subscription_status,role,is_test_account,created_at"),
+    supabase.from("profiles").select("id,display_name,plan,billing_tier,lifetime_free_usage,pro_period_usage,subscription_status,role,is_test_account,created_at"),
     supabase.from("analyses").select("id,user_id,status").gte("created_at", periodStart).lt("created_at", periodEnd),
     trackingEventsBetween(periodStart, periodEnd),
     supabase.from("ai_usage_periods").select("user_id,used_units,budget_units,updated_at"),
@@ -615,7 +719,7 @@ app.get("/api/v1/admin/dashboard", requireUser, requireAdmin, async (req, res) =
       .reduce((sum, event) => sum + Number(event.properties?.cost_micros || 0), 0);
     const fair = usageById.get(profile.id);
     return { id: profile.id, email: auth?.email || "", displayName: profile.display_name, createdAt: profile.created_at,
-      provider, plan: profile.plan, lifetimeUsage: profile.lifetime_free_usage, lastSignInAt: auth?.last_sign_in_at || null,
+      provider, plan: profile.billing_tier || profile.plan, lifetimeUsage: profile.lifetime_free_usage, lastSignInAt: auth?.last_sign_in_at || null,
       bannedUntil: auth?.banned_until || null, totalCostMicros, freeLimitReached: profile.plan === "free" && profile.lifetime_free_usage >= 5,
       freeRestricted: profile.plan === "free" && profile.lifetime_free_usage >= 5,
       fairUseTriggered: Boolean(fair && fair.used_units >= fair.budget_units), attribution: attributionByUser.get(profile.id) || null };
@@ -921,7 +1025,7 @@ app.post(
     try {
       const output = await analyzeForWeb({
         imageBuffer: req.body, mimeType, mode, locale,
-        context: mode === "reply" ? replySettings.value : {},
+        context: replySettings.value,
       });
       await tracking.record({
         name: "ai_usage_completed", businessKey: `anonymous_ai_usage_completed:${requestId}`,
@@ -968,6 +1072,67 @@ app.get("/api/v1/analyses", requireUser, async (req, res) => {
   res.json({ analyses: data });
 });
 
+app.post(
+  "/api/v1/chat-extractions",
+  express.raw({ type: ["image/jpeg", "image/png", "image/webp"], limit: "10mb" }),
+  async (req, res) => {
+    const mimeType = String(req.headers["content-type"] || "").split(";")[0];
+    if (!Buffer.isBuffer(req.body) || !req.body.length) return res.status(400).json({ error: "IMAGE_REQUIRED" });
+    if (!isSupportedImage(req.body, mimeType)) return res.status(415).json({ error: "INVALID_IMAGE_FILE" });
+    const fingerprint = crypto.createHash("sha256").update(req.body).digest("hex");
+    const { data: cached } = await supabase.from("chat_extraction_cache").select("result,expires_at")
+      .eq("content_fingerprint", fingerprint).gt("expires_at", new Date().toISOString()).maybeSingle();
+    if (cached?.result?.messages) return res.json({ messages: cached.result.messages, cached: true });
+
+    let actorKey;
+    let actorPlan = "anonymous";
+    const token = String(req.headers.authorization || "").replace(/^Bearer\s+/i, "");
+    if (token) {
+      const { data } = await supabase.auth.getUser(token);
+      if (data?.user?.id) {
+        actorKey = anonymousHash(`user:${data.user.id}`);
+        const { data: profile } = await supabase.from("profiles").select("plan").eq("id", data.user.id).maybeSingle();
+        actorPlan = profile?.plan === "pro" ? "pro" : "free";
+      }
+    }
+    if (!actorKey) {
+      const identity = anonymousIdentity(req);
+      if (!identity) return res.status(400).json({ error: "ANONYMOUS_ID_REQUIRED" });
+      actorKey = identity.deviceHash;
+    }
+    const configuredLimit = actorPlan === "pro"
+      ? process.env.CHAT_EXTRACTION_PRO_DAILY_LIMIT
+      : actorPlan === "free"
+        ? process.env.CHAT_EXTRACTION_FREE_DAILY_LIMIT
+        : process.env.CHAT_EXTRACTION_ANONYMOUS_DAILY_LIMIT;
+    const defaultLimit = actorPlan === "pro" ? 10 : 3;
+    const dailyLimit = Math.max(1, Math.min(100, Number(configuredLimit || defaultLimit)));
+    const { data: reserved, error: reserveError } = await supabase.rpc("reserve_chat_extraction", { target_actor_key: actorKey, daily_limit: dailyLimit });
+    if (reserveError) return res.status(500).json({ error: "EXTRACTION_LIMIT_CHECK_FAILED" });
+    if (!reserved?.[0]?.allowed) return res.status(429).json({ error: "EXTRACTION_LIMIT_REACHED" });
+
+    const requestId = crypto.randomUUID();
+    try {
+      const output = await extractChatMessages({ imageBuffer: req.body, mimeType });
+      if (!output.messages.length) return res.status(422).json({ error: "CHAT_NOT_READABLE" });
+      await supabase.from("chat_extraction_cache").upsert({
+        content_fingerprint: fingerprint,
+        result: { messages: output.messages },
+        model_name: output.model,
+        expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+      });
+      await tracking.record({
+        name: "ai_usage_completed", businessKey: `chat_extraction:${requestId}`,
+        source: "ai", properties: { ...output.usage, mode: "reply" }
+      });
+      res.status(201).json({ messages: output.messages, cached: false, limit: { plan: actorPlan, daily: dailyLimit, used: Number(reserved?.[0]?.used || 0) } });
+    } catch (error) {
+      console.error("CHAT EXTRACTION FAILED", requestId, String(error.message || error));
+      res.status(502).json({ error: "CHAT_EXTRACTION_FAILED" });
+    }
+  }
+);
+
 app.get("/api/v1/analyses/:id", requireUser, async (req, res) => {
   const { data, error } = await supabase.from("analyses").select("*")
     .eq("id", req.params.id).eq("user_id", req.user.id).maybeSingle();
@@ -981,6 +1146,83 @@ app.delete("/api/v1/analyses/:id", requireUser, async (req, res) => {
     .eq("id", req.params.id).eq("user_id", req.user.id);
   if (error) return res.status(500).json({ error: "ANALYSIS_DELETE_FAILED" });
   res.sendStatus(204);
+});
+
+app.post("/api/v1/consultations", requireUser, express.json({ limit: "8kb" }), async (req, res) => {
+  const analysisId = String(req.body?.analysisId || "").trim() || null;
+  const { data: profile, error: profileError } = await supabase.from("profiles").select("plan").eq("id", req.user.id).maybeSingle();
+  if (profileError) return res.status(500).json({ error: "PROFILE_READ_FAILED" });
+  if (profile?.plan !== "pro") return res.status(402).json({ error: "PRO_REQUIRED" });
+  let analysis = null;
+  if (analysisId) {
+    const query = await supabase.from("analyses").select("id,relationship_id,result").eq("id", analysisId).eq("user_id", req.user.id).eq("status", "completed").maybeSingle();
+    if (query.error) return res.status(500).json({ error: "ANALYSIS_READ_FAILED" });
+    if (!query.data) return res.status(404).json({ error: "ANALYSIS_NOT_FOUND" });
+    analysis = query.data;
+  } else {
+    const query = await supabase.from("analyses").select("id,relationship_id,result").eq("user_id", req.user.id).eq("mode", "analysis").eq("status", "completed").order("completed_at", { ascending: false }).limit(1).maybeSingle();
+    analysis = query.data || null;
+  }
+  const relationship = analysis?.relationship_id ? { id: analysis.relationship_id } : await findActiveRelationship(req.user.id).then(result => result.data);
+  const { data: thread, error } = await supabase.from("ai_consultation_threads").insert({
+    user_id: req.user.id, relationship_id: relationship?.id || null, analysis_id: analysis?.id || null,
+  }).select("id,title,analysis_id,created_at,updated_at").single();
+  if (error) return res.status(500).json({ error: "CONSULTATION_CREATE_FAILED" });
+  res.status(201).json({ thread });
+});
+
+app.get("/api/v1/consultations/:id/messages", requireUser, async (req, res) => {
+  const { data: thread } = await supabase.from("ai_consultation_threads").select("id").eq("id", req.params.id).eq("user_id", req.user.id).maybeSingle();
+  if (!thread) return res.status(404).json({ error: "CONSULTATION_NOT_FOUND" });
+  const { data, error } = await supabase.from("ai_consultation_messages").select("id,role,content,created_at")
+    .eq("thread_id", thread.id).eq("user_id", req.user.id).order("created_at", { ascending: true }).limit(100);
+  if (error) return res.status(500).json({ error: "CONSULTATION_READ_FAILED" });
+  res.json({ messages: data || [] });
+});
+
+app.post("/api/v1/consultations/:id/messages", requireUser, express.json({ limit: "8kb" }), async (req, res) => {
+  const content = String(req.body?.content || "").trim().slice(0, 1500);
+  const requestedLocale = String(req.body?.locale || "ja");
+  const locale = ["ja", "zh-TW", "en"].includes(requestedLocale) ? requestedLocale : "ja";
+  if (!content) return res.status(400).json({ error: "MESSAGE_REQUIRED" });
+  const { data: profile } = await supabase.from("profiles").select("plan,billing_tier").eq("id", req.user.id).maybeSingle();
+  if (profile?.plan !== "pro") return res.status(402).json({ error: "PRO_REQUIRED" });
+  const { data: thread } = await supabase.from("ai_consultation_threads").select("id,analysis_id").eq("id", req.params.id).eq("user_id", req.user.id).maybeSingle();
+  if (!thread) return res.status(404).json({ error: "CONSULTATION_NOT_FOUND" });
+  let paidFeature;
+  try { paidFeature = await reservePaidFeature(req.user.id, profile.billing_tier === "lite" ? "lite" : "premium", "analysis_consultation"); }
+  catch { return res.status(500).json({ error: "PAID_USAGE_CHECK_FAILED" }); }
+  if (!paidFeature.allowed) return res.status(429).json({ error: "CONSULTATION_MONTHLY_LIMIT_REACHED", usage: paidFeature });
+  let fairUse;
+  try { fairUse = await usageService.check(req.user.id, "consultation"); }
+  catch { return res.status(500).json({ error: "USAGE_CHECK_FAILED" }); }
+  if (!fairUse.allowed) { await refundPaidFeature(req.user.id, "analysis_consultation"); return res.status(429).json({ error: "FAIR_USE_LIMIT_REACHED" }); }
+  const [{ data: history }, { data: analysis }] = await Promise.all([
+    supabase.from("ai_consultation_messages").select("role,content").eq("thread_id", thread.id).eq("user_id", req.user.id).order("created_at", { ascending: true }).limit(50),
+    thread.analysis_id ? supabase.from("analyses").select("result").eq("id", thread.analysis_id).eq("user_id", req.user.id).maybeSingle() : Promise.resolve({ data: null }),
+  ]);
+  const userMessage = { role: "user", content };
+  const { data: storedUser, error: userError } = await supabase.from("ai_consultation_messages").insert({ thread_id: thread.id, user_id: req.user.id, ...userMessage }).select("id,role,content,created_at").single();
+  if (userError) { await refundPaidFeature(req.user.id, "analysis_consultation"); return res.status(500).json({ error: "CONSULTATION_MESSAGE_SAVE_FAILED" }); }
+  try {
+    const output = await createConsultationReply({ locale, analysisResult: analysis?.result || {}, messages: [...(history || []), userMessage] });
+    const usage = output.usage || {};
+    const { data: assistant, error: assistantError } = await supabase.from("ai_consultation_messages").insert({
+      thread_id: thread.id, user_id: req.user.id, role: "assistant", content: output.content, model_name: output.model,
+      input_tokens: Number(usage.prompt_tokens || 0), output_tokens: Number(usage.completion_tokens || 0),
+    }).select("id,role,content,created_at").single();
+    if (assistantError) throw new Error("CONSULTATION_MESSAGE_SAVE_FAILED");
+    await Promise.all([
+      supabase.from("ai_consultation_threads").update({ updated_at: new Date().toISOString() }).eq("id", thread.id).eq("user_id", req.user.id),
+      usageService.recordSuccess(fairUse),
+      tracking.record({ name: "ai_usage_completed", businessKey: `ai_consultation:${assistant.id}`, userId: req.user.id, source: "ai", properties: { ...usage, mode: "analysis" } }),
+    ]);
+    res.status(201).json({ userMessage: storedUser, assistantMessage: assistant });
+  } catch (error) {
+    console.error("AI CONSULTATION FAILED", thread.id, String(error.message || error));
+    await refundPaidFeature(req.user.id, "analysis_consultation");
+    res.status(502).json({ error: "CONSULTATION_FAILED" });
+  }
 });
 
 app.post(
@@ -1010,16 +1252,26 @@ app.post(
     if (!fairUse.allowed) return res.status(429).json({ error: "FAIR_USE_LIMIT_REACHED" });
 
     let credit = { allowed: true, plan: "pro", reserved: false };
+    let paidFeature = null;
     if (fairUse.plan === "free") {
       const { data: creditRows, error: creditError } = await supabase.rpc("reserve_analysis_credit", { target_user_id: req.user.id });
       credit = { ...(creditRows?.[0] || {}), reserved: true };
       if (creditError) return res.status(500).json({ error: "CREDIT_CHECK_FAILED" });
       if (!credit?.allowed) return res.status(402).json({ error: "CREDIT_LIMIT_REACHED" });
+    } else {
+      const feature = mode === "reply" ? "reply" : "analysis_consultation";
+      try {
+        paidFeature = await reservePaidFeature(req.user.id, fairUse.tier, feature);
+      } catch (error) {
+        return res.status(500).json({ error: "PAID_USAGE_CHECK_FAILED" });
+      }
+      if (!paidFeature.allowed) return res.status(402).json({ error: "PAID_FEATURE_LIMIT_REACHED", feature, usage: paidFeature });
     }
 
     const { data: activeRelationship, error: relationshipError } = await findActiveRelationship(req.user.id);
     if (relationshipError || !activeRelationship) {
       if (credit.reserved) await supabase.rpc("refund_analysis_credit", { target_user_id: req.user.id, charged_plan: credit.plan });
+      if (paidFeature) await refundPaidFeature(req.user.id, mode === "reply" ? "reply" : "analysis_consultation");
       return res.status(500).json({ error: "ACTIVE_RELATIONSHIP_NOT_FOUND" });
     }
 
@@ -1029,11 +1281,12 @@ app.post(
       mode,
       status: "processing",
       title: mode === "reply" ? "返信アドバイス" : "チャット分析",
-      input_metadata: { mime_type: mimeType, bytes: req.body.length, content_fingerprint: contentFingerprint, ...(mode === "reply" ? replySettings.value : {}) }
+      input_metadata: { mime_type: mimeType, bytes: req.body.length, content_fingerprint: contentFingerprint, ...replySettings.value }
     }).select("id").single();
 
     if (insertError) {
       if (credit.reserved) await supabase.rpc("refund_analysis_credit", { target_user_id: req.user.id, charged_plan: credit.plan });
+      if (paidFeature) await refundPaidFeature(req.user.id, mode === "reply" ? "reply" : "analysis_consultation");
       return res.status(500).json({ error: "ANALYSIS_CREATE_FAILED" });
     }
 
@@ -1059,7 +1312,7 @@ app.post(
           date: item.event_date, title: item.title, source: item.source
         }))
       };
-      const output = await analyzeForWeb({ imageBuffer: req.body, mimeType, mode, locale, context: { ...context, ...(mode === "reply" ? replySettings.value : {}) } });
+      const output = await analyzeForWeb({ imageBuffer: req.body, mimeType, mode, locale, context: { ...context, ...replySettings.value } });
       const completedAt = new Date().toISOString();
       await supabase.from("analyses").update({
         status: "completed", result: output.result, model_name: output.model,
@@ -1138,6 +1391,7 @@ app.post(
         credit.reserved
           ? supabase.rpc("refund_analysis_credit", { target_user_id: req.user.id, charged_plan: credit.plan })
           : Promise.resolve(),
+        paidFeature ? refundPaidFeature(req.user.id, mode === "reply" ? "reply" : "analysis_consultation") : Promise.resolve(),
         supabase.from("usage_events").insert({ user_id: req.user.id, analysis_id: analysis.id, event_type: "analysis_failed", credit_delta: 1 })
       ]);
       await tracking.record({
