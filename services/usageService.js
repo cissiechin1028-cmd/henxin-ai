@@ -10,12 +10,13 @@ function createUsageService({ supabase }) {
     if (!Number.isFinite(units) || units <= 0) throw new Error("INVALID_USAGE_FEATURE");
 
     const { data: profile, error: profileError } = await supabase
-      .from("profiles").select("plan").eq("id", userId).single();
+      .from("profiles").select("plan,billing_tier").eq("id", userId).single();
     if (profileError) throw new Error("USAGE_PROFILE_READ_FAILED");
     if (profile?.plan !== "pro") return { allowed: true, plan: "free", units: 0 };
 
     const billingPeriod = currentBillingPeriod();
-    const budgetUnits = AI_USAGE_CONFIG.proBudgetUnits;
+    const tier = profile.billing_tier === "lite" ? "lite" : "premium";
+    const budgetUnits = AI_USAGE_CONFIG.tierBudgetUnits[tier];
     const { data: existing, error: readError } = await supabase
       .from("ai_usage_periods")
       .select("used_units,budget_units")
@@ -42,7 +43,7 @@ function createUsageService({ supabase }) {
 
     return {
       allowed: usedUnits + units <= budgetUnits,
-      plan: "pro",
+      plan: "pro", tier,
       userId,
       billingPeriod,
       units,
