@@ -14,4 +14,9 @@ Record only meaningful milestones or changes: first meeting/date, explicit affec
 Do not record ordinary conversation, routine greetings, a single delayed reply, mild ambiguity, or a speculative feeling. Return one neutral factual event title plus one concise aiSummary sentence describing the supported relationship meaning or change. The summary must distinguish interpretation from fact and must not restate the chat. If a date is visible and unambiguous use YYYY-MM-DD; otherwise return null and the application will use the analysis date. Return shouldRecord=false when uncertain.`;
 }
 
-module.exports = { relationshipEventPrompt };
+function embeddedRelationshipEventInstructions() {
+  return `TIMELINE EVENT SIDE OUTPUT
+In addition to the module's main result, return timelineEvent. Record only a clearly evidenced relationship-significant milestone or change: a first date, explicit affection, confirmed relationship, significant conflict, reconciliation, sustained cold period when clearly visible, resumed contact, future discussion, boundary issue, anniversary, trip, meeting family, proposal, breakup, reunion, or important decision. Do not record routine conversation, greetings, one delayed reply, mild ambiguity, or speculative feelings. Use shouldRecord=false and evidenceStrength=insufficient when uncertain. When recording, use a neutral factual title and concise summary, and use YYYY-MM-DD only when a date is visible and unambiguous.`;
+}
+
+module.exports = { relationshipEventPrompt, embeddedRelationshipEventInstructions };
