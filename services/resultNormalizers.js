@@ -57,7 +57,7 @@ function normalizeReply(raw, locale = "ja") {
     kind: "reply", conversationTemperature, currentState,
     temperatureReason: currentState, recommendedReply: recommended.text, recommendedPurpose: recommended.strategy,
     recommendedReason: recommended.reason, alternatives, reason: recommended.reason,
-    conversationRead: currentState,
+    conversationRead: currentState, timelineEvent: normalizeTimelineEvent(raw.timelineEvent, locale),
   };
 }
 
@@ -75,7 +75,7 @@ function normalizeAnalysis(raw, locale = "ja") {
     relationshipTrend,
     progressionRisk: score(raw.progression_risk),
     overallReason, actionAdvice, signalsToObserve,
-    keyMoments: [], timelineEvent: { shouldRecord: false },
+    keyMoments: [], timelineEvent: normalizeTimelineEvent(raw.timelineEvent, locale),
   };
 }
 
