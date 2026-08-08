@@ -3,11 +3,12 @@ const replyProposalSchema = {
   strict: true,
   schema: {
     type: "object", additionalProperties: false,
-    required: ["conversationTemperature", "currentState", "options"],
+    required: ["conversationTemperature", "currentState", "options", "timelineEvent"],
     properties: {
       conversationTemperature: { type: "integer", minimum: 0, maximum: 100 },
       currentState: { type: "string" },
-      options: { type: "array", minItems: 3, maxItems: 3, items: { type: "object", additionalProperties: false, required: ["strategy", "text", "reason"], properties: { strategy: { type: "string", enum: ["option_1", "option_2", "option_3"] }, text: { type: "string" }, reason: { type: "string" } } } }
+      options: { type: "array", minItems: 3, maxItems: 3, items: { type: "object", additionalProperties: false, required: ["strategy", "text", "reason"], properties: { strategy: { type: "string", enum: ["option_1", "option_2", "option_3"] }, text: { type: "string" }, reason: { type: "string" } } } },
+      timelineEvent: { type: "object", additionalProperties: false, required: ["shouldRecord", "eventType", "title", "aiSummary", "eventDate", "evidenceStrength"], properties: { shouldRecord: { type: "boolean" }, eventType: { type: "string", enum: ["first_date", "birthday", "trip", "first_touch", "conflict", "reconciliation", "relationship_confirmed", "met_family", "proposal", "breakup", "reunion", "future_discussion", "boundary", "contact_resumed", "cold_period", "important_decision", "custom"] }, title: { type: "string" }, aiSummary: { type: "string" }, eventDate: { type: ["string", "null"] }, evidenceStrength: { type: "string", enum: ["insufficient", "clear"] } } }
     }
   }
 };
@@ -17,7 +18,7 @@ const chatAnalysisSchema = {
   strict: true,
   schema: {
     type: "object", additionalProperties: false,
-    required: ["conversation_balance", "communication_quality", "relationship_trend", "progression_risk", "core_reason", "action_advice", "signals_to_observe"],
+    required: ["conversation_balance", "communication_quality", "relationship_trend", "progression_risk", "core_reason", "action_advice", "signals_to_observe", "timelineEvent"],
     properties: {
       conversation_balance: { type: "integer", minimum: 0, maximum: 100 },
       communication_quality: { type: "integer", minimum: 0, maximum: 100 },
@@ -25,7 +26,8 @@ const chatAnalysisSchema = {
       progression_risk: { type: "integer", minimum: 0, maximum: 100 },
       core_reason: { type: "string" },
       action_advice: { type: "string" },
-      signals_to_observe: { type: "array", minItems: 1, maxItems: 3, items: { type: "string" } }
+      signals_to_observe: { type: "array", minItems: 1, maxItems: 3, items: { type: "string" } },
+      timelineEvent: { type: "object", additionalProperties: false, required: ["shouldRecord", "eventType", "title", "aiSummary", "eventDate", "evidenceStrength"], properties: { shouldRecord: { type: "boolean" }, eventType: { type: "string", enum: ["first_date", "birthday", "trip", "first_touch", "conflict", "reconciliation", "relationship_confirmed", "met_family", "proposal", "breakup", "reunion", "future_discussion", "boundary", "contact_resumed", "cold_period", "important_decision", "custom"] }, title: { type: "string" }, aiSummary: { type: "string" }, eventDate: { type: ["string", "null"] }, evidenceStrength: { type: "string", enum: ["insufficient", "clear"] } } }
     }
   }
 };
