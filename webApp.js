@@ -10,6 +10,7 @@ const { createTracking } = require("./tracking/service");
 const { createUsageService } = require("./services/usageService");
 
 const app = express();
+app.set("trust proxy", 1);
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || "sk_test_placeholder");
 const port = Number(process.env.PORT || 3001);
 const allowedOrigins = String(process.env.WEB_APP_ORIGINS || "http://localhost:3000")
@@ -26,6 +27,34 @@ const dashboardStatsStartAt = new Date(process.env.ADMIN_STATS_START_AT || "2026
 
 function sha256(value) {
   return crypto.createHash("sha256").update(String(value || "").trim().toLowerCase()).digest("hex");
+}
+
+function anonymousHash(value) {
+  const secret = process.env.ANONYMOUS_USAGE_SECRET || process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!secret) throw new Error("ANONYMOUS_USAGE_NOT_CONFIGURED");
+  return crypto.createHmac("sha256", secret).update(String(value || "")).digest("hex");
+}
+
+function networkPrefix(value) {
+  const ip = String(value || "unknown").replace(/^::ffff:/, "").trim();
+  if (/^\d{1,3}(?:\.\d{1,3}){3}$/.test(ip)) return ip.split(".").slice(0, 3).join(".");
+  if (ip.includes(":")) return ip.split(":").slice(0, 4).join(":");
+  return "unknown";
+}
+
+function anonymousIdentity(req) {
+  const deviceId = String(req.headers["x-renai-device-id"] || "").trim();
+  if (!/^[a-zA-Z0-9_-]{20,128}$/.test(deviceId)) return null;
+  const forwardedIp = String(req.headers["cf-connecting-ip"] || req.ip || "unknown").split(",")[0].trim();
+  const network = networkPrefix(forwardedIp);
+  const userAgent = String(req.headers["user-agent"] || "").slice(0, 500);
+  const language = String(req.headers["accept-language"] || "").slice(0, 120);
+  const fingerprint = String(req.headers["x-renai-fingerprint"] || "").slice(0, 500);
+  return {
+    deviceHash: anonymousHash(`device:${deviceId}`),
+    riskHash: anonymousHash(`risk:${network}:${userAgent}:${language}:${fingerprint}`),
+    networkHash: anonymousHash(`network:${network}`),
+  };
 }
 
 function subscriptionPeriod(subscription) {
@@ -124,7 +153,7 @@ app.use((req, res, next) => {
     res.setHeader("Access-Control-Allow-Origin", origin);
     res.setHeader("Vary", "Origin");
   }
-  res.setHeader("Access-Control-Allow-Headers", "Authorization, Content-Type, X-Analysis-Mode, X-Locale, X-Reply-Goal, X-Reply-Style, X-Relationship-Status");
+  res.setHeader("Access-Control-Allow-Headers", "Authorization, Content-Type, X-Analysis-Mode, X-Locale, X-Reply-Goal, X-Reply-Style, X-Relationship-Status, X-RenAI-Device-ID, X-RenAI-Fingerprint");
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS");
   res.setHeader("X-Content-Type-Options", "nosniff");
   if (req.method === "OPTIONS") return res.sendStatus(204);
@@ -836,6 +865,99 @@ app.post("/api/v1/relationships/:relationshipId/reports/generate", requireUser, 
     res.status(500).json({ error: "REPORT_GENERATION_FAILED" });
   }
 });
+
+app.get("/api/v1/anonymous/trial", async (req, res) => {
+  try {
+    const identity = anonymousIdentity(req);
+    if (!identity) return res.status(400).json({ error: "ANONYMOUS_ID_REQUIRED" });
+    const { data, error } = await supabase.from("anonymous_trials")
+      .select("reply_used,analysis_used,started_at,expires_at")
+      .eq("device_hash", identity.deviceHash).maybeSingle();
+    if (error) return res.status(500).json({ error: "TRIAL_STATUS_FAILED" });
+    res.json({
+      trial: data ? {
+        replyUsed: Number(data.reply_used || 0), replyLimit: 5,
+        analysisUsed: Number(data.analysis_used || 0), analysisLimit: 3,
+        startedAt: data.started_at, expiresAt: data.expires_at,
+        expired: new Date(data.expires_at).getTime() <= Date.now(),
+      } : { replyUsed: 0, replyLimit: 5, analysisUsed: 0, analysisLimit: 3, startedAt: null, expiresAt: null, expired: false }
+    });
+  } catch (error) {
+    console.error("ANONYMOUS TRIAL STATUS FAILED", String(error.message || error));
+    res.status(500).json({ error: "TRIAL_STATUS_FAILED" });
+  }
+});
+
+app.post(
+  "/api/v1/anonymous/analyses",
+  express.raw({ type: ["image/jpeg", "image/png", "image/webp"], limit: "10mb" }),
+  async (req, res) => {
+    const identity = anonymousIdentity(req);
+    if (!identity) return res.status(400).json({ error: "ANONYMOUS_ID_REQUIRED" });
+    const mode = req.headers["x-analysis-mode"];
+    const requestedLocale = String(req.headers["x-locale"] || "ja");
+    const locale = ["ja", "zh-TW", "en"].includes(requestedLocale) ? requestedLocale : "ja";
+    const mimeType = String(req.headers["content-type"] || "").split(";")[0];
+    if (!Buffer.isBuffer(req.body) || !req.body.length) return res.status(400).json({ error: "IMAGE_REQUIRED" });
+    if (!isSupportedImage(req.body, mimeType)) return res.status(415).json({ error: "INVALID_IMAGE_FILE" });
+    if (!["reply", "analysis"].includes(mode)) return res.status(400).json({ error: "INVALID_MODE" });
+    const replySettings = cleanReplySettings(req);
+    if (mode === "reply" && replySettings.error) return res.status(400).json({ error: replySettings.error });
+
+    const { data: rows, error: reserveError } = await supabase.rpc("reserve_anonymous_analysis_credit", {
+      target_device_hash: identity.deviceHash,
+      target_risk_hash: identity.riskHash,
+      target_network_hash: identity.networkHash,
+      target_mode: mode,
+    });
+    if (reserveError) {
+      console.error("ANONYMOUS CREDIT CHECK FAILED", reserveError.message);
+      return res.status(500).json({ error: "CREDIT_CHECK_FAILED" });
+    }
+    const credit = rows?.[0];
+    if (!credit?.allowed) return res.status(402).json({ error: credit?.reason || "TRIAL_LIMIT_REACHED", trial: credit || null });
+
+    const requestId = crypto.randomUUID();
+    try {
+      const output = await analyzeForWeb({
+        imageBuffer: req.body, mimeType, mode, locale,
+        context: mode === "reply" ? replySettings.value : {},
+      });
+      await tracking.record({
+        name: "ai_usage_completed", businessKey: `anonymous_ai_usage_completed:${requestId}`,
+        source: "ai", properties: { ...output.usage, mode, anonymous: true }
+      });
+      for (const [index, usage] of (output.auxiliaryUsages || []).entries()) {
+        await tracking.record({
+          name: "ai_usage_completed", businessKey: `anonymous_ai_usage_completed:${requestId}:aux:${index}`,
+          source: "ai", properties: { ...usage, mode, anonymous: true }
+        });
+      }
+      res.status(201).json({
+        analysis: { id: requestId, mode, status: "completed", result: output.result, completed_at: new Date().toISOString() },
+        trial: {
+          replyUsed: Number(credit.reply_used), replyLimit: Number(credit.reply_limit),
+          analysisUsed: Number(credit.analysis_used), analysisLimit: Number(credit.analysis_limit),
+          expiresAt: credit.expires_at,
+        }
+      });
+    } catch (error) {
+      try {
+        await supabase.rpc("refund_anonymous_analysis_credit", {
+          target_device_hash: identity.deviceHash,
+          target_risk_hash: identity.riskHash,
+          target_mode: mode,
+        });
+      } catch {}
+      await tracking.record({
+        name: "ai_usage_failed", businessKey: `anonymous_ai_usage_failed:${requestId}`,
+        source: "ai", properties: { mode, anonymous: true, error_code: String(error.message || "AI_FAILED").slice(0, 80) }
+      });
+      console.error("ANONYMOUS ANALYSIS FAILED", requestId, mode, String(error.message || error));
+      res.status(502).json({ error: "ANALYSIS_FAILED" });
+    }
+  }
+);
 
 app.get("/api/v1/analyses", requireUser, async (req, res) => {
   const limit = Math.min(50, Math.max(1, Number(req.query.limit || 20)));
