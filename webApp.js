@@ -1100,21 +1100,45 @@ app.post(
       if (!identity) return res.status(400).json({ error: "ANONYMOUS_ID_REQUIRED" });
       actorKey = identity.deviceHash;
     }
-    const configuredLimit = actorPlan === "pro"
+    const configuredSuccessLimit = actorPlan === "pro"
       ? process.env.CHAT_EXTRACTION_PRO_DAILY_LIMIT
       : actorPlan === "free"
         ? process.env.CHAT_EXTRACTION_FREE_DAILY_LIMIT
         : process.env.CHAT_EXTRACTION_ANONYMOUS_DAILY_LIMIT;
-    const defaultLimit = actorPlan === "pro" ? 10 : 3;
-    const dailyLimit = Math.max(1, Math.min(100, Number(configuredLimit || defaultLimit)));
-    const { data: reserved, error: reserveError } = await supabase.rpc("reserve_chat_extraction", { target_actor_key: actorKey, daily_limit: dailyLimit });
-    if (reserveError) return res.status(500).json({ error: "EXTRACTION_LIMIT_CHECK_FAILED" });
-    if (!reserved?.[0]?.allowed) return res.status(429).json({ error: "EXTRACTION_LIMIT_REACHED" });
+    const configuredAttemptLimit = actorPlan === "pro"
+      ? process.env.CHAT_EXTRACTION_PRO_ATTEMPT_DAILY_LIMIT
+      : actorPlan === "free"
+        ? process.env.CHAT_EXTRACTION_FREE_ATTEMPT_DAILY_LIMIT
+        : process.env.CHAT_EXTRACTION_ANONYMOUS_ATTEMPT_DAILY_LIMIT;
+    const defaultSuccessLimit = actorPlan === "pro" ? 20 : 5;
+    const defaultAttemptLimit = actorPlan === "pro" ? 50 : 15;
+    const successLimit = Math.max(1, Math.min(100, Number(configuredSuccessLimit || defaultSuccessLimit)));
+    const attemptLimit = Math.max(successLimit, Math.min(500, Number(configuredAttemptLimit || defaultAttemptLimit)));
+    const { data: attempt, error: attemptError } = await supabase.rpc("begin_chat_extraction_attempt", {
+      target_actor_key: actorKey,
+      success_limit: successLimit,
+      attempt_limit: attemptLimit,
+    });
+    if (attemptError) return res.status(500).json({ error: "EXTRACTION_LIMIT_CHECK_FAILED" });
+    if (!attempt?.[0]?.allowed) {
+      const error = attempt?.[0]?.reason === "ATTEMPT_LIMIT_REACHED" ? "EXTRACTION_ATTEMPT_LIMIT_REACHED" : "EXTRACTION_LIMIT_REACHED";
+      return res.status(429).json({ error });
+    }
 
     const requestId = crypto.randomUUID();
     try {
       const output = await extractChatMessages({ imageBuffer: req.body, mimeType });
       if (!output.messages.length) return res.status(422).json({ error: "CHAT_NOT_READABLE" });
+      const senders = new Set(output.messages.map((message) => message.sender));
+      if (!senders.has("self") || !senders.has("partner")) {
+        return res.status(422).json({ error: "CHAT_SIDES_NOT_READABLE" });
+      }
+      const { data: completed, error: completionError } = await supabase.rpc("complete_chat_extraction_success", {
+        target_actor_key: actorKey,
+        success_limit: successLimit,
+      });
+      if (completionError) return res.status(500).json({ error: "EXTRACTION_USAGE_RECORD_FAILED" });
+      if (!completed?.[0]?.recorded) return res.status(429).json({ error: "EXTRACTION_LIMIT_REACHED" });
       await supabase.from("chat_extraction_cache").upsert({
         content_fingerprint: fingerprint,
         result: { messages: output.messages },
@@ -1125,7 +1149,17 @@ app.post(
         name: "ai_usage_completed", businessKey: `chat_extraction:${requestId}`,
         source: "ai", properties: { ...output.usage, mode: "reply" }
       });
-      res.status(201).json({ messages: output.messages, cached: false, limit: { plan: actorPlan, daily: dailyLimit, used: Number(reserved?.[0]?.used || 0) } });
+      res.status(201).json({
+        messages: output.messages,
+        cached: false,
+        limit: {
+          plan: actorPlan,
+          successfulDaily: successLimit,
+          successfulUsed: Number(completed?.[0]?.successful || 0),
+          attemptsDaily: attemptLimit,
+          attemptsUsed: Number(attempt?.[0]?.attempts_used || 0),
+        },
+      });
     } catch (error) {
       console.error("CHAT EXTRACTION FAILED", requestId, String(error.message || error));
       res.status(502).json({ error: "CHAT_EXTRACTION_FAILED" });
