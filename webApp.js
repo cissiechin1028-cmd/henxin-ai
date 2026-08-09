@@ -1072,31 +1072,55 @@ app.post(
 );
 
 app.post("/api/v1/anonymous/conversation-replies", express.json({ limit: "128kb" }), async (req, res) => {
-  const identity = anonymousIdentity(req);
-  if (!identity) return res.status(400).json({ error: "ANONYMOUS_ID_REQUIRED" });
   const messages = Array.isArray(req.body?.messages) ? req.body.messages.filter((item) => ["self", "partner"].includes(item?.sender) && String(item?.text || "").trim()).slice(-80) : [];
   if (!messages.length) return res.status(400).json({ error: "CONVERSATION_REQUIRED" });
   const requestedLocale = String(req.headers["x-locale"] || "ja");
   const locale = ["ja", "zh-TW", "en"].includes(requestedLocale) ? requestedLocale : "ja";
   const replySettings = cleanReplySettings(req);
   if (replySettings.error) return res.status(400).json({ error: replySettings.error });
-  const { data: rows, error: reserveError } = await supabase.rpc("reserve_anonymous_analysis_credit", {
-    target_device_hash: identity.deviceHash, target_risk_hash: identity.riskHash,
-    target_network_hash: identity.networkHash, target_mode: "reply",
-  });
-  if (reserveError) return res.status(500).json({ error: "CREDIT_CHECK_FAILED" });
-  const credit = rows?.[0];
-  if (!credit?.allowed) return res.status(402).json({ error: credit?.reason || "TRIAL_LIMIT_REACHED", trial: credit || null });
+  const token = String(req.headers.authorization || "").replace(/^Bearer\s+/i, "");
+  const authenticatedUser = token ? (await supabase.auth.getUser(token)).data?.user : null;
+  const { data: profile } = authenticatedUser
+    ? await supabase.from("profiles").select("plan,billing_tier,role,is_test_account").eq("id", authenticatedUser.id).maybeSingle()
+    : { data: null };
+  const privileged = profile?.role === "admin" || Boolean(profile?.is_test_account);
+  let paidUsage = null;
+  let identity = null;
+  let credit = null;
+  if (!privileged && profile?.plan === "pro") {
+    try {
+      paidUsage = await usageService.check(authenticatedUser.id, "reply");
+    } catch (error) {
+      console.error("CONVERSATION REPLY USAGE CHECK FAILED", String(error.message || error));
+      return res.status(500).json({ error: "CREDIT_CHECK_FAILED" });
+    }
+    if (!paidUsage.allowed) return res.status(429).json({ error: "FAIR_USE_LIMIT_REACHED" });
+  } else if (!privileged) {
+    identity = anonymousIdentity(req);
+    if (!identity) return res.status(400).json({ error: "ANONYMOUS_ID_REQUIRED" });
+    const { data: rows, error: reserveError } = await supabase.rpc("reserve_anonymous_analysis_credit", {
+      target_device_hash: identity.deviceHash, target_risk_hash: identity.riskHash,
+      target_network_hash: identity.networkHash, target_mode: "reply",
+    });
+    if (reserveError) return res.status(500).json({ error: "CREDIT_CHECK_FAILED" });
+    credit = rows?.[0];
+    if (!credit?.allowed) return res.status(402).json({ error: credit?.reason || "TRIAL_LIMIT_REACHED", trial: credit || null });
+  }
   const requestId = crypto.randomUUID();
   try {
     const output = await analyzeConversationForWeb({ messages, partnerName: String(req.body?.partnerName || "").slice(0, 80), locale, context: replySettings.value });
+    if (paidUsage) await usageService.recordSuccess(paidUsage);
     await tracking.record({ name: "ai_usage_completed", businessKey: `anonymous_ai_usage_completed:${requestId}`, source: "ai", properties: { ...output.usage, mode: "reply", anonymous: true } });
     return res.status(201).json({
       analysis: { id: requestId, mode: "reply", status: "completed", result: output.result, completed_at: new Date().toISOString() },
-      trial: { replyUsed: Number(credit.reply_used), replyLimit: Number(credit.reply_limit), analysisUsed: Number(credit.analysis_used), analysisLimit: Number(credit.analysis_limit), expiresAt: credit.expires_at },
+      trial: credit
+        ? { replyUsed: Number(credit.reply_used), replyLimit: Number(credit.reply_limit), analysisUsed: Number(credit.analysis_used), analysisLimit: Number(credit.analysis_limit), expiresAt: credit.expires_at }
+        : { replyUsed: 0, replyLimit: 999999, analysisUsed: 0, analysisLimit: 999999, expiresAt: null },
     });
   } catch (error) {
-    try { await supabase.rpc("refund_anonymous_analysis_credit", { target_device_hash: identity.deviceHash, target_risk_hash: identity.riskHash, target_mode: "reply" }); } catch {}
+    if (identity) {
+      try { await supabase.rpc("refund_anonymous_analysis_credit", { target_device_hash: identity.deviceHash, target_risk_hash: identity.riskHash, target_mode: "reply" }); } catch {}
+    }
     console.error("ANONYMOUS CONVERSATION REPLY FAILED", requestId, String(error.message || error));
     return res.status(502).json({ error: "ANALYSIS_FAILED" });
   }
