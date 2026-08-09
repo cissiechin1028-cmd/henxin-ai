@@ -45,13 +45,13 @@ async function extractChatMessages({ imageBuffer, mimeType }) {
   const response = await axios.post("https://api.openai.com/v1/chat/completions", {
     model,
     messages: [
-      { role: "system", content: "Extract only visible chat messages in chronological order. Determine self versus partner from bubble alignment and UI conventions. Preserve the original message language, emoji, punctuation, and line breaks. Ignore timestamps, names, navigation labels, reactions, system notices, stickers without readable text, and invented or uncertain text. Return an empty list if reliable chat messages are not visible." },
+      { role: "system", content: "Extract only visible chat messages in chronological order. For LINE screenshots, green bubbles aligned to the right are self and white or light-gray bubbles aligned to the left are partner. For other chat apps, determine self versus partner from bubble alignment and UI conventions. Preserve the original message language, emoji, punctuation, and line breaks. Ignore timestamps, names, navigation labels, reactions, system notices, stickers without readable text, and invented or uncertain text. Return an empty list if reliable chat messages are not visible." },
       { role: "user", content: [
         { type: "text", text: "Convert this chat screenshot into editable message bubbles." },
-        { type: "image_url", image_url: { url: `data:${mimeType};base64,${imageBuffer.toString("base64")}` } },
+        { type: "image_url", image_url: { url: `data:${mimeType};base64,${imageBuffer.toString("base64")}`, detail: "high" } },
       ] },
     ],
-    temperature: 0, max_tokens: 1800,
+    temperature: 0, max_tokens: 2400,
     response_format: { type: "json_schema", json_schema: chatExtractionSchema },
   }, { timeout: 60000, headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}`, "Content-Type": "application/json" } });
   const raw = JSON.parse(String(response.data?.choices?.[0]?.message?.content || "").replace(/```json|```/g, "").trim());
@@ -1114,12 +1114,24 @@ app.post(
     const defaultAttemptLimit = actorPlan === "pro" ? 50 : 15;
     const successLimit = Math.max(1, Math.min(100, Number(configuredSuccessLimit || defaultSuccessLimit)));
     const attemptLimit = Math.max(successLimit, Math.min(500, Number(configuredAttemptLimit || defaultAttemptLimit)));
-    const { data: attempt, error: attemptError } = await supabase.rpc("begin_chat_extraction_attempt", {
+    let legacyReservation = false;
+    let { data: attempt, error: attemptError } = await supabase.rpc("begin_chat_extraction_attempt", {
       target_actor_key: actorKey,
       success_limit: successLimit,
       attempt_limit: attemptLimit,
     });
-    if (attemptError) return res.status(500).json({ error: "EXTRACTION_LIMIT_CHECK_FAILED" });
+    if (attemptError) {
+      const fallback = await supabase.rpc("reserve_chat_extraction", {
+        target_actor_key: actorKey,
+        daily_limit: successLimit,
+      });
+      if (fallback.error) {
+        console.error("CHAT EXTRACTION LIMIT CHECK FAILED", String(attemptError.message || attemptError), String(fallback.error.message || fallback.error));
+        return res.status(500).json({ error: "EXTRACTION_LIMIT_CHECK_FAILED" });
+      }
+      legacyReservation = true;
+      attempt = fallback.data?.map((row) => ({ ...row, attempts_used: row.used, reason: row.allowed ? null : "SUCCESS_LIMIT_REACHED" }));
+    }
     if (!attempt?.[0]?.allowed) {
       const error = attempt?.[0]?.reason === "ATTEMPT_LIMIT_REACHED" ? "EXTRACTION_ATTEMPT_LIMIT_REACHED" : "EXTRACTION_LIMIT_REACHED";
       return res.status(429).json({ error });
@@ -1133,12 +1145,16 @@ app.post(
       if (!senders.has("self") || !senders.has("partner")) {
         return res.status(422).json({ error: "CHAT_SIDES_NOT_READABLE" });
       }
-      const { data: completed, error: completionError } = await supabase.rpc("complete_chat_extraction_success", {
-        target_actor_key: actorKey,
-        success_limit: successLimit,
-      });
-      if (completionError) return res.status(500).json({ error: "EXTRACTION_USAGE_RECORD_FAILED" });
-      if (!completed?.[0]?.recorded) return res.status(429).json({ error: "EXTRACTION_LIMIT_REACHED" });
+      let completed = [{ recorded: true, successful: Number(attempt?.[0]?.used || 0) }];
+      if (!legacyReservation) {
+        const completion = await supabase.rpc("complete_chat_extraction_success", {
+          target_actor_key: actorKey,
+          success_limit: successLimit,
+        });
+        if (completion.error) return res.status(500).json({ error: "EXTRACTION_USAGE_RECORD_FAILED" });
+        completed = completion.data;
+        if (!completed?.[0]?.recorded) return res.status(429).json({ error: "EXTRACTION_LIMIT_REACHED" });
+      }
       await supabase.from("chat_extraction_cache").upsert({
         content_fingerprint: fingerprint,
         result: { messages: output.messages },
