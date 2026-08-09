@@ -42,24 +42,32 @@ const chatExtractionSchema = {
 async function extractChatMessages({ imageBuffer, mimeType }) {
   if (!process.env.OPENAI_API_KEY) throw new Error("OPENAI_NOT_CONFIGURED");
   const model = process.env.OPENAI_EXTRACTION_MODEL || process.env.OPENAI_VISION_MODEL || "gpt-4.1-mini";
-  const response = await axios.post("https://api.openai.com/v1/chat/completions", {
-    model,
-    messages: [
-      { role: "system", content: "Extract only visible chat messages in chronological order. For LINE screenshots, green bubbles aligned to the right are self and white or light-gray bubbles aligned to the left are partner. For other chat apps, determine self versus partner from bubble alignment and UI conventions. Preserve the original message language, emoji, punctuation, and line breaks. Ignore timestamps, names, navigation labels, reactions, system notices, stickers without readable text, and invented or uncertain text. Return an empty list if reliable chat messages are not visible." },
-      { role: "user", content: [
-        { type: "text", text: "Convert this chat screenshot into editable message bubbles." },
-        { type: "image_url", image_url: { url: `data:${mimeType};base64,${imageBuffer.toString("base64")}`, detail: "high" } },
-      ] },
-    ],
-    temperature: 0, max_tokens: 2400,
-    response_format: { type: "json_schema", json_schema: chatExtractionSchema },
-  }, { timeout: 60000, headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}`, "Content-Type": "application/json" } });
-  const raw = JSON.parse(String(response.data?.choices?.[0]?.message?.content || "").replace(/```json|```/g, "").trim());
-  const messages = Array.isArray(raw?.messages) ? raw.messages.slice(-200).map((message) => ({
-    sender: message?.sender === "self" ? "self" : "partner",
-    text: String(message?.text || "").trim().slice(0, 1000),
-  })).filter((message) => message.text) : [];
-  return { messages, model: response.data?.model || model, usage: aiUsageProperties(response, response.data?.model || model, "chat_extraction") };
+  let last = { messages: [], response: null };
+  for (let pass = 0; pass < 2; pass += 1) {
+    const response = await axios.post("https://api.openai.com/v1/chat/completions", {
+      model,
+      messages: [
+        { role: "system", content: pass === 0
+          ? "Extract only visible chat messages in chronological order. For LINE screenshots, green bubbles aligned to the right are self and white or light-gray bubbles aligned to the left are partner. For other chat apps, determine self versus partner from bubble alignment and UI conventions. Preserve the original message language, emoji, punctuation, and line breaks. Ignore timestamps, names, navigation labels, reactions, system notices, stickers without readable text, and invented or uncertain text. Return an empty list if reliable chat messages are not visible."
+          : "Re-check the entire screenshot carefully. Treat every readable green bubble on the RIGHT as self and every readable white/light-gray bubble on the LEFT as partner. Read both columns from top to bottom, including short messages. Do not omit a side merely because its bubbles are smaller. Return only visible message text in chronological order; ignore timestamps and UI labels." },
+        { role: "user", content: [
+          { type: "text", text: pass === 0 ? "Convert this chat screenshot into editable message bubbles." : "The first pass missed messages or one speaker. Carefully extract both left and right chat bubbles." },
+          { type: "image_url", image_url: { url: `data:${mimeType};base64,${imageBuffer.toString("base64")}`, detail: "high" } },
+        ] },
+      ],
+      temperature: 0, max_tokens: 2400,
+      response_format: { type: "json_schema", json_schema: chatExtractionSchema },
+    }, { timeout: 60000, headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}`, "Content-Type": "application/json" } });
+    const raw = JSON.parse(String(response.data?.choices?.[0]?.message?.content || "").replace(/```json|```/g, "").trim());
+    const messages = Array.isArray(raw?.messages) ? raw.messages.slice(-200).map((message) => ({
+      sender: message?.sender === "self" ? "self" : "partner",
+      text: String(message?.text || "").trim().slice(0, 1000),
+    })).filter((message) => message.text) : [];
+    last = { messages, response };
+    const senders = new Set(messages.map((message) => message.sender));
+    if (messages.length && senders.has("self") && senders.has("partner")) break;
+  }
+  return { messages: last.messages, model: last.response?.data?.model || model, usage: aiUsageProperties(last.response, last.response?.data?.model || model, "chat_extraction") };
 }
 
 const consultationLocaleInstruction = {
