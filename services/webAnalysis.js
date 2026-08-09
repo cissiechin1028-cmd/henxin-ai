@@ -18,10 +18,10 @@ async function callStructured({ prompt, task, imageDataUrl, schema, maxTokens, t
         model: process.env.OPENAI_VISION_MODEL || "gpt-4.1-mini",
         messages: [
           { role: "system", content: prompt },
-          { role: "user", content: [
+          { role: "user", content: imageDataUrl ? [
             { type: "text", text: task },
             { type: "image_url", image_url: { url: imageDataUrl } },
-          ] },
+          ] : task },
         ],
         temperature: attempt === 0 ? temperature : 0,
         max_tokens: maxTokens,
@@ -40,6 +40,25 @@ async function callStructured({ prompt, task, imageDataUrl, schema, maxTokens, t
     }
   }
   throw lastError || new Error("AI_FAILED");
+}
+
+async function analyzeConversationForWeb({ messages = [], partnerName = "", locale = "ja", context = {} }) {
+  if (!process.env.OPENAI_API_KEY) throw new Error("OPENAI_NOT_CONFIGURED");
+  const startedAt = Date.now();
+  const model = process.env.OPENAI_VISION_MODEL || "gpt-4.1-mini";
+  const transcript = messages.slice(-80).map((message) => `${message.sender === "self" ? "SELF" : "PARTNER"}: ${String(message.text || "").trim()}`).filter((line) => !line.endsWith(": ")).join("\n");
+  if (!transcript) throw new Error("CONVERSATION_REQUIRED");
+  const main = await callStructured({
+    prompt: replyProposalPrompt(locale, context),
+    task: `Create reply proposals from this parsed conversation with ${partnerName || "the partner"}. Do not perform OCR. Use only the transcript and verified context.\n\n${transcript}`,
+    schema: replyProposalSchema, maxTokens: 1100, temperature: 0.3,
+    validate: raw => normalizeReply(raw, locale),
+  });
+  return {
+    result: normalizeReply(main.raw, locale), model: main.response.data?.model || model,
+    processingMs: Date.now() - startedAt,
+    usage: aiUsageProperties(main.response, main.response.data?.model || model, "reply_idea"), auxiliaryUsages: [],
+  };
 }
 
 async function analyzeForWeb({ imageBuffer, mimeType, mode, locale = "ja", context = {} }) {
@@ -79,4 +98,4 @@ async function analyzeForWeb({ imageBuffer, mimeType, mode, locale = "ja", conte
   };
 }
 
-module.exports = { analyzeForWeb };
+module.exports = { analyzeForWeb, analyzeConversationForWeb };
