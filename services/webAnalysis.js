@@ -14,8 +14,10 @@ async function callStructured({ prompt, task, imageDataUrl, schema, maxTokens, t
   let lastError;
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
-      const response = await axios.post("https://api.openai.com/v1/chat/completions", {
-        model: process.env.OPENAI_VISION_MODEL || "gpt-4.1-mini",
+      const model = process.env.OPENAI_VISION_MODEL || "gpt-4.1-mini";
+      const usesCompletionTokens = /^(gpt-5|o\d)/i.test(model);
+      const requestBody = {
+        model,
         messages: [
           { role: "system", content: prompt },
           { role: "user", content: imageDataUrl ? [
@@ -23,10 +25,14 @@ async function callStructured({ prompt, task, imageDataUrl, schema, maxTokens, t
             { type: "image_url", image_url: { url: imageDataUrl } },
           ] : task },
         ],
-        temperature: attempt === 0 ? temperature : 0,
-        max_tokens: maxTokens,
         response_format: { type: "json_schema", json_schema: schema },
-      }, {
+      };
+      if (usesCompletionTokens) requestBody.max_completion_tokens = Math.max(maxTokens, 2200);
+      else {
+        requestBody.max_tokens = maxTokens;
+        requestBody.temperature = attempt === 0 ? temperature : 0;
+      }
+      const response = await axios.post("https://api.openai.com/v1/chat/completions", requestBody, {
         timeout: 60000,
         headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}`, "Content-Type": "application/json" },
       });
