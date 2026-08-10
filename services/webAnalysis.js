@@ -2,7 +2,8 @@ const axios = require("axios");
 const { aiUsageProperties } = require("../tracking/cost");
 const { replyProposalPrompt } = require("../prompts/replyProposal");
 const { chatAnalysisPrompt } = require("../prompts/chatAnalysis");
-const { replyProposalSchema, chatAnalysisSchema } = require("../schemas/outputs");
+const { topicAnalysisPrompt } = require("../prompts/topicAnalysis");
+const { replyProposalSchema, chatAnalysisSchema, topicAnalysisSchema } = require("../schemas/outputs");
 const { normalizeReply, normalizeAnalysis } = require("./resultNormalizers");
 
 function parseJson(text = "") {
@@ -70,6 +71,15 @@ async function analyzeConversationForWeb({ messages = [], partnerName = "", loca
   };
 }
 
+async function analyzeConversationTopicForWeb({messages=[],partnerName="",locale="ja",context={}}){
+ if(!process.env.OPENAI_API_KEY)throw new Error("OPENAI_NOT_CONFIGURED");
+ const startedAt=Date.now(),model=process.env.OPENAI_VISION_MODEL||"gpt-4.1-mini";
+ const transcript=messages.slice(-120).map(message=>`${message.timestamp?`[VISIBLE TIME: ${String(message.timestamp).trim()}]`:"[TIME UNKNOWN]"} ${message.sender==="self"?"SELF":"PARTNER"}: ${String(message.text||"").trim()}`).join("\n");
+ if(!transcript)throw new Error("CONVERSATION_REQUIRED");
+ const main=await callStructured({prompt:topicAnalysisPrompt(locale,context),task:`Analyze this parsed conversation with ${partnerName||"the partner"}. Do not perform OCR.\n\n${transcript}`,schema:topicAnalysisSchema,maxTokens:2400,temperature:.2,validate:raw=>{if(!raw||raw.topic_id!==context.topicId||!Array.isArray(raw.modules))throw new Error("AI_INVALID_TOPIC_REPORT")}});
+ return{result:{kind:"topic_analysis",...main.raw},model:main.response.data?.model||model,processingMs:Date.now()-startedAt,usage:aiUsageProperties(main.response,main.response.data?.model||model,"topic_analysis"),auxiliaryUsages:[]};
+}
+
 async function analyzeForWeb({ imageBuffer, mimeType, mode, locale = "ja", context = {} }) {
   if (!process.env.OPENAI_API_KEY) throw new Error("OPENAI_NOT_CONFIGURED");
   const startedAt = Date.now();
@@ -107,4 +117,4 @@ async function analyzeForWeb({ imageBuffer, mimeType, mode, locale = "ja", conte
   };
 }
 
-module.exports = { analyzeForWeb, analyzeConversationForWeb };
+module.exports = { analyzeForWeb, analyzeConversationForWeb, analyzeConversationTopicForWeb };

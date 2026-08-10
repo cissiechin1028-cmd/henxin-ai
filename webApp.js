@@ -5,7 +5,7 @@ const Stripe = require("stripe");
 const axios = require("axios");
 const crypto = require("crypto");
 const { createClient } = require("@supabase/supabase-js");
-const { analyzeForWeb, analyzeConversationForWeb } = require("./services/webAnalysis");
+const { analyzeForWeb, analyzeConversationForWeb, analyzeConversationTopicForWeb } = require("./services/webAnalysis");
 const { aiUsageProperties } = require("./tracking/cost");
 const { generateRelationshipReport, periodBounds } = require("./services/relationshipReports");
 const { createTracking } = require("./tracking/service");
@@ -1141,6 +1141,28 @@ app.post("/api/v1/anonymous/conversation-replies", express.json({ limit: "128kb"
     console.error("ANONYMOUS CONVERSATION REPLY FAILED", requestId, String(error.message || error));
     return res.status(502).json({ error: "ANALYSIS_FAILED" });
   }
+});
+
+app.post("/api/v1/anonymous/conversation-analyses",express.json({limit:"192kb"}),async(req,res)=>{
+ const messages=Array.isArray(req.body?.messages)?req.body.messages.filter(item=>["self","partner"].includes(item?.sender)&&String(item?.text||"").trim()).slice(-120).map(item=>({sender:item.sender,text:String(item.text).trim().slice(0,1500),timestamp:item.timestamp==null?null:String(item.timestamp).trim().slice(0,80)||null})):[];
+ if(!messages.length)return res.status(400).json({error:"CONVERSATION_REQUIRED"});
+ const topic=req.body?.topic||{},topicId=String(topic.id||"").trim();
+ if(!/^[a-z0-9-]{3,40}$/.test(topicId))return res.status(400).json({error:"INVALID_ANALYSIS_TOPIC"});
+ const requestedLocale=String(req.headers["x-locale"]||"ja"),locale=["ja","zh-TW","en"].includes(requestedLocale)?requestedLocale:"ja";
+ const token=String(req.headers.authorization||"").replace(/^Bearer\s+/i,""),authenticatedUser=token?(await supabase.auth.getUser(token)).data?.user:null;
+ const{data:profile}=authenticatedUser?await supabase.from("profiles").select("plan,billing_tier,role,is_test_account").eq("id",authenticatedUser.id).maybeSingle():{data:null};
+ const privileged=profile?.role==="admin"||Boolean(profile?.is_test_account);let paidUsage=null,identity=null,credit=null;
+ if(!privileged&&profile?.plan==="pro"){
+  try{paidUsage=await usageService.check(authenticatedUser.id,"analysis")}catch(error){console.error("TOPIC ANALYSIS USAGE CHECK FAILED",String(error.message||error));return res.status(500).json({error:"CREDIT_CHECK_FAILED"})}
+  if(!paidUsage.allowed)return res.status(429).json({error:"FAIR_USE_LIMIT_REACHED"});
+ }else if(!privileged){identity=anonymousIdentity(req);if(!identity)return res.status(400).json({error:"ANONYMOUS_ID_REQUIRED"});const{data:rows,error:reserveError}=await supabase.rpc("reserve_anonymous_analysis_credit",{target_device_hash:identity.deviceHash,target_risk_hash:identity.riskHash,target_network_hash:identity.networkHash,target_mode:"analysis"});if(reserveError)return res.status(500).json({error:"CREDIT_CHECK_FAILED"});credit=rows?.[0];if(!credit?.allowed)return res.status(402).json({error:credit?.reason||"TRIAL_LIMIT_REACHED",trial:credit||null})}
+ const requestId=crypto.randomUUID();
+ try{
+  const output=await analyzeConversationTopicForWeb({messages,partnerName:String(req.body?.partnerName||"").slice(0,80),locale,context:{topicId,topicTitle:String(topic.title||"").slice(0,100),question:String(topic.question||"").slice(0,240),evidenceInstruction:String(topic.evidenceInstruction||"").slice(0,500),requiredModules:Array.isArray(topic.requiredModules)?topic.requiredModules.slice(0,12):[],optionalModules:Array.isArray(topic.optionalModules)?topic.optionalModules.slice(0,12):[],readinessStatus:req.body?.readinessStatus==="partial"?"partial":"sufficient"}});
+  if(paidUsage)await usageService.recordSuccess(paidUsage);
+  await tracking.record({name:"ai_usage_completed",businessKey:`topic_ai_usage_completed:${requestId}`,source:"ai",properties:{...output.usage,mode:"analysis",topic_id:topicId,anonymous:!authenticatedUser}});
+  return res.status(201).json({analysis:{id:requestId,mode:"analysis",status:"completed",result:output.result,completed_at:new Date().toISOString()},trial:credit?{replyUsed:Number(credit.reply_used),replyLimit:Number(credit.reply_limit),analysisUsed:Number(credit.analysis_used),analysisLimit:Number(credit.analysis_limit),expiresAt:credit.expires_at}:null});
+ }catch(error){if(identity)try{await supabase.rpc("refund_anonymous_analysis_credit",{target_device_hash:identity.deviceHash,target_risk_hash:identity.riskHash,target_mode:"analysis"})}catch{}console.error("TOPIC ANALYSIS FAILED",requestId,String(error.message||error));return res.status(502).json({error:"ANALYSIS_FAILED"})}
 });
 
 app.get("/api/v1/analyses", requireUser, async (req, res) => {
