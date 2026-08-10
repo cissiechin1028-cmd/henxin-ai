@@ -36,7 +36,7 @@ test("conversation reply uses GPT-5 compatible parameters and returns three prop
     delete require.cache[require.resolve("../services/webAnalysis")];
     const { analyzeConversationForWeb } = require("../services/webAnalysis");
     const output = await analyzeConversationForWeb({
-      messages: [{ sender: "partner", text: "今ちょっと忙しい" }, { sender: "self", text: "わかった" }],
+      messages: [{ sender: "partner", text: "今ちょっと忙しい", timestamp: "19:53" }, { sender: "self", text: "わかった", timestamp: null }],
       partnerName: "レン",
       locale: "ja",
       context: {},
@@ -45,6 +45,9 @@ test("conversation reply uses GPT-5 compatible parameters and returns three prop
     assert.equal(requestBody.temperature, undefined);
     assert.equal(requestBody.max_tokens, undefined);
     assert.ok(requestBody.max_completion_tokens >= 2200);
+    assert.match(requestBody.messages[1].content, /\[VISIBLE TIME: 19:53\] PARTNER/);
+    assert.match(requestBody.messages[1].content, /\[TIME UNKNOWN\] SELF/);
+    assert.match(requestBody.messages[1].content, /Never infer delayed replies/);
     assert.equal(output.result.kind, "reply");
     assert.equal(output.result.alternatives.length, 2);
     assert.equal(output.result.recommendedReply, validReply.options[0].text);

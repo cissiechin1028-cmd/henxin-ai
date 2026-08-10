@@ -33,8 +33,12 @@ const chatExtractionSchema = {
   schema: {
     type: "object", additionalProperties: false, required: ["messages"],
     properties: { messages: { type: "array", maxItems: 200, items: {
-      type: "object", additionalProperties: false, required: ["sender", "text"],
-      properties: { sender: { type: "string", enum: ["self", "partner"] }, text: { type: "string", minLength: 1, maxLength: 1000 } },
+      type: "object", additionalProperties: false, required: ["sender", "text", "timestamp"],
+      properties: {
+        sender: { type: "string", enum: ["self", "partner"] },
+        text: { type: "string", minLength: 1, maxLength: 1000 },
+        timestamp: { type: ["string", "null"], maxLength: 80 },
+      },
     } } },
   },
 };
@@ -48,8 +52,8 @@ async function extractChatMessages({ imageBuffer, mimeType }) {
       model,
       messages: [
         { role: "system", content: pass === 0
-          ? "Extract only visible chat messages in chronological order. For LINE screenshots, green bubbles aligned to the right are self and white or light-gray bubbles aligned to the left are partner. For other chat apps, determine self versus partner from bubble alignment and UI conventions. Preserve the original message language, emoji, punctuation, and line breaks. Ignore timestamps, names, navigation labels, reactions, system notices, stickers without readable text, and invented or uncertain text. Return an empty list if reliable chat messages are not visible."
-          : "Re-check the entire screenshot carefully. Treat every readable green bubble on the RIGHT as self and every readable white/light-gray bubble on the LEFT as partner. Read both columns from top to bottom, including short messages. Do not omit a side merely because its bubbles are smaller. Return only visible message text in chronological order; ignore timestamps and UI labels." },
+          ? "Extract only visible chat messages in chronological order. For LINE screenshots, green bubbles aligned to the right are self and white or light-gray bubbles aligned to the left are partner. For other chat apps, determine self versus partner from bubble alignment and UI conventions. Preserve the original message language, emoji, punctuation, and line breaks. For each message, copy its visibly associated date/time label exactly into timestamp (for example 19:53, 昨日 21:04, or 2026/08/10 09:30); use null when no time can be reliably associated. A date divider applies to following messages until the next divider, but never invent a missing date or time. Ignore names, navigation labels, reactions, system notices, stickers without readable text, and invented or uncertain text. Return an empty list if reliable chat messages are not visible."
+          : "Re-check the entire screenshot carefully. Treat every readable green bubble on the RIGHT as self and every readable white/light-gray bubble on the LEFT as partner. Read both columns from top to bottom, including short messages. Do not omit a side merely because its bubbles are smaller. Return visible message text in chronological order and preserve each reliably associated visible date/time label in timestamp. Use null rather than guessing when a message has no readable time. Ignore unrelated UI labels." },
         { role: "user", content: [
           { type: "text", text: pass === 0 ? "Convert this chat screenshot into editable message bubbles." : "The first pass missed messages or one speaker. Carefully extract both left and right chat bubbles." },
           { type: "image_url", image_url: { url: `data:${mimeType};base64,${imageBuffer.toString("base64")}`, detail: "high" } },
@@ -62,6 +66,7 @@ async function extractChatMessages({ imageBuffer, mimeType }) {
     const messages = Array.isArray(raw?.messages) ? raw.messages.slice(-200).map((message) => ({
       sender: message?.sender === "self" ? "self" : "partner",
       text: String(message?.text || "").trim().slice(0, 1000),
+      timestamp: message?.timestamp == null ? null : String(message.timestamp).trim().slice(0, 80) || null,
     })).filter((message) => message.text) : [];
     last = { messages, response };
     const senders = new Set(messages.map((message) => message.sender));
@@ -1072,7 +1077,14 @@ app.post(
 );
 
 app.post("/api/v1/anonymous/conversation-replies", express.json({ limit: "128kb" }), async (req, res) => {
-  const messages = Array.isArray(req.body?.messages) ? req.body.messages.filter((item) => ["self", "partner"].includes(item?.sender) && String(item?.text || "").trim()).slice(-80) : [];
+  const messages = Array.isArray(req.body?.messages) ? req.body.messages
+    .filter((item) => ["self", "partner"].includes(item?.sender) && String(item?.text || "").trim())
+    .slice(-80)
+    .map((item) => ({
+      sender: item.sender,
+      text: String(item.text).trim().slice(0, 1500),
+      timestamp: item.timestamp == null ? null : String(item.timestamp).trim().slice(0, 80) || null,
+    })) : [];
   if (!messages.length) return res.status(400).json({ error: "CONVERSATION_REQUIRED" });
   const requestedLocale = String(req.headers["x-locale"] || "ja");
   const locale = ["ja", "zh-TW", "en"].includes(requestedLocale) ? requestedLocale : "ja";
@@ -1142,7 +1154,9 @@ app.post(
     const mimeType = String(req.headers["content-type"] || "").split(";")[0];
     if (!Buffer.isBuffer(req.body) || !req.body.length) return res.status(400).json({ error: "IMAGE_REQUIRED" });
     if (!isSupportedImage(req.body, mimeType)) return res.status(415).json({ error: "INVALID_IMAGE_FILE" });
-    const fingerprint = crypto.createHash("sha256").update(req.body).digest("hex");
+    // Version the fingerprint whenever the extraction contract changes so old
+    // cached results cannot silently omit newly required evidence.
+    const fingerprint = crypto.createHash("sha256").update("chat-extraction-v2-timestamps:").update(req.body).digest("hex");
     const { data: cached } = await supabase.from("chat_extraction_cache").select("result,expires_at")
       .eq("content_fingerprint", fingerprint).gt("expires_at", new Date().toISOString()).maybeSingle();
     if (cached?.result?.messages) return res.json({ messages: cached.result.messages, cached: true });

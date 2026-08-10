@@ -52,11 +52,14 @@ async function analyzeConversationForWeb({ messages = [], partnerName = "", loca
   if (!process.env.OPENAI_API_KEY) throw new Error("OPENAI_NOT_CONFIGURED");
   const startedAt = Date.now();
   const model = process.env.OPENAI_VISION_MODEL || "gpt-4.1-mini";
-  const transcript = messages.slice(-80).map((message) => `${message.sender === "self" ? "SELF" : "PARTNER"}: ${String(message.text || "").trim()}`).filter((line) => !line.endsWith(": ")).join("\n");
+  const transcript = messages.slice(-80).map((message) => {
+    const timestamp = String(message.timestamp || "").trim();
+    return `${timestamp ? `[VISIBLE TIME: ${timestamp}] ` : "[TIME UNKNOWN] "}${message.sender === "self" ? "SELF" : "PARTNER"}: ${String(message.text || "").trim()}`;
+  }).filter((line) => !line.endsWith(": ")).join("\n");
   if (!transcript) throw new Error("CONVERSATION_REQUIRED");
   const main = await callStructured({
     prompt: replyProposalPrompt(locale, context),
-    task: `Create reply proposals from this parsed conversation with ${partnerName || "the partner"}. Do not perform OCR. Use only the transcript and verified context.\n\n${transcript}`,
+    task: `Create reply proposals from this parsed conversation with ${partnerName || "the partner"}. Do not perform OCR. Use only the transcript and verified context. Timing labels marked VISIBLE TIME are evidence; TIME UNKNOWN means no timing inference is allowed for that message. Never infer delayed replies or a cooling trend from message order alone.\n\n${transcript}`,
     schema: replyProposalSchema, maxTokens: 1100, temperature: 0.3,
     validate: raw => normalizeReply(raw, locale),
   });

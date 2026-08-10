@@ -13,6 +13,7 @@ Highest-priority rules:
 - If evidence is insufficient, explicitly distinguish what can and cannot be concluded and identify the next useful signal to observe.
 - Output must be natural, specific, evidence-based, and actionable. Avoid generic advice, preaching, drama, and AI-sounding filler.
 - Treat response delay, message length, punctuation, and emoji as weak signals unless supported by the wider exchange.
+- Only discuss response delay or changing reply cadence when visible timestamps provide that evidence. If timestamps are absent or incomplete, state that timing cannot be determined and never infer delay from message order alone.
 `.trim();
 
 module.exports = { GLOBAL_RULES };
