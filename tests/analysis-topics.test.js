@@ -1,0 +1,31 @@
+const test = require("node:test");
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
+const { ANALYSIS_TOPICS, getAnalysisTopic } = require("../analysisTopics");
+
+test("server owns all sixteen analysis topic contracts", () => {
+  assert.equal(ANALYSIS_TOPICS.length, 16);
+  assert.equal(new Set(ANALYSIS_TOPICS.map((topic) => topic.id)).size, 16);
+  for (const topic of ANALYSIS_TOPICS) {
+    assert.ok(topic.title);
+    assert.ok(topic.question);
+    assert.ok(topic.evidenceInstruction);
+    assert.ok(topic.requiredModules.length >= 4);
+    assert.equal(getAnalysisTopic(topic.id), topic);
+  }
+});
+
+test("unknown topic ids are rejected by the resolver", () => {
+  assert.equal(getAnalysisTopic("not-a-real-topic"), null);
+  assert.equal(getAnalysisTopic(""), null);
+});
+
+test("conversation analysis route never trusts a client topic contract", () => {
+  const source = fs.readFileSync(path.join(__dirname, "..", "webApp.js"), "utf8");
+  const route = source.slice(source.indexOf('app.post("/api/v1/anonymous/conversation-analyses"'), source.indexOf('app.get("/api/v1/analyses"'));
+  assert.match(route, /getAnalysisTopic\(topicId\)/);
+  assert.doesNotMatch(route, /req\.body\?\.topic\b/);
+  assert.doesNotMatch(route, /evidenceInstruction:\s*req\.body/);
+  assert.doesNotMatch(route, /requiredModules:\s*req\.body/);
+});

@@ -10,6 +10,7 @@ const { aiUsageProperties } = require("./tracking/cost");
 const { generateRelationshipReport, periodBounds } = require("./services/relationshipReports");
 const { createTracking } = require("./tracking/service");
 const { createUsageService } = require("./services/usageService");
+const { getAnalysisTopic } = require("./analysisTopics");
 
 const app = express();
 app.set("trust proxy", 1);
@@ -1146,8 +1147,8 @@ app.post("/api/v1/anonymous/conversation-replies", express.json({ limit: "128kb"
 app.post("/api/v1/anonymous/conversation-analyses",express.json({limit:"192kb"}),async(req,res)=>{
  const messages=Array.isArray(req.body?.messages)?req.body.messages.filter(item=>["self","partner"].includes(item?.sender)&&String(item?.text||"").trim()).slice(-120).map(item=>({sender:item.sender,text:String(item.text).trim().slice(0,1500),timestamp:item.timestamp==null?null:String(item.timestamp).trim().slice(0,80)||null})):[];
  if(!messages.length)return res.status(400).json({error:"CONVERSATION_REQUIRED"});
- const topic=req.body?.topic||{},topicId=String(topic.id||"").trim();
- if(!/^[a-z0-9-]{3,40}$/.test(topicId))return res.status(400).json({error:"INVALID_ANALYSIS_TOPIC"});
+ const topicId=String(req.body?.topicId||"").trim(),topic=getAnalysisTopic(topicId);
+ if(!topic)return res.status(400).json({error:"INVALID_ANALYSIS_TOPIC"});
  const requestedLocale=String(req.headers["x-locale"]||"ja"),locale=["ja","zh-TW","en"].includes(requestedLocale)?requestedLocale:"ja";
  const token=String(req.headers.authorization||"").replace(/^Bearer\s+/i,""),authenticatedUser=token?(await supabase.auth.getUser(token)).data?.user:null;
  const{data:profile}=authenticatedUser?await supabase.from("profiles").select("plan,billing_tier,role,is_test_account").eq("id",authenticatedUser.id).maybeSingle():{data:null};
@@ -1158,7 +1159,7 @@ app.post("/api/v1/anonymous/conversation-analyses",express.json({limit:"192kb"})
  }else if(!privileged){identity=anonymousIdentity(req);if(!identity)return res.status(400).json({error:"ANONYMOUS_ID_REQUIRED"});const{data:rows,error:reserveError}=await supabase.rpc("reserve_anonymous_analysis_credit",{target_device_hash:identity.deviceHash,target_risk_hash:identity.riskHash,target_network_hash:identity.networkHash,target_mode:"analysis"});if(reserveError)return res.status(500).json({error:"CREDIT_CHECK_FAILED"});credit=rows?.[0];if(!credit?.allowed)return res.status(402).json({error:credit?.reason||"TRIAL_LIMIT_REACHED",trial:credit||null})}
  const requestId=crypto.randomUUID();
  try{
-  const output=await analyzeConversationTopicForWeb({messages,partnerName:String(req.body?.partnerName||"").slice(0,80),locale,context:{topicId,topicTitle:String(topic.title||"").slice(0,100),question:String(topic.question||"").slice(0,240),evidenceInstruction:String(topic.evidenceInstruction||"").slice(0,500),requiredModules:Array.isArray(topic.requiredModules)?topic.requiredModules.slice(0,12):[],optionalModules:Array.isArray(topic.optionalModules)?topic.optionalModules.slice(0,12):[],readinessStatus:req.body?.readinessStatus==="partial"?"partial":"sufficient"}});
+  const output=await analyzeConversationTopicForWeb({messages,partnerName:String(req.body?.partnerName||"").slice(0,80),locale,context:{topicId:topic.id,topicTitle:topic.title,question:topic.question,evidenceInstruction:topic.evidenceInstruction,requiredModules:topic.requiredModules,optionalModules:topic.optionalModules,readinessStatus:req.body?.readinessStatus==="partial"?"partial":"sufficient"}});
   if(paidUsage)await usageService.recordSuccess(paidUsage);
   await tracking.record({name:"ai_usage_completed",businessKey:`topic_ai_usage_completed:${requestId}`,source:"ai",properties:{...output.usage,mode:"analysis",topic_id:topicId,anonymous:!authenticatedUser}});
   let storedAnalysisId=requestId;
