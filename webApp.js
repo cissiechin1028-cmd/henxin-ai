@@ -338,7 +338,12 @@ async function findActiveRelationship(userId) {
     .eq("user_id", userId).eq("status", "active").maybeSingle();
 }
 
-app.get("/health", (_req, res) => res.json({ ok: true, service: "renai-web-api" }));
+app.get("/health", (_req, res) => res.json({
+  ok: true,
+  service: "renai-web-api",
+  extractionContract: "v2-timestamps",
+  release: process.env.RENDER_GIT_COMMIT || null,
+}));
 
 function cleanReplySettings(req) {
   const replyGoal = String(req.headers["x-reply-goal"] || "").trim().slice(0, 150);
