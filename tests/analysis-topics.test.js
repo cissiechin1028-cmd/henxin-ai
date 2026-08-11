@@ -29,3 +29,12 @@ test("conversation analysis route never trusts a client topic contract", () => {
   assert.doesNotMatch(route, /evidenceInstruction:\s*req\.body/);
   assert.doesNotMatch(route, /requiredModules:\s*req\.body/);
 });
+
+test("topic analysis keeps server-owned identifiers authoritative", () => {
+  const source = fs.readFileSync(path.join(__dirname, "..", "services", "webAnalysis.js"), "utf8");
+  const topicAnalysis = source.slice(source.indexOf("async function analyzeConversationTopicForWeb"), source.indexOf("async function analyzeForWeb"));
+  assert.doesNotMatch(topicAnalysis, /raw\.topic_id\s*!==\s*context\.topicId/);
+  assert.match(topicAnalysis, /topic_id:context\.topicId/);
+  assert.match(topicAnalysis, /readiness_status:context\.readinessStatus/);
+  assert.match(topicAnalysis, /reasoningEffort:"minimal"/);
+});
