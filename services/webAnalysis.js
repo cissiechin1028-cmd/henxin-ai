@@ -11,7 +11,7 @@ function parseJson(text = "") {
   try { return JSON.parse(cleaned); } catch { throw new Error("AI_INVALID_JSON"); }
 }
 
-async function callStructured({ prompt, task, imageDataUrl, schema, maxTokens, temperature, validate }) {
+async function callStructured({ prompt, task, imageDataUrl, schema, maxTokens, temperature, validate, reasoningEffort }) {
   let lastError;
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
@@ -28,7 +28,10 @@ async function callStructured({ prompt, task, imageDataUrl, schema, maxTokens, t
         ],
         response_format: { type: "json_schema", json_schema: schema },
       };
-      if (usesCompletionTokens) requestBody.max_completion_tokens = Math.max(maxTokens, 2200);
+      if (usesCompletionTokens) {
+        requestBody.max_completion_tokens = Math.max(maxTokens, 2200);
+        if (reasoningEffort) requestBody.reasoning_effort = reasoningEffort;
+      }
       else {
         requestBody.max_tokens = maxTokens;
         requestBody.temperature = attempt === 0 ? temperature : 0;
@@ -76,8 +79,8 @@ async function analyzeConversationTopicForWeb({messages=[],partnerName="",locale
  const startedAt=Date.now(),model=process.env.OPENAI_VISION_MODEL||"gpt-4.1-mini";
  const transcript=messages.slice(-120).map(message=>`${message.timestamp?`[VISIBLE TIME: ${String(message.timestamp).trim()}]`:"[TIME UNKNOWN]"} ${message.sender==="self"?"SELF":"PARTNER"}: ${String(message.text||"").trim()}`).join("\n");
  if(!transcript)throw new Error("CONVERSATION_REQUIRED");
- const main=await callStructured({prompt:topicAnalysisPrompt(locale,context),task:`Analyze this parsed conversation with ${partnerName||"the partner"}. Do not perform OCR.\n\n${transcript}`,schema:topicAnalysisSchema,maxTokens:2400,temperature:.2,validate:raw=>{if(!raw||raw.topic_id!==context.topicId||!Array.isArray(raw.modules))throw new Error("AI_INVALID_TOPIC_REPORT")}});
- return{result:{kind:"topic_analysis",...main.raw},model:main.response.data?.model||model,processingMs:Date.now()-startedAt,usage:aiUsageProperties(main.response,main.response.data?.model||model,"topic_analysis"),auxiliaryUsages:[]};
+ const main=await callStructured({prompt:topicAnalysisPrompt(locale,context),task:`Analyze this parsed conversation with ${partnerName||"the partner"}. Do not perform OCR.\n\n${transcript}`,schema:topicAnalysisSchema,maxTokens:4000,temperature:.2,reasoningEffort:"minimal",validate:raw=>{if(!raw||!Array.isArray(raw.modules))throw new Error("AI_INVALID_TOPIC_REPORT")}});
+ return{result:{kind:"topic_analysis",...main.raw,topic_id:context.topicId,readiness_status:context.readinessStatus},model:main.response.data?.model||model,processingMs:Date.now()-startedAt,usage:aiUsageProperties(main.response,main.response.data?.model||model,"topic_analysis"),auxiliaryUsages:[]};
 }
 
 async function analyzeForWeb({ imageBuffer, mimeType, mode, locale = "ja", context = {} }) {
