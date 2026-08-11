@@ -1307,9 +1307,10 @@ app.delete("/api/v1/analyses/:id", requireUser, async (req, res) => {
 
 app.post("/api/v1/consultations", requireUser, express.json({ limit: "8kb" }), async (req, res) => {
   const analysisId = String(req.body?.analysisId || "").trim() || null;
-  const { data: profile, error: profileError } = await supabase.from("profiles").select("plan").eq("id", req.user.id).maybeSingle();
+  const { data: profile, error: profileError } = await supabase.from("profiles").select("plan,role,is_test_account").eq("id", req.user.id).maybeSingle();
   if (profileError) return res.status(500).json({ error: "PROFILE_READ_FAILED" });
-  if (profile?.plan !== "pro") return res.status(402).json({ error: "PRO_REQUIRED" });
+  const privileged = profile?.role === "admin" || Boolean(profile?.is_test_account);
+  if (!privileged && profile?.plan !== "pro") return res.status(402).json({ error: "PRO_REQUIRED" });
   let analysis = null;
   if (analysisId) {
     const query = await supabase.from("analyses").select("id,relationship_id,result").eq("id", analysisId).eq("user_id", req.user.id).eq("status", "completed").maybeSingle();
@@ -1342,25 +1343,28 @@ app.post("/api/v1/consultations/:id/messages", requireUser, express.json({ limit
   const requestedLocale = String(req.body?.locale || "ja");
   const locale = ["ja", "zh-TW", "en"].includes(requestedLocale) ? requestedLocale : "ja";
   if (!content) return res.status(400).json({ error: "MESSAGE_REQUIRED" });
-  const { data: profile } = await supabase.from("profiles").select("plan,billing_tier").eq("id", req.user.id).maybeSingle();
-  if (profile?.plan !== "pro") return res.status(402).json({ error: "PRO_REQUIRED" });
+  const { data: profile } = await supabase.from("profiles").select("plan,billing_tier,role,is_test_account").eq("id", req.user.id).maybeSingle();
+  const privileged = profile?.role === "admin" || Boolean(profile?.is_test_account);
+  if (!privileged && profile?.plan !== "pro") return res.status(402).json({ error: "PRO_REQUIRED" });
   const { data: thread } = await supabase.from("ai_consultation_threads").select("id,analysis_id").eq("id", req.params.id).eq("user_id", req.user.id).maybeSingle();
   if (!thread) return res.status(404).json({ error: "CONSULTATION_NOT_FOUND" });
-  let paidFeature;
-  try { paidFeature = await reservePaidFeature(req.user.id, profile.billing_tier === "lite" ? "lite" : "premium", "analysis_consultation"); }
-  catch { return res.status(500).json({ error: "PAID_USAGE_CHECK_FAILED" }); }
-  if (!paidFeature.allowed) return res.status(429).json({ error: "CONSULTATION_MONTHLY_LIMIT_REACHED", usage: paidFeature });
+  let paidFeature = null;
+  if (!privileged) {
+    try { paidFeature = await reservePaidFeature(req.user.id, profile.billing_tier === "lite" ? "lite" : "premium", "analysis_consultation"); }
+    catch { return res.status(500).json({ error: "PAID_USAGE_CHECK_FAILED" }); }
+    if (!paidFeature.allowed) return res.status(429).json({ error: "CONSULTATION_MONTHLY_LIMIT_REACHED", usage: paidFeature });
+  }
   let fairUse;
   try { fairUse = await usageService.check(req.user.id, "consultation"); }
   catch { return res.status(500).json({ error: "USAGE_CHECK_FAILED" }); }
-  if (!fairUse.allowed) { await refundPaidFeature(req.user.id, "analysis_consultation"); return res.status(429).json({ error: "FAIR_USE_LIMIT_REACHED" }); }
+  if (!fairUse.allowed) { if (paidFeature) await refundPaidFeature(req.user.id, "analysis_consultation"); return res.status(429).json({ error: "FAIR_USE_LIMIT_REACHED" }); }
   const [{ data: history }, { data: analysis }] = await Promise.all([
     supabase.from("ai_consultation_messages").select("role,content").eq("thread_id", thread.id).eq("user_id", req.user.id).order("created_at", { ascending: true }).limit(50),
     thread.analysis_id ? supabase.from("analyses").select("result").eq("id", thread.analysis_id).eq("user_id", req.user.id).maybeSingle() : Promise.resolve({ data: null }),
   ]);
   const userMessage = { role: "user", content };
   const { data: storedUser, error: userError } = await supabase.from("ai_consultation_messages").insert({ thread_id: thread.id, user_id: req.user.id, ...userMessage }).select("id,role,content,created_at").single();
-  if (userError) { await refundPaidFeature(req.user.id, "analysis_consultation"); return res.status(500).json({ error: "CONSULTATION_MESSAGE_SAVE_FAILED" }); }
+  if (userError) { if (paidFeature) await refundPaidFeature(req.user.id, "analysis_consultation"); return res.status(500).json({ error: "CONSULTATION_MESSAGE_SAVE_FAILED" }); }
   try {
     const output = await createConsultationReply({ locale, analysisResult: analysis?.result || {}, messages: [...(history || []), userMessage] });
     const usage = output.usage || {};
@@ -1377,7 +1381,7 @@ app.post("/api/v1/consultations/:id/messages", requireUser, express.json({ limit
     res.status(201).json({ userMessage: storedUser, assistantMessage: assistant });
   } catch (error) {
     console.error("AI CONSULTATION FAILED", thread.id, String(error.message || error));
-    await refundPaidFeature(req.user.id, "analysis_consultation");
+    if (paidFeature) await refundPaidFeature(req.user.id, "analysis_consultation");
     res.status(502).json({ error: "CONSULTATION_FAILED" });
   }
 });
