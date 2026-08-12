@@ -4,12 +4,44 @@ const { replyProposalPrompt } = require("../prompts/replyProposal");
 const { chatAnalysisPrompt } = require("../prompts/chatAnalysis");
 const { topicAnalysisPrompt } = require("../prompts/topicAnalysis");
 const { replyProposalSchema, chatAnalysisSchema, topicAnalysisSchema } = require("../schemas/outputs");
-const { normalizeReply, normalizeAnalysis } = require("./resultNormalizers");
+const { assertLocale, normalizeReply, normalizeAnalysis } = require("./resultNormalizers");
 
 function parseJson(text = "") {
   const cleaned = String(text).replace(/```json|```/g, "").trim();
   try { return JSON.parse(cleaned); } catch { throw new Error("AI_INVALID_JSON"); }
 }
+
+const webTasks = {
+  ja: {
+    reply: (name) => `${name || "相手"}との会話記録から返信案を作ってください。OCRは行わず、会話記録と確認済みの文脈だけを使います。VISIBLE TIMEは時刻の根拠、TIME UNKNOWNは返信時間を推測できないことを示します。並び順だけで返信が遅い、関係が冷めたなどと判断しないでください。`,
+    topic: (name) => `${name || "相手"}との会話記録を、指定されたテーマに沿って分析してください。OCRは行わず、確認できる発言と文脈だけを根拠にしてください。`,
+    screenshotReply: "画面に見える内容と確認済みの文脈だけから、返信案と簡潔なtimelineEventを作ってください。見えない情報を補わないでください。",
+    screenshotAnalysis: "このやり取りを分析し、簡潔なtimelineEventも含めてください。確認できる事実、解釈、次の行動を明確に分けてください。",
+  },
+  "zh-TW": {
+    reply: (name) => `請根據與${name || "對方"}的對話紀錄提出回覆建議。不要進行 OCR，只能使用對話紀錄與已確認的背景。VISIBLE TIME 是可用的時間證據；TIME UNKNOWN 代表不能推測該則訊息的回覆時間。不可只憑訊息排列順序判定回覆變慢或關係降溫。`,
+    topic: (name) => `請依指定主題分析與${name || "對方"}的對話紀錄。不要進行 OCR，只能根據可確認的訊息與背景判讀。`,
+    screenshotReply: "請只根據畫面中可見的內容與已確認背景，提出回覆建議並產生精簡的 timelineEvent；不要補寫看不到的資訊。",
+    screenshotAnalysis: "請分析這段互動並包含精簡的 timelineEvent，清楚區分可確認的事實、你的判讀與可採取的行動。",
+  },
+  en: {
+    reply: (name) => `Create reply options from the conversation with ${name || "the other person"}. Do not perform OCR; use only the transcript and verified context. VISIBLE TIME is valid timing evidence, while TIME UNKNOWN means no timing inference is allowed. Never infer slower replies or a cooling relationship from message order alone.`,
+    topic: (name) => `Analyze the conversation with ${name || "the other person"} for the selected topic. Do not perform OCR, and base the analysis only on verified messages and context.`,
+    screenshotReply: "Use only visible evidence and verified context in this screenshot to create reply options and a compact timelineEvent. Do not fill in anything that is not shown.",
+    screenshotAnalysis: "Analyze this exchange and include a compact timelineEvent. Keep verified facts, interpretation, and suggested actions distinct.",
+  },
+};
+const taskFor = (locale) => webTasks[locale] || webTasks.ja;
+const topicStrings = (raw) => {
+  const output = [];
+  const visit = (value, key = "") => {
+    if (typeof value === "string" && !["id", "type", "status", "level", "topic_id"].includes(key)) output.push(value);
+    else if (Array.isArray(value)) value.forEach((item) => visit(item, key));
+    else if (value && typeof value === "object") Object.entries(value).forEach(([childKey, child]) => visit(child, childKey));
+  };
+  visit(raw);
+  return output;
+};
 
 async function callStructured({ prompt, task, imageDataUrl, schema, maxTokens, temperature, validate, reasoningEffort }) {
   let lastError;
@@ -63,7 +95,7 @@ async function analyzeConversationForWeb({ messages = [], partnerName = "", loca
   if (!transcript) throw new Error("CONVERSATION_REQUIRED");
   const main = await callStructured({
     prompt: replyProposalPrompt(locale, context),
-    task: `Create reply proposals from this parsed conversation with ${partnerName || "the partner"}. Do not perform OCR. Use only the transcript and verified context. Timing labels marked VISIBLE TIME are evidence; TIME UNKNOWN means no timing inference is allowed for that message. Never infer delayed replies or a cooling trend from message order alone.\n\n${transcript}`,
+    task: `${taskFor(locale).reply(partnerName)}\n\n${transcript}`,
     schema: replyProposalSchema, maxTokens: 1100, temperature: 0.3,
     validate: raw => normalizeReply(raw, locale),
   });
@@ -79,7 +111,7 @@ async function analyzeConversationTopicForWeb({messages=[],partnerName="",locale
  const startedAt=Date.now(),model=process.env.OPENAI_VISION_MODEL||"gpt-4.1-mini";
  const transcript=messages.slice(-120).map(message=>`${message.timestamp?`[VISIBLE TIME: ${String(message.timestamp).trim()}]`:"[TIME UNKNOWN]"} ${message.sender==="self"?"SELF":"PARTNER"}: ${String(message.text||"").trim()}`).join("\n");
  if(!transcript)throw new Error("CONVERSATION_REQUIRED");
- const main=await callStructured({prompt:topicAnalysisPrompt(locale,context),task:`Analyze this parsed conversation with ${partnerName||"the partner"}. Do not perform OCR.\n\n${transcript}`,schema:topicAnalysisSchema,maxTokens:4000,temperature:.2,reasoningEffort:"minimal",validate:raw=>{if(!raw||!Array.isArray(raw.modules))throw new Error("AI_INVALID_TOPIC_REPORT")}});
+ const main=await callStructured({prompt:topicAnalysisPrompt(locale,context),task:`${taskFor(locale).topic(partnerName)}\n\n${transcript}`,schema:topicAnalysisSchema,maxTokens:4000,temperature:.2,reasoningEffort:"minimal",validate:raw=>{if(!raw||!Array.isArray(raw.modules))throw new Error("AI_INVALID_TOPIC_REPORT");assertLocale(topicStrings(raw),locale)}});
  return{result:{kind:"topic_analysis",...main.raw,topic_id:context.topicId,readiness_status:context.readinessStatus},model:main.response.data?.model||model,processingMs:Date.now()-startedAt,usage:aiUsageProperties(main.response,main.response.data?.model||model,"topic_analysis"),auxiliaryUsages:[]};
 }
 
@@ -92,7 +124,7 @@ async function analyzeForWeb({ imageBuffer, mimeType, mode, locale = "ja", conte
   if (mode === "reply") {
     const main = await callStructured({
       prompt: replyProposalPrompt(locale, context),
-      task: "Create reply proposals and the compact timelineEvent side output from this screenshot. Use only visible evidence and verified context.",
+      task: taskFor(locale).screenshotReply,
       imageDataUrl, schema: replyProposalSchema, maxTokens: 1100, temperature: 0.3,
       validate: raw => normalizeReply(raw, locale),
     });
@@ -107,7 +139,7 @@ async function analyzeForWeb({ imageBuffer, mimeType, mode, locale = "ja", conte
 
   const main = await callStructured({
     prompt: chatAnalysisPrompt(locale, context),
-    task: "Analyse this exchange and include the compact timelineEvent side output. Keep facts, interpretations, and actions distinct.",
+    task: taskFor(locale).screenshotAnalysis,
     imageDataUrl, schema: chatAnalysisSchema, maxTokens: 1700, temperature: 0.2,
     validate: raw => normalizeAnalysis(raw, locale),
   });

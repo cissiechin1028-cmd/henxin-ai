@@ -1,4 +1,6 @@
 const { aiUsageProperties } = require("../tracking/cost");
+const { localeRules } = require("../prompts/locales");
+const { assertLocale } = require("./resultNormalizers");
 
 const strategySchema = {
   name: "renai_strategy_plan",
@@ -35,16 +37,17 @@ function cleanStrategyInput(body = {}) {
   return { value: { topic: { id: topicId, title: topicTitle, summary: text(body.topic?.summary, 180) }, profile: compactRecord(body.profile, 20), answers: compactRecord(body.answers, 20), verifiedPlaces: places, weather, reusedContext, externalDataStatus: compactRecord(body.externalDataStatus,4) } };
 }
 
-async function generateStrategy(input) {
+async function generateStrategy(input, locale = "ja") {
   const axios = require("axios");
   if (!process.env.OPENAI_API_KEY) throw new Error("OPENAI_NOT_CONFIGURED");
   const topicId = input.topic.id;
-  const instructions = [
-    "あなたは日本語の恋愛行動プラン作成者です。診断ではなく、実際に行動できる攻略を作ります。断定・操作・過度な期待を避け、相手の意思と安全を尊重してください。",
-    "入力された関係段階、双方の傾向、今回の目的に合わせて内容を変えます。入力にない事実は作らないでください。",
-    ["date-plan","travel-plan","anniversary"].includes(topicId) ? "現実データが必要な計画です。verifiedPlaces にない店名・施設名、取得していない営業時間・料金・移動時間・空席を作らないでください。候補がない場合は地域と施設種別だけで安全に提案し、公式情報の確認を促してください。weather がある時だけ天気を明示し、天候に合わせて屋内外・順序・移動負担・予備案を実際に変えてください。weather がない時は天気を見たと主張しないでください。" : "旅行・予約・実在店舗情報を勝手に追加しないでください。",
-    "headline は今回の具体的な方針。steps は時間順の実行手順。avoid は今やらないこと。reactions は前向き・迷い・反応が薄い場合。checkpoints は次に観察する点。計画系では cautions、backupPlan、budgetNote も具体化し、それ以外は短くしてください。reusedContext は再分析せず必要な結論だけ再利用してください。",
-  ].join("\n");
+  const needsRealData = ["date-plan","travel-plan","anniversary"].includes(topicId);
+  const localizedInstructions = {
+    ja: `診断ではなく、現在の関係、ふたりの好み、今回の目的に合う実行可能な恋愛攻略を作成してください。同意、境界線、安全を尊重し、操作や本心の断定、入力にない事実を避けます。${needsRealData ? "実在する店名、住所、営業時間、価格、経路、空き状況、天気を創作してはいけません。店名はverifiedPlacesにあるものだけを使い、候補がなければ安全な施設の種類とエリアを提案して公式情報の確認を促してください。weatherがある場合だけ天気に触れ、屋内外の選択、順序、徒歩負担、代替案に反映してください。" : "旅行、予約、店舗、価格、経路などの現実情報を創作しないでください。"} headlineはこの状況の具体的な方向性、stepsは時系列で実行できる内容、avoidは今しないこと、reactionsは前向き・曖昧・弱い反応への対応、checkpointsは次に見る兆候です。reusedContextは再分析せず、関係する結論だけを活用してください。`,
+    "zh-TW": `請產生能實際執行、並理解雙方關係的行動攻略，而不是做診斷。內容要配合目前關係階段、兩人的偏好與這次目標；尊重同意、界線與安全，不操控、不斷言對方內心，也不加入輸入中沒有的事實。${needsRealData ? "不得編造店家、地址、營業時間、價格、路線、空位或天氣。只能使用 verifiedPlaces 中的店名；若沒有可靠地點，請改以合適的場所類型與區域提出建議，並提醒使用者查核官方資訊。只有提供 weather 時才能提及天氣，而且要真正影響室內外選擇、行程順序、步行負擔與備案。" : "不得編造旅遊、預約、店家、價格、路線等現實資訊。"} headline 要直接說明這次的策略方向；steps 依時間順序且可以執行；avoid 說明目前不適合做的事；reactions 分別處理正向、模糊與冷淡反應；checkpoints 說明接下來要觀察的訊號。請直接沿用 reusedContext 中相關的既有結論，不要重新分析同一批資料。`,
+    en: `Create a practical, relationship-aware action plan rather than a diagnosis. Adapt it to the stated relationship stage, both people's preferences, and the user's goal. Respect consent, boundaries, and safety; avoid manipulation, certainty about private feelings, and facts not present in the input. ${needsRealData ? "Never invent a venue, address, opening hours, price, route, availability, or weather. Name only venues in verifiedPlaces. If none are available, recommend suitable venue categories and an area, and tell the user to verify official details. Mention weather only when weather data is supplied, and make it affect indoor/outdoor choices, sequence, walking load, and the backup plan." : "Do not invent travel, booking, venue, price, route, or other real-world details."} headline states the concrete direction; steps are chronological and executable; avoid covers what not to do now; reactions handles positive, uncertain, and weak responses; checkpoints identifies the next signals to watch. Reuse relevant conclusions from reusedContext without re-analyzing the same material.`,
+  };
+  const instructions = `${localizedInstructions[locale] || localizedInstructions.ja}\n${localeRules(locale)}`;
   const model = process.env.OPENAI_STRATEGY_MODEL || process.env.OPENAI_VISION_MODEL || "gpt-4.1-mini";
   const response = await axios.post("https://api.openai.com/v1/chat/completions", {
     model, messages: [{ role: "system", content: instructions }, { role: "user", content: JSON.stringify(input) }], temperature: 0.2, max_tokens: 1600,
@@ -52,7 +55,16 @@ async function generateStrategy(input) {
   }, { timeout: 60000, headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}`, "Content-Type": "application/json" } });
   const raw = String(response.data?.choices?.[0]?.message?.content || "").replace(/```json|```/g, "").trim();
   if (!raw) throw new Error("AI_EMPTY_RESPONSE");
-  return { result: JSON.parse(raw), model: response.data?.model || model, usage: aiUsageProperties(response, response.data?.model || model, "strategy") };
+  const result = JSON.parse(raw);
+  assertLocale([
+    result.headline, result.currentSituation,
+    ...(result.steps || []).flatMap((item) => [item?.title, item?.detail]),
+    ...(result.avoid || []),
+    ...(result.reactions || []).flatMap((item) => [item?.signal, item?.action]),
+    ...(result.checkpoints || []), ...(result.cautions || []),
+    result.backupPlan, result.budgetNote,
+  ], locale);
+  return { result, model: response.data?.model || model, usage: aiUsageProperties(response, response.data?.model || model, "strategy") };
 }
 
 module.exports = { cleanStrategyInput, generateStrategy, strategySchema };

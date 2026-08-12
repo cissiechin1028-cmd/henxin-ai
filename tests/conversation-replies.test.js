@@ -47,7 +47,7 @@ test("conversation reply uses GPT-5 compatible parameters and returns three prop
     assert.ok(requestBody.max_completion_tokens >= 2200);
     assert.match(requestBody.messages[1].content, /\[VISIBLE TIME: 19:53\] PARTNER/);
     assert.match(requestBody.messages[1].content, /\[TIME UNKNOWN\] SELF/);
-    assert.match(requestBody.messages[1].content, /Never infer delayed replies/);
+    assert.match(requestBody.messages[1].content, /並び順だけで返信が遅い/);
     assert.equal(output.result.kind, "reply");
     assert.equal(output.result.alternatives.length, 2);
     assert.equal(output.result.recommendedReply, validReply.options[0].text);

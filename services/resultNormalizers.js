@@ -91,4 +91,4 @@ function normalizeTimelineEvent(raw, locale = "ja") {
   };
 }
 
-module.exports = { normalizeReply, normalizeAnalysis, normalizeTimelineEvent };
+module.exports = { assertLocale, normalizeReply, normalizeAnalysis, normalizeTimelineEvent };

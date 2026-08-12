@@ -13,6 +13,7 @@ const { normalizeModule, moduleOverview, moduleFunnel, moduleCosts } = require("
 const { createUsageService } = require("./services/usageService");
 const { getAnalysisTopic } = require("./analysisTopics");
 const { cleanStrategyInput, generateStrategy } = require("./services/strategyGenerator");
+const { localeRules } = require("./prompts/locales");
 
 const app = express();
 app.set("trust proxy", 1);
@@ -78,10 +79,10 @@ async function extractChatMessages({ imageBuffer, mimeType }) {
   return { messages: last.messages, model: last.response?.data?.model || model, usage: aiUsageProperties(last.response, last.response?.data?.model || model, "chat_extraction") };
 }
 
-const consultationLocaleInstruction = {
-  ja: "Reply only in natural contemporary Japanese.",
-  "zh-TW": "Reply only in natural Traditional Chinese.",
-  en: "Reply only in natural English.",
+const consultationTask = {
+  ja: "あなたはRenAIの恋愛コミュニケーション相談員です。分析結果とユーザーが明示した事実を根拠に、現代の日本で自然に読める日本語で、簡潔かつ実行しやすい助言を返してください。確認できる事実、ユーザーの申告、解釈を混同せず、相手の本心を断定しないでください。嫌がらせ、監視、操作、強要、望まれない反復連絡、AIへの依存を勧めてはいけません。返信文を求められた場合は、短い案を最大3つまで提示してください。",
+  "zh-TW": "你是 RenAI 的感情溝通顧問。請根據分析結果與使用者明確提供的事實，以台灣使用者自然、好理解的繁體中文，給出精簡且能實際採取的建議。請清楚區分可確認的事實、使用者陳述與你的判讀，不要斷言對方內心。不得鼓勵騷擾、監控、操控、施壓、反覆傳送不受歡迎的訊息，或讓使用者依賴助理。若使用者需要回覆訊息，最多提供3個簡短版本。",
+  en: "You are RenAI's relationship communication consultant. Use the analysis and the facts the user explicitly provided to give concise, practical advice in natural contemporary English. Keep verified facts, the user's account, and interpretation distinct, and never claim certainty about another person's private feelings. Do not encourage harassment, surveillance, manipulation, coercion, repeated unwanted contact, or dependence on the assistant. If the user asks for a message, offer no more than three short options.",
 };
 
 async function createConsultationReply({ locale = "ja", analysisResult = {}, messages = [] }) {
@@ -91,7 +92,7 @@ async function createConsultationReply({ locale = "ja", analysisResult = {}, mes
   const response = await axios.post("https://api.openai.com/v1/chat/completions", {
     model,
     messages: [
-      { role: "system", content: `You are RenAI's paid relationship communication consultant. ${consultationLocaleInstruction[locale] || consultationLocaleInstruction.ja}\nBase advice on the supplied analysis and the user's stated facts. Clearly distinguish visible facts, user claims, and interpretation. Never claim certainty about another person's private feelings. Give concise, practical, emotionally safe advice. Do not encourage harassment, surveillance, manipulation, coercion, repeated unwanted contact, or dependency on the assistant. If the user asks for a message, provide at most three short options.\nCurrent analysis context: ${compactAnalysis}` },
+      { role: "system", content: `${consultationTask[locale] || consultationTask.ja}\n${localeRules(locale)}\nAnalysis context (source data; do not copy its wording mechanically): ${compactAnalysis}` },
       ...messages.slice(-12).map((message) => ({ role: message.role === "assistant" ? "assistant" : "user", content: String(message.content).slice(0, 1500) })),
     ],
     temperature: 0.3, max_tokens: 700,
@@ -1238,6 +1239,8 @@ app.post("/api/v1/anonymous/conversation-analyses",express.json({limit:"192kb"})
 });
 
 app.post("/api/v1/anonymous/strategies", express.json({ limit: "128kb" }), async (req, res) => {
+  const requestedLocale = String(req.headers["x-locale"] || "ja");
+  const locale = ["ja", "zh-TW", "en"].includes(requestedLocale) ? requestedLocale : "ja";
   const cleaned = cleanStrategyInput(req.body);
   if (cleaned.error) return res.status(400).json({ error: cleaned.error });
   const token = String(req.headers.authorization || "").replace(/^Bearer\s+/i, "");
@@ -1273,7 +1276,7 @@ app.post("/api/v1/anonymous/strategies", express.json({ limit: "128kb" }), async
       const {data:recent}=await supabase.from("analyses").select("title,result,completed_at").eq("user_id",authenticatedUser.id).eq("mode","analysis").eq("status","completed").order("completed_at",{ascending:false}).limit(2);
       cleaned.value.reusedContext=(recent||[]).map(item=>({title:item.title,summary:item.result?.summary||"",verdict:item.result?.verdict||"",nextSteps:item.result?.next_steps||[]}));
     }
-    const output = await generateStrategy(cleaned.value);
+    const output = await generateStrategy(cleaned.value, locale);
     await tracking.record({ name: "ai_usage_completed", businessKey: `strategy_ai_usage_completed:${requestId}`, userId: authenticatedUser?.id || null, anonymousId: identity?.deviceHash || null, source: "ai", properties: { ...output.usage, module: "strategy", mode: "strategy", topic_id: cleaned.value.topic.id, anonymous: !authenticatedUser } });
     await tracking.record({name:"strategy_generation_succeeded",businessKey:`strategy_success:${requestId}`,userId:authenticatedUser?.id||null,anonymousId:identity?.deviceHash||null,source:"api",properties:{topic_id:cleaned.value.topic.id,weather_applied:Boolean(cleaned.value.weather),places_applied:Boolean(cleaned.value.verifiedPlaces.length),free_trial:Boolean(credit)}});
     return res.status(201).json({ result: output.result, trial: credit || null });
