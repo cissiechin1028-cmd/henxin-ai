@@ -11,6 +11,7 @@ const { generateRelationshipReport, periodBounds } = require("./services/relatio
 const { createTracking } = require("./tracking/service");
 const { createUsageService } = require("./services/usageService");
 const { getAnalysisTopic } = require("./analysisTopics");
+const { cleanStrategyInput, generateStrategy } = require("./services/strategyGenerator");
 
 const app = express();
 app.set("trust proxy", 1);
@@ -1166,6 +1167,43 @@ app.post("/api/v1/anonymous/conversation-analyses",express.json({limit:"192kb"})
   if(authenticatedUser){const relationship=await findActiveRelationship(authenticatedUser.id).then(result=>result.data);const{data:stored,error:storeError}=await supabase.from("analyses").insert({user_id:authenticatedUser.id,relationship_id:relationship?.id||null,mode:"analysis",status:"completed",title:String(topic.title||"チャット分析").slice(0,100),result:output.result,completed_at:new Date().toISOString(),input_metadata:{source:"parsed_conversation",topic_id:topicId,message_count:messages.length}}).select("id").single();if(storeError)throw new Error("ANALYSIS_SAVE_FAILED");storedAnalysisId=stored.id}
   return res.status(201).json({analysis:{id:storedAnalysisId,mode:"analysis",status:"completed",result:output.result,completed_at:new Date().toISOString()},trial:credit?{replyUsed:Number(credit.reply_used),replyLimit:Number(credit.reply_limit),analysisUsed:Number(credit.analysis_used),analysisLimit:Number(credit.analysis_limit),expiresAt:credit.expires_at}:null});
  }catch(error){if(identity)try{await supabase.rpc("refund_anonymous_analysis_credit",{target_device_hash:identity.deviceHash,target_risk_hash:identity.riskHash,target_mode:"analysis"})}catch{}console.error("TOPIC ANALYSIS FAILED",requestId,String(error.message||error));return res.status(502).json({error:"ANALYSIS_FAILED"})}
+});
+
+app.post("/api/v1/anonymous/strategies", express.json({ limit: "128kb" }), async (req, res) => {
+  const cleaned = cleanStrategyInput(req.body);
+  if (cleaned.error) return res.status(400).json({ error: cleaned.error });
+  const token = String(req.headers.authorization || "").replace(/^Bearer\s+/i, "");
+  const authenticatedUser = token ? (await supabase.auth.getUser(token)).data?.user : null;
+  const { data: profile } = authenticatedUser
+    ? await supabase.from("profiles").select("plan,billing_tier,role,is_test_account").eq("id", authenticatedUser.id).maybeSingle()
+    : { data: null };
+  const privileged = profile?.role === "admin" || Boolean(profile?.is_test_account);
+  let paidFeature = null, identity = null, credit = null;
+  if (!privileged && profile?.plan === "pro") {
+    try { paidFeature = await reservePaidFeature(authenticatedUser.id, profile.billing_tier === "lite" ? "lite" : "premium", "strategy"); }
+    catch (error) { console.error("STRATEGY USAGE CHECK FAILED", String(error.message || error)); return res.status(500).json({ error: "CREDIT_CHECK_FAILED" }); }
+    if (!paidFeature.allowed) return res.status(402).json({ error: "PAID_FEATURE_LIMIT_REACHED", feature: "strategy", usage: paidFeature });
+  } else if (!privileged) {
+    identity = anonymousIdentity(req);
+    if (!identity) return res.status(400).json({ error: "ANONYMOUS_ID_REQUIRED" });
+    const { data: rows, error: reserveError } = await supabase.rpc("reserve_anonymous_analysis_credit", {
+      target_device_hash: identity.deviceHash, target_risk_hash: identity.riskHash, target_network_hash: identity.networkHash, target_mode: "analysis",
+    });
+    if (reserveError) return res.status(500).json({ error: "CREDIT_CHECK_FAILED" });
+    credit = rows?.[0];
+    if (!credit?.allowed) return res.status(402).json({ error: credit?.reason || "TRIAL_LIMIT_REACHED", trial: credit || null });
+  }
+  const requestId = crypto.randomUUID();
+  try {
+    const output = await generateStrategy(cleaned.value);
+    await tracking.record({ name: "ai_usage_completed", businessKey: `strategy_ai_usage_completed:${requestId}`, source: "ai", properties: { ...output.usage, mode: "strategy", topic_id: cleaned.value.topic.id, anonymous: !authenticatedUser } });
+    return res.status(201).json({ result: output.result, trial: credit || null });
+  } catch (error) {
+    if (identity) try { await supabase.rpc("refund_anonymous_analysis_credit", { target_device_hash: identity.deviceHash, target_risk_hash: identity.riskHash, target_mode: "analysis" }); } catch {}
+    if (paidFeature) await refundPaidFeature(authenticatedUser.id, "strategy");
+    console.error("STRATEGY GENERATION FAILED", requestId, String(error.message || error));
+    return res.status(502).json({ error: "GENERATION_FAILED" });
+  }
 });
 
 app.get("/api/v1/analyses", requireUser, async (req, res) => {
