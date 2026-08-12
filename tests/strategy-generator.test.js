@@ -9,8 +9,17 @@ test("strategy input compacts arrays and preserves verified places", () => {
   assert.equal(cleaned.value.verifiedPlaces[0].name, "Cafe");
 });
 
-test("date plan rejects invented-place generation input", () => {
-  assert.equal(cleanStrategyInput({ topic: { id: "date-plan", title: "デートプラン" } }).error, "VERIFIED_PLACES_REQUIRED");
+test("real-world plans safely accept unavailable external data", () => {
+  const cleaned = cleanStrategyInput({ topic: { id: "date-plan", title: "デートプラン" }, externalDataStatus: { places: "unavailable", weather: "unavailable" } });
+  assert.equal(cleaned.error, undefined);
+  assert.deepEqual(cleaned.value.verifiedPlaces, []);
+  assert.equal(cleaned.value.externalDataStatus.places, "unavailable");
+});
+
+test("weather is compacted for one generation call", () => {
+  const cleaned = cleanStrategyInput({ topic: { id: "travel-plan", title: "旅行プラン" }, weather: { area: "京都", days: [{ date: "2026-08-14", condition: "雨", temperatureMax: 29, temperatureMin: 24, precipitationProbability: 80, outdoorSuitability: "low" }] } });
+  assert.equal(cleaned.value.weather.area, "京都");
+  assert.equal(cleaned.value.weather.days[0].condition, "雨");
 });
 
 test("strategy output schema requires every rendered section", () => {

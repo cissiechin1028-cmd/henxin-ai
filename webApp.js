@@ -9,6 +9,7 @@ const { analyzeForWeb, analyzeConversationForWeb, analyzeConversationTopicForWeb
 const { aiUsageProperties } = require("./tracking/cost");
 const { generateRelationshipReport, periodBounds } = require("./services/relationshipReports");
 const { createTracking } = require("./tracking/service");
+const { normalizeModule, moduleOverview, moduleFunnel, moduleCosts } = require("./tracking/analytics");
 const { createUsageService } = require("./services/usageService");
 const { getAnalysisTopic } = require("./analysisTopics");
 const { cleanStrategyInput, generateStrategy } = require("./services/strategyGenerator");
@@ -391,7 +392,8 @@ const browserEventNames = new Set([
   "free_trial_clicked", "login_opened", "google_login_succeeded", "line_login_succeeded",
   "google_login_clicked", "line_login_clicked", "email_input_started",
   "email_login_succeeded", "google_login_failed", "line_login_failed", "email_otp_failed",
-  "first_screenshot_uploaded", "upgrade_clicked", "stripe_checkout_opened", "attribution_linked"
+  "first_screenshot_uploaded", "upgrade_clicked", "stripe_checkout_opened", "attribution_linked",
+  "module_home_viewed", "module_item_selected", "module_generation_started"
 ]);
 const attributionFields = ["source", "medium", "campaign", "campaign_id", "ad_group", "ad_group_id", "ad", "ad_id", "creative_id", "utm_content", "utm_term", "placement", "ttclid", "landing_page", "captured_at"];
 async function storeFirstTouchAttribution(userId, anonymousId, properties = {}) {
@@ -658,6 +660,56 @@ async function trackingEventsBetween(startAt, endAt) {
   }
 }
 
+function analyticsPeriod(req) {
+  const requestedTimeZone = String(req.query.timeZone || "Asia/Tokyo");
+  const timeZone = ["Asia/Tokyo", "Asia/Taipei", "UTC"].includes(requestedTimeZone) ? requestedTimeZone : "Asia/Tokyo";
+  const requestedStart = Date.parse(String(req.query.startAt || dashboardStatsStartAt));
+  const requestedEnd = Date.parse(String(req.query.endAt || new Date().toISOString()));
+  const startAt = new Date(Math.max(Date.parse(dashboardStatsStartAt), Number.isFinite(requestedStart) ? requestedStart : Date.parse(dashboardStatsStartAt))).toISOString();
+  const endAt = new Date(Math.min(Date.now(), Number.isFinite(requestedEnd) ? requestedEnd : Date.now())).toISOString();
+  return startAt < endAt ? { timeZone, startAt, endAt } : null;
+}
+
+async function operationalTrackingEvents(startAt, endAt) {
+  const [profilesResult, eventsResult] = await Promise.all([
+    supabase.from("profiles").select("id,role,is_test_account"),
+    trackingEventsBetween(startAt, endAt),
+  ]);
+  if (profilesResult.error || eventsResult.error) return { error: profilesResult.error || eventsResult.error };
+  const profiles = profilesResult.data || [];
+  const customerIds = new Set(profiles.filter((profile) => profile.role !== "admin" && !profile.is_test_account).map((profile) => profile.id));
+  const excludedUserIds = new Set(profiles.filter((profile) => profile.role === "admin" || profile.is_test_account).map((profile) => profile.id));
+  const excludedAnonymousIds = new Set((eventsResult.data || [])
+    .filter((event) => event.anonymous_id && event.user_id && excludedUserIds.has(event.user_id))
+    .map((event) => event.anonymous_id));
+  return { data: (eventsResult.data || []).filter((event) =>
+    (!event.user_id || customerIds.has(event.user_id)) &&
+    (!event.anonymous_id || !excludedAnonymousIds.has(event.anonymous_id))
+  ) };
+}
+
+async function analyticsRequest(req, res, presenter) {
+  const module = normalizeModule(req.query.module);
+  if (!module) return res.status(400).json({ error: "INVALID_ANALYTICS_MODULE", allowedModules: ["reply", "analysis", "strategy"] });
+  const period = analyticsPeriod(req);
+  if (!period) return res.status(400).json({ error: "INVALID_ANALYTICS_PERIOD" });
+  const events = await operationalTrackingEvents(period.startAt, period.endAt);
+  if (events.error) return res.status(500).json({ error: "ANALYTICS_READ_FAILED" });
+  return res.json({ module, timeZone: period.timeZone, period: { startAt: period.startAt, endAt: period.endAt }, ...presenter(events.data, module) });
+}
+
+app.get("/api/v1/admin/analytics/module", requireUser, requireAdmin, async (req, res) =>
+  analyticsRequest(req, res, (events, module) => ({ overview: moduleOverview(events, module) }))
+);
+
+app.get("/api/v1/admin/analytics/funnel", requireUser, requireAdmin, async (req, res) =>
+  analyticsRequest(req, res, (events, module) => ({ funnel: moduleFunnel(events, module) }))
+);
+
+app.get("/api/v1/admin/analytics/costs", requireUser, requireAdmin, async (req, res) =>
+  analyticsRequest(req, res, (events, module) => ({ costs: moduleCosts(events, module) }))
+);
+
 app.get("/api/v1/admin/dashboard", requireUser, requireAdmin, async (req, res) => {
   const requestedTimeZone = String(req.query.timeZone || "Asia/Tokyo");
   const timeZone = ["Asia/Tokyo", "Asia/Taipei", "UTC"].includes(requestedTimeZone) ? requestedTimeZone : "Asia/Tokyo";
@@ -725,8 +777,9 @@ app.get("/api/v1/admin/dashboard", requireUser, requireAdmin, async (req, res) =
     if (name) funnelActors.get(name).add(auth.id);
   }
   const funnel = Object.fromEntries([...funnelActors].map(([name, actors]) => [name, actors.size]));
-  const costForMode = (mode) => events.filter((event) => event.event_name === "ai_usage_completed" && event.properties?.mode === mode)
-    .reduce((sum, event) => sum + Number(event.properties?.cost_micros || 0), 0);
+  const moduleCostSummaries = Object.fromEntries(["reply", "analysis", "strategy"].map((module) =>
+    [module, moduleCosts(operationalEvents, module)]
+  ));
   const errorEvents = events.filter((event) => ["api_request_failed", "ai_usage_failed", "stripe_webhook_failed", "payment_failed", "google_login_failed", "line_login_failed", "email_otp_failed"].includes(event.event_name)).slice(-100).reverse();
   const revenue = (start) => events.filter((event) => ["subscription_started", "subscription_renewed"].includes(event.event_name) && event.occurred_at >= start)
     .reduce((sum, event) => sum + Number(event.properties?.revenue_minor || 0), 0);
@@ -783,7 +836,9 @@ app.get("/api/v1/admin/dashboard", requireUser, requireAdmin, async (req, res) =
     ai: { ...data.ai, callsToday: aiCalls, tokensToday: aiTokens, costMicrosToday: aiCostMicros,
       callsTotal: aiCalls, costMicrosTotal: aiCostMicros, pricingUnconfigured,
       averageAnalysisCostMicros: aiCalls ? Math.round(aiCostMicros / aiCalls) : 0,
-      replyCostMicros: costForMode("reply"), analysisCostMicros: costForMode("analysis") },
+      replyCostMicros: moduleCostSummaries.reply.costMicros,
+      analysisCostMicros: moduleCostSummaries.analysis.costMicros,
+      strategyCostMicros: moduleCostSummaries.strategy.costMicros },
     payments: { todayRevenueMinor: revenue(periodStart), monthRevenueMinor: revenue(periodStart),
       newSubscriptions: operationalEvents.filter((event) => event.event_name === "subscription_started").length,
       cancellations: operationalEvents.filter((event) => event.event_name === "subscription_cancelled").length, refunds: refunds.length,
@@ -1039,7 +1094,9 @@ app.post(
       return res.status(500).json({ error: "CREDIT_CHECK_FAILED" });
     }
     const credit = rows?.[0];
-    if (!credit?.allowed) return res.status(402).json({ error: credit?.reason || "TRIAL_LIMIT_REACHED", trial: credit || null });
+    if (!credit?.allowed) {
+      return res.status(402).json({ error: credit?.reason || "TRIAL_LIMIT_REACHED", trial: credit || null });
+    }
 
     const requestId = crypto.randomUUID();
     try {
@@ -1123,13 +1180,23 @@ app.post("/api/v1/anonymous/conversation-replies", express.json({ limit: "128kb"
     });
     if (reserveError) return res.status(500).json({ error: "CREDIT_CHECK_FAILED" });
     credit = rows?.[0];
-    if (!credit?.allowed) return res.status(402).json({ error: credit?.reason || "TRIAL_LIMIT_REACHED", trial: credit || null });
+    if (!credit?.allowed) {
+      await tracking.record({
+        name: "reply_paywall_triggered",
+        businessKey: `reply_paywall:${authenticatedUser?.id || identity.deviceHash}:${new Date().toISOString().slice(0, 10)}`,
+        userId: authenticatedUser?.id || null,
+        anonymousId: identity.deviceHash,
+        source: "api",
+        properties: { module: "reply", error_code: credit?.reason || "TRIAL_LIMIT_REACHED" },
+      }).catch(() => null);
+      return res.status(402).json({ error: credit?.reason || "TRIAL_LIMIT_REACHED", trial: credit || null });
+    }
   }
   const requestId = crypto.randomUUID();
   try {
     const output = await analyzeConversationForWeb({ messages, partnerName: String(req.body?.partnerName || "").slice(0, 80), locale, context: replySettings.value });
     if (paidUsage) await usageService.recordSuccess(paidUsage);
-    await tracking.record({ name: "ai_usage_completed", businessKey: `anonymous_ai_usage_completed:${requestId}`, source: "ai", properties: { ...output.usage, mode: "reply", anonymous: true } });
+    await tracking.record({ name: "ai_usage_completed", businessKey: `anonymous_ai_usage_completed:${requestId}`, userId: authenticatedUser?.id || null, anonymousId: identity?.deviceHash || null, source: "ai", properties: { ...output.usage, module: "reply", mode: "reply", anonymous: !authenticatedUser } });
     return res.status(201).json({
       analysis: { id: requestId, mode: "reply", status: "completed", result: output.result, completed_at: new Date().toISOString() },
       trial: credit
@@ -1140,6 +1207,7 @@ app.post("/api/v1/anonymous/conversation-replies", express.json({ limit: "128kb"
     if (identity) {
       try { await supabase.rpc("refund_anonymous_analysis_credit", { target_device_hash: identity.deviceHash, target_risk_hash: identity.riskHash, target_mode: "reply" }); } catch {}
     }
+    await tracking.record({ name: "ai_usage_failed", businessKey: `reply_ai_usage_failed:${requestId}`, userId: authenticatedUser?.id || null, anonymousId: identity?.deviceHash || null, source: "ai", properties: { module: "reply", mode: "reply", error_code: String(error.message || "AI_FAILED").slice(0, 80) } }).catch(() => null);
     console.error("ANONYMOUS CONVERSATION REPLY FAILED", requestId, String(error.message || error));
     return res.status(502).json({ error: "ANALYSIS_FAILED" });
   }
@@ -1182,25 +1250,38 @@ app.post("/api/v1/anonymous/strategies", express.json({ limit: "128kb" }), async
   if (!privileged && profile?.plan === "pro") {
     try { paidFeature = await reservePaidFeature(authenticatedUser.id, profile.billing_tier === "lite" ? "lite" : "premium", "strategy"); }
     catch (error) { console.error("STRATEGY USAGE CHECK FAILED", String(error.message || error)); return res.status(500).json({ error: "CREDIT_CHECK_FAILED" }); }
-    if (!paidFeature.allowed) return res.status(402).json({ error: "PAID_FEATURE_LIMIT_REACHED", feature: "strategy", usage: paidFeature });
+    if (!paidFeature.allowed) {
+      await tracking.record({ name: "strategy_paywall_triggered", businessKey: `strategy_paywall:${authenticatedUser.id}:${new Date().toISOString().slice(0, 10)}`, userId: authenticatedUser.id, source: "api", properties: { module: "strategy", error_code: "PAID_FEATURE_LIMIT_REACHED" } }).catch(() => null);
+      return res.status(402).json({ error: "PAID_FEATURE_LIMIT_REACHED", feature: "strategy", usage: paidFeature });
+    }
   } else if (!privileged) {
     identity = anonymousIdentity(req);
     if (!identity) return res.status(400).json({ error: "ANONYMOUS_ID_REQUIRED" });
-    const { data: rows, error: reserveError } = await supabase.rpc("reserve_anonymous_analysis_credit", {
-      target_device_hash: identity.deviceHash, target_risk_hash: identity.riskHash, target_network_hash: identity.networkHash, target_mode: "analysis",
+    const { data: rows, error: reserveError } = await supabase.rpc("reserve_strategy_trial", {
+      target_device_hash: identity.deviceHash, target_user_id: authenticatedUser?.id || null,
     });
     if (reserveError) return res.status(500).json({ error: "CREDIT_CHECK_FAILED" });
     credit = rows?.[0];
-    if (!credit?.allowed) return res.status(402).json({ error: credit?.reason || "TRIAL_LIMIT_REACHED", trial: credit || null });
+    if (!credit?.allowed) {
+      await tracking.record({ name: "strategy_paywall_triggered", businessKey: `strategy_paywall:${authenticatedUser?.id || identity.deviceHash}:${new Date().toISOString().slice(0, 10)}`, userId: authenticatedUser?.id || null, anonymousId: identity.deviceHash, source: "api", properties: { module: "strategy", error_code: credit?.reason || "TRIAL_LIMIT_REACHED" } }).catch(() => null);
+      return res.status(402).json({ error: credit?.reason || "TRIAL_LIMIT_REACHED", trial: credit || null });
+    }
   }
   const requestId = crypto.randomUUID();
   try {
+    if(authenticatedUser){
+      const {data:recent}=await supabase.from("analyses").select("title,result,completed_at").eq("user_id",authenticatedUser.id).eq("mode","analysis").eq("status","completed").order("completed_at",{ascending:false}).limit(2);
+      cleaned.value.reusedContext=(recent||[]).map(item=>({title:item.title,summary:item.result?.summary||"",verdict:item.result?.verdict||"",nextSteps:item.result?.next_steps||[]}));
+    }
     const output = await generateStrategy(cleaned.value);
-    await tracking.record({ name: "ai_usage_completed", businessKey: `strategy_ai_usage_completed:${requestId}`, source: "ai", properties: { ...output.usage, mode: "strategy", topic_id: cleaned.value.topic.id, anonymous: !authenticatedUser } });
+    await tracking.record({ name: "ai_usage_completed", businessKey: `strategy_ai_usage_completed:${requestId}`, userId: authenticatedUser?.id || null, anonymousId: identity?.deviceHash || null, source: "ai", properties: { ...output.usage, module: "strategy", mode: "strategy", topic_id: cleaned.value.topic.id, anonymous: !authenticatedUser } });
+    await tracking.record({name:"strategy_generation_succeeded",businessKey:`strategy_success:${requestId}`,userId:authenticatedUser?.id||null,anonymousId:identity?.deviceHash||null,source:"api",properties:{topic_id:cleaned.value.topic.id,weather_applied:Boolean(cleaned.value.weather),places_applied:Boolean(cleaned.value.verifiedPlaces.length),free_trial:Boolean(credit)}});
     return res.status(201).json({ result: output.result, trial: credit || null });
   } catch (error) {
-    if (identity) try { await supabase.rpc("refund_anonymous_analysis_credit", { target_device_hash: identity.deviceHash, target_risk_hash: identity.riskHash, target_mode: "analysis" }); } catch {}
+    if (identity) try { await supabase.rpc("refund_strategy_trial", { target_device_hash: identity.deviceHash, target_user_id: authenticatedUser?.id || null }); } catch {}
     if (paidFeature) await refundPaidFeature(authenticatedUser.id, "strategy");
+    await tracking.record({ name: "ai_usage_failed", businessKey: `strategy_ai_usage_failed:${requestId}`, userId: authenticatedUser?.id || null, anonymousId: identity?.deviceHash || null, source: "ai", properties: { module: "strategy", mode: "strategy", topic_id: cleaned.value.topic.id, error_code: String(error.message || "AI_FAILED").slice(0, 80) } }).catch(() => null);
+    await tracking.record({name:"strategy_generation_failed",businessKey:`strategy_failed:${requestId}`,userId:authenticatedUser?.id||null,anonymousId:identity?.deviceHash||null,source:"api",properties:{topic_id:cleaned.value.topic.id,external_status:cleaned.value.externalDataStatus}}).catch(()=>null);
     console.error("STRATEGY GENERATION FAILED", requestId, String(error.message || error));
     return res.status(502).json({ error: "GENERATION_FAILED" });
   }

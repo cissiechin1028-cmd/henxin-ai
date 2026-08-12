@@ -7,7 +7,8 @@ const SAFE_PROPERTY_KEYS = new Set([
   "stripe_event_type", "error_code", "usage_count", "usage_limit", "revenue_minor",
   "provider", "creative_id", "campaign", "failure_message", "source", "medium",
   "campaign_id", "ad_group", "ad_group_id", "ad", "ad_id", "utm_content",
-  "utm_term", "placement", "ttclid", "landing_page", "captured_at", "anonymous"
+  "utm_term", "placement", "ttclid", "landing_page", "captured_at", "anonymous",
+  "topic_id", "weather_applied", "places_applied", "external_status", "free_trial", "module"
 ]);
 
 function environment() {
@@ -16,10 +17,13 @@ function environment() {
 }
 
 function safeProperties(input = {}) {
-  return Object.fromEntries(Object.entries(input).filter(([key, value]) =>
+  const properties = Object.fromEntries(Object.entries(input).filter(([key, value]) =>
     SAFE_PROPERTY_KEYS.has(key) && value !== undefined && value !== null &&
     ["string", "number", "boolean"].includes(typeof value)
   ));
+  const module = String(input.module || input.mode || "").trim().toLowerCase();
+  if (["reply", "analysis", "strategy"].includes(module)) properties.module = module;
+  return properties;
 }
 
 function createTracking({ supabase }) {
