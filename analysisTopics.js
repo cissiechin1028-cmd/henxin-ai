@@ -15,6 +15,7 @@ const topics = [
   ["reconciliation", "復縁診断", "復縁の可能性はある？今また動いていい？", ["conflict_cause", "positive_signals", "concern_signals", "relationship_stage", "next_step"], ["missing_evidence", "future_factors"], "別れた時期・切り出した側・理由・現在の連絡状況が不明なら補足を求める。"],
   ["compatibility", "相性診断", "ふたりは恋愛として相性がいい？合わない？", ["compatibility", "positive_signals", "concern_signals", "next_step"], ["future_factors", "missing_evidence"], "短い会話から長期的人格相性を判断せず、観察できる会話相性に限定する。"],
   ["future", "関係の将来性診断", "この関係、この先ちゃんと進展していく？", ["future_factors", "investment", "concern_signals", "next_step"], ["before_after", "missing_evidence"], "時間跨度が足りなければ未来予測をせず、現時点の関係状態として報告する。"],
+  ["dating-safety", "マッチングアプリ安心チェック", "この相手、このままやり取りを続けて大丈夫？", ["evidence", "concern_signals", "decision_factors", "next_step"], ["missing_evidence"], "人物が安全・危険・詐欺師かを判定しない。金銭・投資、認証情報、不自然な外部誘導、重大な身元矛盾、複数信号を伴う急激な親密化、継続的な圧力や境界侵害、長期の本人確認回避、高度に不自然な会話だけを高い証拠閾値で確認する。返信の遅さ・短さ・冷淡さ、連絡頻度、忙しさ、一度の動画通話拒否、通常のLINE交換、早い好意表明、慎重さ、短文や翻訳調は単独で安全リスクにしない。根拠がなければリスク項目を0件とし、但し書きを加えない。"],
 ].map(([id, title, question, requiredModules, optionalModules, evidenceInstruction]) =>
   Object.freeze({ id, title, question, requiredModules: Object.freeze(requiredModules), optionalModules: Object.freeze(optionalModules), evidenceInstruction })
 );
