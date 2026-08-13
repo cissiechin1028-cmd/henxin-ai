@@ -665,7 +665,7 @@ function analyticsPeriod(req) {
   const requestedTimeZone = String(req.query.timeZone || "Asia/Tokyo");
   const timeZone = ["Asia/Tokyo", "Asia/Taipei", "UTC"].includes(requestedTimeZone) ? requestedTimeZone : "Asia/Tokyo";
   const requestedStart = Date.parse(String(req.query.startAt || dashboardStatsStartAt));
-  const requestedEnd = Date.parse(String(req.query.endAt || new Date().toISOString()));
+  const requestedEnd = Date.parse(String(req.query.endAt || new Date(`${localDate}T24:00:00${offset}`).toISOString()));
   const startAt = new Date(Math.max(Date.parse(dashboardStatsStartAt), Number.isFinite(requestedStart) ? requestedStart : Date.parse(dashboardStatsStartAt))).toISOString();
   const endAt = new Date(Math.min(Date.now(), Number.isFinite(requestedEnd) ? requestedEnd : Date.now())).toISOString();
   return startAt < endAt ? { timeZone, startAt, endAt } : null;
@@ -720,17 +720,19 @@ app.get("/api/v1/admin/dashboard", requireUser, requireAdmin, async (req, res) =
   const requestedStart = Date.parse(String(req.query.startAt || dayStart));
   const requestedEnd = Date.parse(String(req.query.endAt || new Date().toISOString()));
   const periodStart = new Date(Math.max(Date.parse(dashboardStatsStartAt), Number.isFinite(requestedStart) ? requestedStart : Date.parse(dayStart))).toISOString();
-  const periodEnd = new Date(Math.min(Date.now(), Number.isFinite(requestedEnd) ? requestedEnd : Date.now())).toISOString();
+  const periodEnd = new Date(Number.isFinite(requestedEnd) ? requestedEnd : new Date(`${localDate}T24:00:00${offset}`).getTime()).toISOString();
   if (periodStart >= periodEnd) return res.status(400).json({ error: "INVALID_DASHBOARD_PERIOD" });
   const { data, error } = await supabase.rpc("developer_dashboard_summary", { day_start: dayStart });
   if (error) return res.status(500).json({ error: "DASHBOARD_READ_FAILED" });
-  const [profilesResult, analyses30d, eventsResult, usageResult, authResult, attributionResult] = await Promise.all([
+  const [profilesResult, analyses30d, eventsResult, usageResult, authResult, attributionResult, anonymousTrialsResult, strategyTrialsResult] = await Promise.all([
     supabase.from("profiles").select("id,display_name,plan,billing_tier,lifetime_free_usage,pro_period_usage,subscription_status,role,is_test_account,created_at"),
     supabase.from("analyses").select("id,user_id,status").gte("created_at", periodStart).lt("created_at", periodEnd),
     trackingEventsBetween(periodStart, periodEnd),
     supabase.from("ai_usage_periods").select("user_id,used_units,budget_units,updated_at"),
     supabase.auth.admin.listUsers({ page: 1, perPage: 1000 }),
-    supabase.from("user_ad_attributions").select("user_id,source,medium,campaign,campaign_id,ad_group,ad_group_id,ad,ad_id,creative_id,utm_content,utm_term,placement,ttclid,landing_page,captured_at")
+    supabase.from("user_ad_attributions").select("user_id,source,medium,campaign,campaign_id,ad_group,ad_group_id,ad,ad_id,creative_id,utm_content,utm_term,placement,ttclid,landing_page,captured_at"),
+    supabase.from("anonymous_trials").select("device_hash,reply_used,analysis_used,started_at,expires_at,last_seen_at"),
+    supabase.from("strategy_trial_usage").select("actor_key,user_id,device_hash,used,started_at,expires_at,updated_at")
   ]);
   const allProfiles = profilesResult.data || [];
   const profiles = allProfiles.filter((profile) => profile.role !== "admin" && !profile.is_test_account);
@@ -768,6 +770,20 @@ app.get("/api/v1/admin/dashboard", requireUser, requireAdmin, async (req, res) =
     const actor = event.user_id || linkedUserByAnonymous.get(event.anonymous_id) || event.anonymous_id;
     if (actor) actors.add(actor);
   }
+  // A product-activation funnel must not count direct visits to the login page.
+  // Only retain login opens that happened after the same actor uploaded a chat
+  // or completed an AI feature during the selected period.
+  const allLoginActors = new Set(funnelActors.get("login_opened"));
+  const activationAt = new Map();
+  const qualifiedLoginActors = new Set();
+  for (const event of [...operationalEvents].sort((a, b) => String(a.occurred_at).localeCompare(String(b.occurred_at)))) {
+    const actor = event.user_id || linkedUserByAnonymous.get(event.anonymous_id) || event.anonymous_id;
+    if (!actor) continue;
+    if (["first_screenshot_uploaded", "first_ai_usage_completed"].includes(event.event_name) && !activationAt.has(actor)) activationAt.set(actor, event.occurred_at);
+    if (event.event_name === "login_opened" && activationAt.has(actor)) qualifiedLoginActors.add(actor);
+  }
+  funnelActors.set("login_opened", qualifiedLoginActors);
+  funnelActors.set("direct_login_opened", new Set([...allLoginActors].filter((actor) => !qualifiedLoginActors.has(actor))));
   // OAuth completion tracking is best effort in the browser. Supabase's
   // authoritative successful sign-in record fills any event lost on redirect.
   for (const auth of authUsers) {
@@ -781,6 +797,28 @@ app.get("/api/v1/admin/dashboard", requireUser, requireAdmin, async (req, res) =
   const moduleCostSummaries = Object.fromEntries(["reply", "analysis", "strategy"].map((module) =>
     [module, moduleCosts(operationalEvents, module)]
   ));
+  const moduleSummaries = Object.fromEntries(["reply", "analysis", "strategy"].map((module) => {
+    const scoped = operationalEvents.filter((event) => eventModule(event) === module);
+    const completed = scoped.filter((event) => event.event_name === "ai_usage_completed");
+    const failed = scoped.filter((event) => event.event_name === "ai_usage_failed");
+    const actors = new Set(scoped.map((event) => event.user_id || event.anonymous_id).filter(Boolean));
+    const anonymousActors = new Set(scoped.filter((event) => !event.user_id).map((event) => event.anonymous_id).filter(Boolean));
+    return [module, { actors: actors.size, anonymousActors: anonymousActors.size, completed: completed.length, failed: failed.length,
+      successRate: completed.length + failed.length ? Number((completed.length / (completed.length + failed.length) * 100).toFixed(1)) : null,
+      costMicros: moduleCostSummaries[module].costMicros }];
+  }));
+  const anonymousTrials = (anonymousTrialsResult.data || []).filter((trial) => trial.started_at < periodEnd && trial.last_seen_at >= periodStart);
+  const strategyTrials = (strategyTrialsResult.data || []).filter((trial) => trial.started_at && trial.started_at < periodEnd && trial.updated_at >= periodStart);
+  const anonymousActors = new Set(operationalEvents.filter((event) => !event.user_id).map((event) => event.anonymous_id).filter(Boolean));
+  const linkedAnonymousActors = new Set(operationalEvents.filter((event) => event.anonymous_id && event.user_id && customerIds.has(event.user_id)).map((event) => event.anonymous_id));
+  const featureEvents = { safetyViews: 0, safetyStarts: 0, recordsStarted: 0, recordsSaved: 0, timelinesViewed: 0 };
+  for (const event of operationalEvents) {
+    if (event.event_name === "dating_safety_entry_viewed") featureEvents.safetyViews += 1;
+    if (event.event_name === "dating_safety_card_clicked") featureEvents.safetyStarts += 1;
+    if (event.event_name === "manual_record_start") featureEvents.recordsStarted += 1;
+    if (event.event_name === "manual_record_saved") featureEvents.recordsSaved += 1;
+    if (event.event_name === "timeline_view") featureEvents.timelinesViewed += 1;
+  }
   const errorEvents = events.filter((event) => ["api_request_failed", "ai_usage_failed", "stripe_webhook_failed", "payment_failed", "google_login_failed", "line_login_failed", "email_otp_failed"].includes(event.event_name)).slice(-100).reverse();
   const revenue = (start) => events.filter((event) => ["subscription_started", "subscription_renewed"].includes(event.event_name) && event.occurred_at >= start)
     .reduce((sum, event) => sum + Number(event.properties?.revenue_minor || 0), 0);
@@ -847,7 +885,16 @@ app.get("/api/v1/admin/dashboard", requireUser, requireAdmin, async (req, res) =
       mrrMinor: revenue(periodStart), currency: data.subscriptions.currency },
     errors: errorEvents.map((event) => ({ id: event.id, type: event.event_name, source: event.source, code: event.properties?.error_code || null,
       message: event.properties?.failure_message || null, statusCode: event.properties?.status_code || null, occurredAt: event.occurred_at })),
-    users, creativeFunnels, collectionNote: `统计范围：${periodStart} 至 ${periodEnd}；最早起点固定为 2026 年 8 月 1 日 19:00（东京时间）。` });
+    product: {
+      anonymous: { actors: anonymousActors.size, linkedToUsers: linkedAnonymousActors.size,
+        loginConversionRate: anonymousActors.size ? Number((linkedAnonymousActors.size / anonymousActors.size * 100).toFixed(1)) : 0,
+        trialDevices: anonymousTrials.length, replyUses: anonymousTrials.reduce((sum, item) => sum + Number(item.reply_used || 0), 0),
+        analysisUses: anonymousTrials.reduce((sum, item) => sum + Number(item.analysis_used || 0), 0),
+        expiredTrials: anonymousTrials.filter((item) => new Date(item.expires_at).getTime() <= Date.now()).length,
+        strategyTrials: strategyTrials.length, strategyUses: strategyTrials.filter((item) => item.used).length },
+      modules: moduleSummaries, features: featureEvents,
+    },
+    users, creativeFunnels, collectionNote: `统计范围：${periodStart} 至 ${periodEnd}；匿名人数按匿名设备标识去重，登录用户按用户编号去重；管理员与测试账号已排除。` });
 });
 
 app.get("/api/v1/admin/summary", requireUser, requireAdmin, async (_req, res) => {
@@ -1107,12 +1154,12 @@ app.post(
       });
       await tracking.record({
         name: "ai_usage_completed", businessKey: `anonymous_ai_usage_completed:${requestId}`,
-        source: "ai", properties: { ...output.usage, mode, anonymous: true }
+        anonymousId: identity.deviceHash, source: "ai", properties: { ...output.usage, module: mode, mode, anonymous: true }
       });
       for (const [index, usage] of (output.auxiliaryUsages || []).entries()) {
         await tracking.record({
           name: "ai_usage_completed", businessKey: `anonymous_ai_usage_completed:${requestId}:aux:${index}`,
-          source: "ai", properties: { ...usage, mode, anonymous: true }
+          anonymousId: identity.deviceHash, source: "ai", properties: { ...usage, module: mode, mode, anonymous: true }
         });
       }
       res.status(201).json({
@@ -1133,7 +1180,7 @@ app.post(
       } catch {}
       await tracking.record({
         name: "ai_usage_failed", businessKey: `anonymous_ai_usage_failed:${requestId}`,
-        source: "ai", properties: { mode, anonymous: true, error_code: String(error.message || "AI_FAILED").slice(0, 80) }
+        anonymousId: identity.deviceHash, source: "ai", properties: { module: mode, mode, anonymous: true, error_code: String(error.message || "AI_FAILED").slice(0, 80) }
       });
       console.error("ANONYMOUS ANALYSIS FAILED", requestId, mode, String(error.message || error));
       res.status(502).json({ error: "ANALYSIS_FAILED" });
@@ -1231,7 +1278,7 @@ app.post("/api/v1/anonymous/conversation-analyses",express.json({limit:"192kb"})
  try{
   const output=await analyzeConversationTopicForWeb({messages,partnerName:String(req.body?.partnerName||"").slice(0,80),locale,context:{topicId:topic.id,topicTitle:topic.title,question:topic.question,evidenceInstruction:topic.evidenceInstruction,requiredModules:topic.requiredModules,optionalModules:topic.optionalModules,readinessStatus:req.body?.readinessStatus==="partial"?"partial":"sufficient"}});
   if(paidUsage)await usageService.recordSuccess(paidUsage);
-  await tracking.record({name:"ai_usage_completed",businessKey:`topic_ai_usage_completed:${requestId}`,source:"ai",properties:{...output.usage,mode:"analysis",topic_id:topicId,anonymous:!authenticatedUser}});
+  await tracking.record({name:"ai_usage_completed",businessKey:`topic_ai_usage_completed:${requestId}`,userId:authenticatedUser?.id||null,anonymousId:identity?.deviceHash||null,source:"ai",properties:{...output.usage,module:"analysis",mode:"analysis",topic_id:topicId,anonymous:!authenticatedUser}});
   let storedAnalysisId=requestId;
   if(authenticatedUser){const relationship=await findActiveRelationship(authenticatedUser.id).then(result=>result.data);const{data:stored,error:storeError}=await supabase.from("analyses").insert({user_id:authenticatedUser.id,relationship_id:relationship?.id||null,mode:"analysis",status:"completed",title:String(topic.title||"チャット分析").slice(0,100),result:output.result,completed_at:new Date().toISOString(),input_metadata:{source:"parsed_conversation",topic_id:topicId,message_count:messages.length}}).select("id").single();if(storeError)throw new Error("ANALYSIS_SAVE_FAILED");storedAnalysisId=stored.id}
   return res.status(201).json({analysis:{id:storedAnalysisId,mode:"analysis",status:"completed",result:output.result,completed_at:new Date().toISOString()},trial:credit?{replyUsed:Number(credit.reply_used),replyLimit:Number(credit.reply_limit),analysisUsed:Number(credit.analysis_used),analysisLimit:Number(credit.analysis_limit),expiresAt:credit.expires_at}:null});
@@ -1262,6 +1309,7 @@ app.post("/api/v1/anonymous/strategies", express.json({ limit: "128kb" }), async
     if (!identity) return res.status(400).json({ error: "ANONYMOUS_ID_REQUIRED" });
     const { data: rows, error: reserveError } = await supabase.rpc("reserve_strategy_trial", {
       target_device_hash: identity.deviceHash, target_user_id: authenticatedUser?.id || null,
+      target_risk_hash: identity.riskHash, target_network_hash: identity.networkHash,
     });
     if (reserveError) return res.status(500).json({ error: "CREDIT_CHECK_FAILED" });
     credit = rows?.[0];
@@ -1281,7 +1329,7 @@ app.post("/api/v1/anonymous/strategies", express.json({ limit: "128kb" }), async
     await tracking.record({name:"strategy_generation_succeeded",businessKey:`strategy_success:${requestId}`,userId:authenticatedUser?.id||null,anonymousId:identity?.deviceHash||null,source:"api",properties:{topic_id:cleaned.value.topic.id,weather_applied:Boolean(cleaned.value.weather),places_applied:Boolean(cleaned.value.verifiedPlaces.length),free_trial:Boolean(credit)}});
     return res.status(201).json({ result: output.result, trial: credit || null });
   } catch (error) {
-    if (identity) try { await supabase.rpc("refund_strategy_trial", { target_device_hash: identity.deviceHash, target_user_id: authenticatedUser?.id || null }); } catch {}
+    if (identity) try { await supabase.rpc("refund_strategy_trial", { target_device_hash: identity.deviceHash, target_user_id: authenticatedUser?.id || null, target_risk_hash: identity.riskHash }); } catch {}
     if (paidFeature) await refundPaidFeature(authenticatedUser.id, "strategy");
     await tracking.record({ name: "ai_usage_failed", businessKey: `strategy_ai_usage_failed:${requestId}`, userId: authenticatedUser?.id || null, anonymousId: identity?.deviceHash || null, source: "ai", properties: { module: "strategy", mode: "strategy", topic_id: cleaned.value.topic.id, error_code: String(error.message || "AI_FAILED").slice(0, 80) } }).catch(() => null);
     await tracking.record({name:"strategy_generation_failed",businessKey:`strategy_failed:${requestId}`,userId:authenticatedUser?.id||null,anonymousId:identity?.deviceHash||null,source:"api",properties:{topic_id:cleaned.value.topic.id,external_status:cleaned.value.externalDataStatus}}).catch(()=>null);
