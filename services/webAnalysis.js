@@ -43,6 +43,21 @@ const topicStrings = (raw) => {
   return output;
 };
 
+function validateTopicDepth(raw, context = {}) {
+  if (!raw || !Array.isArray(raw.modules) || !Array.isArray(raw.evidence) || !Array.isArray(raw.missing_evidence)) throw new Error("AI_INVALID_TOPIC_REPORT");
+  const meaningful = value => typeof value === "string" && value.replace(/\s/g, "").length >= 10;
+  const titled = value => typeof value === "string" && value.replace(/\s/g, "").length >= 4;
+  if (!titled(raw.verdict) || !meaningful(raw.summary)) throw new Error("AI_SHALLOW_TOPIC_REPORT");
+  const moduleTypes = new Set(raw.modules.map(module => module?.type));
+  const required = Array.isArray(context.requiredModules) ? context.requiredModules : [];
+  if (required.some(type => !moduleTypes.has(type))) throw new Error("AI_INCOMPLETE_TOPIC_REPORT");
+  if (raw.modules.some(module => !titled(module?.title) || !Array.isArray(module?.items) || module.items.length < 1 || module.items.some(item => !meaningful(item)))) throw new Error("AI_SHALLOW_TOPIC_REPORT");
+  if (context.readinessStatus === "sufficient") {
+    if (raw.evidence.length < 2 || raw.modules.length < Math.max(3, required.length)) throw new Error("AI_SHALLOW_TOPIC_REPORT");
+    if (raw.modules.filter(module => required.includes(module.type)).some(module => module.items.length < 2)) throw new Error("AI_SHALLOW_TOPIC_REPORT");
+  } else if (raw.missing_evidence.length < 1) throw new Error("AI_MISSING_LIMITATION");
+}
+
 async function callStructured({ prompt, task, imageDataUrl, schema, maxTokens, temperature, validate, reasoningEffort }) {
   let lastError;
   for (let attempt = 0; attempt < 2; attempt += 1) {
@@ -111,7 +126,7 @@ async function analyzeConversationTopicForWeb({messages=[],partnerName="",locale
  const startedAt=Date.now(),model=process.env.OPENAI_VISION_MODEL||"gpt-4.1-mini";
  const transcript=messages.slice(-120).map(message=>`${message.timestamp?`[VISIBLE TIME: ${String(message.timestamp).trim()}]`:"[TIME UNKNOWN]"} ${message.sender==="self"?"SELF":"PARTNER"}: ${String(message.text||"").trim()}`).join("\n");
  if(!transcript)throw new Error("CONVERSATION_REQUIRED");
- const main=await callStructured({prompt:topicAnalysisPrompt(locale,context),task:`${taskFor(locale).topic(partnerName)}\n\n${transcript}`,schema:topicAnalysisSchema,maxTokens:4000,temperature:.2,reasoningEffort:"minimal",validate:raw=>{if(!raw||!Array.isArray(raw.modules))throw new Error("AI_INVALID_TOPIC_REPORT");assertLocale(topicStrings(raw),locale)}});
+ const main=await callStructured({prompt:topicAnalysisPrompt(locale,context),task:`${taskFor(locale).topic(partnerName)}\n\n${transcript}`,schema:topicAnalysisSchema,maxTokens:5200,temperature:.2,reasoningEffort:"low",validate:raw=>{validateTopicDepth(raw,context);assertLocale(topicStrings(raw),locale)}});
  return{result:{kind:"topic_analysis",...main.raw,topic_id:context.topicId,readiness_status:context.readinessStatus},model:main.response.data?.model||model,processingMs:Date.now()-startedAt,usage:aiUsageProperties(main.response,main.response.data?.model||model,"topic_analysis"),auxiliaryUsages:[]};
 }
 

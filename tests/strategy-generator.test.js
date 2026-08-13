@@ -23,5 +23,5 @@ test("weather is compacted for one generation call", () => {
 });
 
 test("strategy output schema requires every rendered section", () => {
-  assert.deepEqual(strategySchema.schema.required, ["headline", "currentSituation", "steps", "avoid", "reactions", "checkpoints", "cautions", "backupPlan", "budgetNote"]);
+  assert.deepEqual(strategySchema.schema.required, ["headline", "currentSituation", "strategyBasis", "steps", "avoid", "reactions", "checkpoints", "stopConditions", "cautions", "backupPlan", "budgetNote"]);
 });

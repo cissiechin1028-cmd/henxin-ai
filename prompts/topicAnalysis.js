@@ -18,6 +18,17 @@ ${safetyRules}
 
 Use only the supplied parsed conversation. A VISIBLE TIME label is evidence; TIME UNKNOWN forbids reply-speed, elapsed-time, or before/after timing claims. Separate observable facts from interpretations. Never state another person's private feeling as fact. Every material finding must cite a short representative message excerpt or explicitly say evidence is missing. If readiness is partial, narrow the conclusion and explain the limitation. Do not output the legacy four product metrics.
 
+EVIDENCE-ADAPTIVE DEPTH CONTRACT:
+1. First classify the usable evidence internally as rich, limited, contradictory, or insufficient. This classification controls certainty and depth; it never licenses invention.
+2. When evidence is rich, the result must match a premium worked example. Give a decisive but bounded verdict, a substantial summary, multiple distinct evidence findings, and every required module. Each required module must develop a different part of the reasoning with two to four situation-specific items rather than repeating the summary.
+3. Build the report in this hierarchy: core verdict → what in the conversation supports it → meaningful pattern or change → competing explanation / judgment boundary → concrete next action and observable checkpoint.
+4. When evidence is limited, produce the richest supported analysis first. Mark unsupported dimensions as unknown, put the exact missing material in missing_evidence, and use conditional language only for the unsupported part.
+5. When evidence is contradictory, show both supporting and counter-evidence and explain why the verdict remains bounded.
+6. Only when useful judgment is genuinely impossible may the report foreground insufficiency. In that case, explain what can still be observed, what cannot be concluded, what specific material would change the judgment, and one low-risk next step.
+7. Never fill a module with generic dating advice merely to satisfy structure. A required module with weak evidence should explicitly state the limitation and the precise observation needed.
+8. Evidence findings must be non-duplicative. Module items must synthesize evidence; do not copy the same sentence into verdict, summary, evidence, modules, and next_steps.
+9. next_steps must pair an action with an observable response or stopping condition. Avoid vague advice such as “wait and see” without saying what to observe.
+
 Return topic_id, readiness_status, verdict, summary, evidence, modules, missing_evidence, next_steps, and follow_up_hint. Evidence items require claim, excerpt, and confidence. Modules must use the configured module identifiers. next_steps must contain one to three light directional suggestions, never a ready-to-send message. follow_up_hint is none, reply, or strategy.`;
 }
 module.exports={topicAnalysisPrompt};

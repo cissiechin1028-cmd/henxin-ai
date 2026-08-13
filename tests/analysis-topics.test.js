@@ -36,7 +36,8 @@ test("topic analysis keeps server-owned identifiers authoritative", () => {
   assert.doesNotMatch(topicAnalysis, /raw\.topic_id\s*!==\s*context\.topicId/);
   assert.match(topicAnalysis, /topic_id:context\.topicId/);
   assert.match(topicAnalysis, /readiness_status:context\.readinessStatus/);
-  assert.match(topicAnalysis, /reasoningEffort:"minimal"/);
+  assert.match(topicAnalysis, /reasoningEffort:"low"/);
+  assert.match(topicAnalysis, /validateTopicDepth/);
 });
 
 test("dating safety check performs cautious longitudinal pattern analysis", () => {
