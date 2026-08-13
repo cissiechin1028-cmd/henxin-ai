@@ -1307,10 +1307,17 @@ app.post("/api/v1/anonymous/strategies", express.json({ limit: "128kb" }), async
   } else if (!privileged) {
     identity = anonymousIdentity(req);
     if (!identity) return res.status(400).json({ error: "ANONYMOUS_ID_REQUIRED" });
-    const { data: rows, error: reserveError } = await supabase.rpc("reserve_strategy_trial", {
+    let { data: rows, error: reserveError } = await supabase.rpc("reserve_strategy_trial", {
       target_device_hash: identity.deviceHash, target_user_id: authenticatedUser?.id || null,
       target_risk_hash: identity.riskHash, target_network_hash: identity.networkHash,
     });
+    // Keep the API available while the strengthened database function is being
+    // rolled out. Once the migration exists, the four-signal call is used.
+    if (reserveError?.code === "PGRST202") {
+      ({ data: rows, error: reserveError } = await supabase.rpc("reserve_strategy_trial", {
+        target_device_hash: identity.deviceHash, target_user_id: authenticatedUser?.id || null,
+      }));
+    }
     if (reserveError) return res.status(500).json({ error: "CREDIT_CHECK_FAILED" });
     credit = rows?.[0];
     if (!credit?.allowed) {
@@ -1329,7 +1336,10 @@ app.post("/api/v1/anonymous/strategies", express.json({ limit: "128kb" }), async
     await tracking.record({name:"strategy_generation_succeeded",businessKey:`strategy_success:${requestId}`,userId:authenticatedUser?.id||null,anonymousId:identity?.deviceHash||null,source:"api",properties:{topic_id:cleaned.value.topic.id,weather_applied:Boolean(cleaned.value.weather),places_applied:Boolean(cleaned.value.verifiedPlaces.length),free_trial:Boolean(credit)}});
     return res.status(201).json({ result: output.result, trial: credit || null });
   } catch (error) {
-    if (identity) try { await supabase.rpc("refund_strategy_trial", { target_device_hash: identity.deviceHash, target_user_id: authenticatedUser?.id || null, target_risk_hash: identity.riskHash }); } catch {}
+    if (identity) try {
+      const refund = await supabase.rpc("refund_strategy_trial", { target_device_hash: identity.deviceHash, target_user_id: authenticatedUser?.id || null, target_risk_hash: identity.riskHash });
+      if (refund.error?.code === "PGRST202") await supabase.rpc("refund_strategy_trial", { target_device_hash: identity.deviceHash, target_user_id: authenticatedUser?.id || null });
+    } catch {}
     if (paidFeature) await refundPaidFeature(authenticatedUser.id, "strategy");
     await tracking.record({ name: "ai_usage_failed", businessKey: `strategy_ai_usage_failed:${requestId}`, userId: authenticatedUser?.id || null, anonymousId: identity?.deviceHash || null, source: "ai", properties: { module: "strategy", mode: "strategy", topic_id: cleaned.value.topic.id, error_code: String(error.message || "AI_FAILED").slice(0, 80) } }).catch(() => null);
     await tracking.record({name:"strategy_generation_failed",businessKey:`strategy_failed:${requestId}`,userId:authenticatedUser?.id||null,anonymousId:identity?.deviceHash||null,source:"api",properties:{topic_id:cleaned.value.topic.id,external_status:cleaned.value.externalDataStatus}}).catch(()=>null);
