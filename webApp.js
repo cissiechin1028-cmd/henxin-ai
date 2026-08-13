@@ -143,20 +143,28 @@ function subscriptionPeriod(subscription) {
 }
 
 const BILLING_TIERS = Object.freeze({
-  lite: { priceEnv: "STRIPE_LITE_PRICE_ID", replyLimit: 50, combinedLimit: 10, strategyLimit: 10 },
-  premium: { priceEnv: "STRIPE_PREMIUM_PRICE_ID", replyLimit: 150, combinedLimit: 30, strategyLimit: 30 },
+  lite: { replyLimit: 50, combinedLimit: 10, strategyLimit: 10 },
+  premium: { replyLimit: 150, combinedLimit: 30, strategyLimit: 30 },
 });
 
-function stripePriceIdForTier(tier) {
-  if (!BILLING_TIERS[tier]) return null;
-  return process.env[BILLING_TIERS[tier].priceEnv] || (tier === "premium" ? process.env.STRIPE_PRICE_ID : null) || null;
+const BILLING_MARKETS = Object.freeze({
+  JP: { currency: "jpy", lite: { env: "STRIPE_LITE_PRICE_ID", unitAmount: 680 }, premium: { env: "STRIPE_PREMIUM_PRICE_ID", unitAmount: 1280 } },
+  US: { currency: "usd", lite: { env: "STRIPE_US_LITE_PRICE_ID", unitAmount: 699 }, premium: { env: "STRIPE_US_PREMIUM_PRICE_ID", unitAmount: 1299 } },
+  TW: { currency: "twd", lite: { env: "STRIPE_TW_LITE_PRICE_ID", unitAmount: 16900 }, premium: { env: "STRIPE_TW_PREMIUM_PRICE_ID", unitAmount: 32900 } },
+  HK: { currency: "hkd", lite: { env: "STRIPE_HK_LITE_PRICE_ID", unitAmount: 4200 }, premium: { env: "STRIPE_HK_PREMIUM_PRICE_ID", unitAmount: 8200 } },
+});
+
+function stripePriceIdForTier(tier, market = "JP") {
+  const definition = BILLING_MARKETS[market]?.[tier];
+  if (!definition) return null;
+  return process.env[definition.env] || (market === "JP" && tier === "premium" ? process.env.STRIPE_PRICE_ID : null) || null;
 }
 
 function billingTierForSubscription(subscription, fallback = "premium") {
   const priceId = subscription?.items?.data?.[0]?.price?.id;
   if (subscription?.metadata?.tier && BILLING_TIERS[subscription.metadata.tier]) return subscription.metadata.tier;
-  if (priceId && priceId === stripePriceIdForTier("lite")) return "lite";
-  if (priceId && priceId === stripePriceIdForTier("premium")) return "premium";
+  if (priceId && Object.keys(BILLING_MARKETS).some(market => priceId === stripePriceIdForTier("lite", market))) return "lite";
+  if (priceId && Object.keys(BILLING_MARKETS).some(market => priceId === stripePriceIdForTier("premium", market))) return "premium";
   return fallback;
 }
 
@@ -452,9 +460,23 @@ app.get("/api/v1/me", requireUser, async (req, res) => {
 
 app.post("/api/v1/billing/checkout", requireUser, express.json(), async (req, res) => {
   const tier = String(req.body?.tier || "premium");
-  const priceId = stripePriceIdForTier(tier);
+  const market = String(req.body?.market || "").toUpperCase();
+  if (!BILLING_MARKETS[market]) return res.status(400).json({ error: "INVALID_BILLING_MARKET" });
+  const priceId = stripePriceIdForTier(tier, market);
   if (!BILLING_TIERS[tier]) return res.status(400).json({ error: "INVALID_BILLING_TIER" });
-  if (!process.env.STRIPE_SECRET_KEY || !priceId) return res.status(503).json({ error: "BILLING_NOT_CONFIGURED" });
+  if (!process.env.STRIPE_SECRET_KEY || !priceId) return res.status(503).json({ error: "BILLING_MARKET_NOT_CONFIGURED", market, tier });
+  const expected = BILLING_MARKETS[market];
+  let stripePrice;
+  try {
+    stripePrice = await stripe.prices.retrieve(priceId);
+  } catch (error) {
+    console.error("BILLING_PRICE_LOOKUP_FAILED", { market, tier, priceId, message: error?.message });
+    return res.status(503).json({ error: "BILLING_PRICE_LOOKUP_FAILED", market, tier });
+  }
+  if (stripePrice.currency !== expected.currency || stripePrice.unit_amount !== expected[tier].unitAmount || stripePrice.recurring?.interval !== "month") {
+    console.error("BILLING_PRICE_MISMATCH", { market, tier, priceId, currency: stripePrice.currency, unitAmount: stripePrice.unit_amount, interval: stripePrice.recurring?.interval });
+    return res.status(503).json({ error: "BILLING_PRICE_MISMATCH", market, tier });
+  }
   const { data: profile } = await supabase.from("profiles").select("stripe_customer_id,plan").eq("id", req.user.id).single();
   if (profile?.plan === "pro") return res.status(409).json({ error: "ALREADY_PRO" });
   const returnUrl = webAppReturnUrl(req);
@@ -468,13 +490,13 @@ app.post("/api/v1/billing/checkout", requireUser, express.json(), async (req, re
     success_url: `${returnUrl}?checkout=success`,
     cancel_url: `${returnUrl}?checkout=cancelled`,
     client_reference_id: req.user.id,
-    metadata: { userId: req.user.id, tier },
-    subscription_data: { metadata: { userId: req.user.id, tier } },
+    metadata: { userId: req.user.id, tier, market },
+    subscription_data: { metadata: { userId: req.user.id, tier, market } },
     allow_promotion_codes: true
   });
   await tracking.record({
     name: "checkout_started", businessKey: `checkout_started:${checkout.id}`,
-    userId: req.user.id, source: "stripe", properties: { plan: tier }
+    userId: req.user.id, source: "stripe", properties: { plan: tier, market, currency: expected.currency }
   });
   res.json({ url: checkout.url });
 });
@@ -823,6 +845,20 @@ app.get("/api/v1/admin/dashboard", requireUser, requireAdmin, async (req, res) =
   const revenue = (start) => events.filter((event) => ["subscription_started", "subscription_renewed"].includes(event.event_name) && event.occurred_at >= start)
     .reduce((sum, event) => sum + Number(event.properties?.revenue_minor || 0), 0);
   const refunds = events.filter((event) => event.event_name === "payment_refunded");
+  const supportedCurrencies = ["JPY", "USD", "TWD", "HKD"];
+  const latestPlanByUser = new Map();
+  for (const event of events.filter((item) => item.event_name === "user_plan_snapshot" && item.user_id)) latestPlanByUser.set(event.user_id, event);
+  const paymentsByCurrency = supportedCurrencies.map((currency) => {
+    const paid = events.filter((event) => ["subscription_started", "subscription_renewed"].includes(event.event_name)
+      && event.occurred_at >= periodStart && String(event.properties?.currency || "JPY").toUpperCase() === currency);
+    const refunded = refunds.filter((event) => event.occurred_at >= periodStart
+      && String(event.properties?.currency || "JPY").toUpperCase() === currency);
+    const activePlans = [...latestPlanByUser.values()].filter((event) => ["active", "trialing"].includes(event.properties?.subscription_status)
+      && String(event.properties?.currency || "JPY").toUpperCase() === currency);
+    return { currency, revenueMinor: paid.reduce((sum, event) => sum + Number(event.properties?.revenue_minor || 0), 0),
+      refundMinor: refunded.reduce((sum, event) => sum + Number(event.properties?.revenue_minor || 0), 0),
+      mrrMinor: activePlans.reduce((sum, event) => sum + Number(event.properties?.mrr_minor || 0), 0) };
+  });
   const usageById = new Map((usageResult.data || []).map((usage) => [usage.user_id, usage]));
   const users = profiles.map((profile) => {
     const auth = authById.get(profile.id);
@@ -882,7 +918,7 @@ app.get("/api/v1/admin/dashboard", requireUser, requireAdmin, async (req, res) =
       newSubscriptions: operationalEvents.filter((event) => event.event_name === "subscription_started").length,
       cancellations: operationalEvents.filter((event) => event.event_name === "subscription_cancelled").length, refunds: refunds.length,
       refundMinor: refunds.reduce((sum, event) => sum + Number(event.properties?.revenue_minor || 0), 0),
-      mrrMinor: revenue(periodStart), currency: data.subscriptions.currency },
+      mrrMinor: revenue(periodStart), currency: data.subscriptions.currency, byCurrency: paymentsByCurrency },
     errors: errorEvents.map((event) => ({ id: event.id, type: event.event_name, source: event.source, code: event.properties?.error_code || null,
       message: event.properties?.failure_message || null, statusCode: event.properties?.status_code || null, occurredAt: event.occurred_at })),
     product: {
