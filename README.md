@@ -26,6 +26,16 @@ Paid subscriptions use two Stripe prices:
 
 - `STRIPE_LITE_PRICE_ID`: RenAI Lite, JPY 680/month
 - `STRIPE_PREMIUM_PRICE_ID`: RenAI Premium, JPY 1,280/month
+- `STRIPE_US_LITE_PRICE_ID`: RenAI Lite, USD 6.99/month
+- `STRIPE_US_PREMIUM_PRICE_ID`: RenAI Premium, USD 12.99/month
+- `STRIPE_TW_LITE_PRICE_ID`: RenAI Lite, TWD 169/month
+- `STRIPE_TW_PREMIUM_PRICE_ID`: RenAI Premium, TWD 329/month
+- `STRIPE_HK_LITE_PRICE_ID`: RenAI Lite, HKD 42/month
+- `STRIPE_HK_PREMIUM_PRICE_ID`: RenAI Premium, HKD 82/month
+
+Checkout requires the Price ID for the selected market and verifies its Stripe
+currency, monthly interval, and unit amount before creating a subscription. It
+never falls back to a Japanese Price for US, TW, or HK.
 
 The legacy `STRIPE_PRICE_ID` remains a Premium fallback during migration. Lite
 receives 50 reply proposals, 10 combined chat-analysis/consultation uses and 10
