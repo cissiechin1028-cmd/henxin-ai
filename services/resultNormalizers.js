@@ -32,9 +32,10 @@ function assertLocale(strings, locale) {
   const kana = /[\u3040-\u30ff]/;
   const cjk = /[\u3040-\u30ff\u3400-\u9fff]/;
   const strongTraditionalChinese = /[這個們嗎讓裡為與從對請說還會麼]/;
+  const japaneseHighRiskChineseTerms = /約会/;
   if (locale === "en" && cjk.test(text)) throw new Error("AI_LANGUAGE_MISMATCH");
   if (locale === "zh-TW" && kana.test(text)) throw new Error("AI_LANGUAGE_MISMATCH");
-  if (locale === "ja" && (strongTraditionalChinese.test(text) || !kana.test(text))) throw new Error("AI_LANGUAGE_MISMATCH");
+  if (locale === "ja" && (strongTraditionalChinese.test(text) || japaneseHighRiskChineseTerms.test(text) || !kana.test(text))) throw new Error("AI_LANGUAGE_MISMATCH");
 }
 
 function normalizeReply(raw, locale = "ja") {
