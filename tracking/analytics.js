@@ -19,6 +19,45 @@ function actorId(event = {}) {
   return event.user_id || event.anonymous_id || null;
 }
 
+function linkedActors(events) {
+  return new Map(events.filter((event) => event.user_id && event.anonymous_id)
+    .map((event) => [event.anonymous_id, event.user_id]));
+}
+
+function resolvedActor(event, links) {
+  return event.user_id || links.get(event.anonymous_id) || event.anonymous_id || null;
+}
+
+function aiUsageSummary(events) {
+  const links = linkedActors(events);
+  const completed = events.filter((event) => event.event_name === "ai_usage_completed");
+  const actors = new Set(completed.map((event) => resolvedActor(event, links)).filter(Boolean));
+  const anonymousActors = new Set(completed
+    .filter((event) => !event.user_id && event.anonymous_id)
+    .map((event) => event.anonymous_id));
+  const firstActors = new Set(events.filter((event) => event.event_name === "first_ai_usage_completed")
+    .map((event) => resolvedActor(event, links)).filter(Boolean));
+  return {
+    calls: completed.length,
+    users: actors.size,
+    anonymousUsers: anonymousActors.size,
+    firstAiUsers: firstActors.size,
+    unattributedCalls: completed.filter((event) => !resolvedActor(event, links)).length,
+  };
+}
+
+function operationalEvents(events, profiles) {
+  const customerIds = new Set(profiles.filter((profile) => profile.role !== "admin" && !profile.is_test_account).map((profile) => profile.id));
+  const excludedUserIds = new Set(profiles.filter((profile) => profile.role === "admin" || profile.is_test_account).map((profile) => profile.id));
+  const excludedAnonymousIds = new Set(events
+    .filter((event) => event.anonymous_id && event.user_id && excludedUserIds.has(event.user_id))
+    .map((event) => event.anonymous_id));
+  return events.filter((event) =>
+    (!event.user_id || customerIds.has(event.user_id)) &&
+    (!event.anonymous_id || !excludedAnonymousIds.has(event.anonymous_id))
+  );
+}
+
 function eventsForModule(events, module) {
   return events.filter((event) => eventModule(event) === module);
 }
@@ -78,4 +117,4 @@ function moduleCosts(events, module) {
     averageCostMicros: calls ? Math.round(costMicros / calls) : 0 };
 }
 
-module.exports = { normalizeModule, eventModule, eventsForModule, moduleOverview, moduleFunnel, moduleCosts };
+module.exports = { normalizeModule, eventModule, eventsForModule, moduleOverview, moduleFunnel, moduleCosts, aiUsageSummary, operationalEvents };
