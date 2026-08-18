@@ -68,6 +68,22 @@ function createTracking({ supabase }) {
       if (error && error.code !== "23505" && error.code !== "42P01") {
         console.error("TRACKING STORE FAILED", error.message);
       }
+      if (name === "ai_usage_completed" && (!error || error.code === "23505") && (userId || anonymousId)) {
+        const actor = userId ? `user:${userId}` : `anonymous:${anonymousId}`;
+        const firstPayload = {
+          event_id: crypto.randomUUID(), event_name: "first_ai_usage_completed",
+          business_key: `first_ai_usage_completed:${actor}`,
+          user_id: userId, anonymous_id: anonymousId, source,
+          environment: environment(), properties: safeProperties(properties),
+          occurred_at: payload.occurred_at
+        };
+        const { error: firstError } = await supabase.from("tracking_events").upsert(firstPayload, {
+          onConflict: "business_key", ignoreDuplicates: true
+        });
+        if (firstError && firstError.code !== "23505" && firstError.code !== "42P01") {
+          console.error("FIRST AI TRACKING STORE FAILED", firstError.message);
+        }
+      }
       return data || null;
     } catch (error) {
       console.error("TRACKING STORE FAILED", String(error.message || error));
