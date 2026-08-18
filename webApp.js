@@ -9,7 +9,7 @@ const { analyzeForWeb, analyzeConversationForWeb, analyzeConversationTopicForWeb
 const { aiUsageProperties } = require("./tracking/cost");
 const { generateRelationshipReport, periodBounds } = require("./services/relationshipReports");
 const { createTracking } = require("./tracking/service");
-const { normalizeModule, moduleOverview, moduleFunnel, moduleCosts } = require("./tracking/analytics");
+const { normalizeModule, moduleOverview, moduleFunnel, moduleCosts, aiUsageSummary, operationalEvents: filterOperationalEvents } = require("./tracking/analytics");
 const { createUsageService } = require("./services/usageService");
 const { getAnalysisTopic } = require("./analysisTopics");
 const { cleanStrategyInput, generateStrategy } = require("./services/strategyGenerator");
@@ -398,7 +398,7 @@ app.post("/api/v1/tracking/page-view", express.json({ limit: "8kb" }), async (re
 });
 
 const browserEventNames = new Set([
-  "free_trial_clicked", "login_opened", "google_login_succeeded", "line_login_succeeded",
+  "free_trial_clicked", "free_trial_cta_clicked", "app_session_start", "anonymous_session_created", "login_opened", "google_login_succeeded", "line_login_succeeded",
   "google_login_clicked", "line_login_clicked", "email_input_started",
   "email_login_succeeded", "google_login_failed", "line_login_failed", "email_otp_failed",
   "first_screenshot_uploaded", "upgrade_clicked", "stripe_checkout_opened", "attribution_linked",
@@ -700,15 +700,7 @@ async function operationalTrackingEvents(startAt, endAt) {
   ]);
   if (profilesResult.error || eventsResult.error) return { error: profilesResult.error || eventsResult.error };
   const profiles = profilesResult.data || [];
-  const customerIds = new Set(profiles.filter((profile) => profile.role !== "admin" && !profile.is_test_account).map((profile) => profile.id));
-  const excludedUserIds = new Set(profiles.filter((profile) => profile.role === "admin" || profile.is_test_account).map((profile) => profile.id));
-  const excludedAnonymousIds = new Set((eventsResult.data || [])
-    .filter((event) => event.anonymous_id && event.user_id && excludedUserIds.has(event.user_id))
-    .map((event) => event.anonymous_id));
-  return { data: (eventsResult.data || []).filter((event) =>
-    (!event.user_id || customerIds.has(event.user_id)) &&
-    (!event.anonymous_id || !excludedAnonymousIds.has(event.anonymous_id))
-  ) };
+  return { data: filterOperationalEvents(eventsResult.data || [], profiles) };
 }
 
 async function analyticsRequest(req, res, presenter) {
@@ -764,21 +756,15 @@ app.get("/api/v1/admin/dashboard", requireUser, requireAdmin, async (req, res) =
   const authById = new Map(authUsers.map((user) => [user.id, user]));
   const customerIds = new Set(profiles.map((profile) => profile.id));
   const attributionByUser = new Map((attributionResult.data || []).filter((item) => customerIds.has(item.user_id)).map((item) => [item.user_id, item]));
-  const excludedUserIds = new Set(allProfiles.filter((profile) => profile.role === "admin" || profile.is_test_account).map((profile) => profile.id));
-  const excludedAnonymousIds = new Set(events
-    .filter((event) => event.anonymous_id && event.user_id && excludedUserIds.has(event.user_id))
-    .map((event) => event.anonymous_id));
-  const operationalEvents = events.filter((event) =>
-    (!event.user_id || customerIds.has(event.user_id)) &&
-    (!event.anonymous_id || !excludedAnonymousIds.has(event.anonymous_id))
-  );
+  const operationalEvents = filterOperationalEvents(events, allProfiles);
   const aiEvents = operationalEvents.filter((event) => event.event_name === "ai_usage_completed");
+  const aiUsage = aiUsageSummary(operationalEvents);
   const aiCalls = aiEvents.length;
   const aiTokens = aiEvents.reduce((sum, event) => sum + Number(event.properties?.total_tokens || 0), 0);
   const aiCostMicros = aiEvents.reduce((sum, event) => sum + Number(event.properties?.cost_micros || 0), 0);
   const pricingUnconfigured = aiEvents.filter((event) => event.properties?.cost_status === "unconfigured").length;
   const funnelNames = [
-    "page_viewed", "free_trial_clicked", "login_opened", "google_login_clicked", "line_login_clicked", "email_input_started", "google_login_succeeded",
+    "page_viewed", "free_trial_cta_clicked", "app_session_start", "anonymous_session_created", "login_opened", "google_login_clicked", "line_login_clicked", "email_input_started", "google_login_succeeded",
     "line_login_succeeded", "email_login_succeeded", "first_screenshot_uploaded",
     "first_ai_usage_completed", "upgrade_clicked", "stripe_checkout_opened", "subscription_started"
   ];
@@ -823,9 +809,8 @@ app.get("/api/v1/admin/dashboard", requireUser, requireAdmin, async (req, res) =
     const scoped = operationalEvents.filter((event) => eventModule(event) === module);
     const completed = scoped.filter((event) => event.event_name === "ai_usage_completed");
     const failed = scoped.filter((event) => event.event_name === "ai_usage_failed");
-    const actors = new Set(scoped.map((event) => event.user_id || event.anonymous_id).filter(Boolean));
-    const anonymousActors = new Set(scoped.filter((event) => !event.user_id).map((event) => event.anonymous_id).filter(Boolean));
-    return [module, { actors: actors.size, anonymousActors: anonymousActors.size, completed: completed.length, failed: failed.length,
+    const usage = aiUsageSummary(scoped);
+    return [module, { actors: usage.users, anonymousActors: usage.anonymousUsers, completed: completed.length, failed: failed.length,
       successRate: completed.length + failed.length ? Number((completed.length / (completed.length + failed.length) * 100).toFixed(1)) : null,
       costMicros: moduleCostSummaries[module].costMicros }];
   }));
@@ -910,6 +895,8 @@ app.get("/api/v1/admin/dashboard", requireUser, requireAdmin, async (req, res) =
       aiSuccessRate: analysisCount ? Number(((analysisCount - failedAnalysisCount) / analysisCount * 100).toFixed(1)) : 100 },
     ai: { ...data.ai, callsToday: aiCalls, tokensToday: aiTokens, costMicrosToday: aiCostMicros,
       callsTotal: aiCalls, costMicrosTotal: aiCostMicros, pricingUnconfigured,
+      usersWithAi: aiUsage.users, anonymousUsersWithAi: aiUsage.anonymousUsers,
+      firstAiUsers: aiUsage.firstAiUsers, unattributedCalls: aiUsage.unattributedCalls,
       averageAnalysisCostMicros: aiCalls ? Math.round(aiCostMicros / aiCalls) : 0,
       replyCostMicros: moduleCostSummaries.reply.costMicros,
       analysisCostMicros: moduleCostSummaries.analysis.costMicros,
@@ -930,7 +917,7 @@ app.get("/api/v1/admin/dashboard", requireUser, requireAdmin, async (req, res) =
         strategyTrials: strategyTrials.length, strategyUses: strategyTrials.filter((item) => item.used).length },
       modules: moduleSummaries, features: featureEvents,
     },
-    users, creativeFunnels, collectionNote: `统计范围：${periodStart} 至 ${periodEnd}；匿名人数按匿名设备标识去重，登录用户按用户编号去重；管理员与测试账号已排除。` });
+    users, creativeFunnels, collectionNote: `统计范围：${periodStart} 至 ${periodEnd}；AI 调用按完成事件计数，使用人数按登录用户或匿名设备统一去重；无法绑定两者的完成事件单列为未归属调用；管理员与测试账号已排除。` });
 });
 
 app.get("/api/v1/admin/summary", requireUser, requireAdmin, async (_req, res) => {
@@ -1747,10 +1734,6 @@ app.post(
           userId: req.user.id, source: "ai", properties: { ...usage, mode }
         });
       }
-      await tracking.record({
-        name: "first_ai_usage_completed", businessKey: `first_ai_usage_completed:${req.user.id}`,
-        userId: req.user.id, source: "ai", properties: { mode }
-      });
       await usageService.recordSuccess(fairUse);
       if (credit.plan === "free" && Number(credit.used) >= Number(credit.credit_limit)) {
         await tracking.record({
