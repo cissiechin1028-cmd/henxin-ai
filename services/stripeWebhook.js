@@ -2,7 +2,11 @@ function webhookSecretCandidates(env = process.env) {
   const candidates = [];
   if (env.STRIPE_TEST_WEBHOOK_SECRET) candidates.push({ mode: "test", secret: env.STRIPE_TEST_WEBHOOK_SECRET });
   if (env.STRIPE_LIVE_WEBHOOK_SECRET) candidates.push({ mode: "live", secret: env.STRIPE_LIVE_WEBHOOK_SECRET });
-  if (!candidates.length && env.STRIPE_WEBHOOK_SECRET) candidates.push({ mode: "legacy", secret: env.STRIPE_WEBHOOK_SECRET });
+  // Keep the existing Live secret working during the zero-downtime migration.
+  // Once STRIPE_LIVE_WEBHOOK_SECRET is configured, the legacy name is ignored.
+  if (!env.STRIPE_LIVE_WEBHOOK_SECRET && env.STRIPE_WEBHOOK_SECRET) {
+    candidates.push({ mode: env.STRIPE_TEST_WEBHOOK_SECRET ? "live" : "legacy", secret: env.STRIPE_WEBHOOK_SECRET });
+  }
   return candidates;
 }
 

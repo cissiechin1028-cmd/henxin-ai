@@ -32,6 +32,6 @@ test("uses the legacy secret only when no mode-specific secrets exist", () => {
   assert.deepEqual(webhookSecretCandidates({
     STRIPE_WEBHOOK_SECRET: "legacy",
     STRIPE_TEST_WEBHOOK_SECRET: "test"
-  }).map(({ mode }) => mode), ["test"]);
+  }).map(({ mode }) => mode), ["test", "live"]);
   assert.deepEqual(webhookSecretCandidates({ STRIPE_WEBHOOK_SECRET: "legacy" }).map(({ mode }) => mode), ["legacy"]);
 });
