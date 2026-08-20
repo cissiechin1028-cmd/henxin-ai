@@ -1,6 +1,7 @@
 require("dotenv").config();
 
 const express = require("express");
+const { constructStripeWebhookEvent } = require("./services/stripeWebhook");
 const Stripe = require("stripe");
 const axios = require("axios");
 const crypto = require("crypto");
@@ -517,7 +518,7 @@ const stripeWebhookRaw = express.raw({ type: "application/json" });
 async function handleStripeWebhook(req, res) {
   let event;
   try {
-    event = stripe.webhooks.constructEvent(req.body, req.headers["stripe-signature"], process.env.STRIPE_WEBHOOK_SECRET);
+    ({ event } = constructStripeWebhookEvent(stripe, req.body, req.headers["stripe-signature"]));
   } catch {
     // Public webhook URLs are routinely probed by bots and uptime scanners. A
     // request without Stripe's signature is not a failed Stripe delivery.
@@ -534,6 +535,9 @@ async function handleStripeWebhook(req, res) {
   });
   if (eventInsertError && eventInsertError.code !== "23505") {
     return res.status(500).json({ error: "EVENT_STORE_FAILED" });
+  }
+  if (eventInsertError?.code === "23505") {
+    return res.json({ received: true, duplicate: true });
   }
   try {
     if (event.type === "checkout.session.completed" && userId && object.payment_status === "paid") {
@@ -622,7 +626,7 @@ async function handleStripeWebhook(req, res) {
       });
     }
     }
-    if (["customer.subscription.updated", "customer.subscription.deleted"].includes(event.type)) {
+    if (["customer.subscription.created", "customer.subscription.updated", "customer.subscription.deleted"].includes(event.type)) {
     const subscription = object;
     const subscriptionUserId = subscription.metadata?.userId;
     const active = ["active", "trialing"].includes(subscription.status);
