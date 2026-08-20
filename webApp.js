@@ -314,6 +314,32 @@ async function requireAdmin(req, res, next) {
   next();
 }
 
+const LOVE_TYPE_AXES=["E","I","S","N","T","F","J","P"],LOVE_TYPE_BEHAVIORS=["initiative","slowWarm","directness","securityNeed","planning","novelty","ritual","conflictImmediate"];
+const LOVE_TYPE_A_POLES={jp1:"J",ei4:"I",sn2:"S",tf1:"F",ei2:"E",jp4:"P",sn5:"N",tf6:"T",ei6:"I",sn3:"S",jp3:"J",tf2:"F",ei1:"E",sn6:"N",tf5:"T",jp6:"P",ei5:"I",sn1:"S",tf3:"F",ei3:"E",jp2:"J",sn4:"N",tf4:"T",jp5:"P"};
+const LOVE_TYPE_OPPOSITES={E:"I",I:"E",S:"N",N:"S",T:"F",F:"T",J:"P",P:"J"},LOVE_TYPE_AXIS_PAIRS={EI:["E","I"],SN:["S","N"],TF:["T","F"],JP:["J","P"]},LOVE_TYPE_TIE_BREAK={EI:"ei2",SN:"sn2",TF:"tf1",JP:"jp1"};
+const LOVE_TYPE_BEHAVIOR_MAP={initiative:[["ei1","A"],["ei2","A"],["ei3","A"],["ei5","B"]],slowWarm:[["ei5","A"],["jp5","A"]],directness:[["ei4","B"],["tf6","A"]],securityNeed:[["sn1","B"],["sn5","A"],["jp3","A"],["jp5","B"]],planning:[["jp1","A"],["jp2","A"],["jp3","A"],["jp4","B"],["jp6","B"]],novelty:[["sn6","A"],["jp2","B"],["jp6","A"]],ritual:[["sn3","B"],["jp4","B"]],conflictImmediate:[["tf1","B"],["tf2","B"]]};
+function withLoveTypeRuntimeMeta(profile){
+ if(!profile||!profile.answers||Object.keys(profile.answers).length!==24)return profile;
+ const counts={E:0,I:0,S:0,N:0,T:0,F:0,J:0,P:0},selected=(id,answer)=>answer==="A"?LOVE_TYPE_A_POLES[id]:LOVE_TYPE_OPPOSITES[LOVE_TYPE_A_POLES[id]];
+ for(const[id,answer]of Object.entries(profile.answers)){const pole=selected(id,answer);if(pole)counts[pole]++}
+ const axisScores=Object.fromEntries(LOVE_TYPE_AXES.map(pole=>[pole,Math.round(counts[pole]/6*100)])),axisMeta={};
+ for(const[axis,[first,second]]of Object.entries(LOVE_TYPE_AXIS_PAIRS)){const borderline=counts[first]===counts[second],preferredPole=borderline?selected(LOVE_TYPE_TIE_BREAK[axis],profile.answers[LOVE_TYPE_TIE_BREAK[axis]]):(counts[first]>counts[second]?first:second);axisMeta[axis]={borderline,confidence:borderline?"low":Math.abs(axisScores[first]-axisScores[second])>=66?"high":"moderate",preferredPole}}
+ const behaviorScores={},behaviorConfidence={};
+ for(const[key,mapping]of Object.entries(LOVE_TYPE_BEHAVIOR_MAP)){const effective=mapping.filter(([id])=>profile.answers[id]);behaviorScores[key]=effective.length?Math.round(effective.filter(([id,high])=>profile.answers[id]===high).length/effective.length*100):50;behaviorConfidence[key]={effectiveQuestions:effective.length,confidence:effective.length<=2?"low":effective.length<=3?"moderate":"high"}}
+ return{...profile,axisScores,behaviorScores,axisMeta,behaviorConfidence};
+}
+function cleanScoreMap(value,keys){if(!value||typeof value!=="object")return null;const result={};for(const key of keys){const score=Number(value[key]);if(!Number.isFinite(score)||score<0||score>100)return null;result[key]=Math.round(score)}return result}
+function cleanLoveTypeInput(body={}){
+ const typeCode=String(body.typeCode||"").toUpperCase(),typeName=String(body.typeName||"").trim().slice(0,80);
+ if(!/^[EI][SN][TF][JP]$/.test(typeCode)||!typeName)return{error:"INVALID_LOVE_TYPE"};
+ const axisScores=cleanScoreMap(body.axisScores,LOVE_TYPE_AXES),behaviorScores=cleanScoreMap(body.behaviorScores,LOVE_TYPE_BEHAVIORS);
+ if(!axisScores||!behaviorScores)return{error:"INVALID_LOVE_TYPE_SCORES"};
+ const answers=body.answers&&typeof body.answers==="object"?Object.fromEntries(Object.entries(body.answers).slice(0,24).filter(([key,value])=>/^(ei|sn|tf|jp)[1-6]$/.test(key)&&(value==="A"||value==="B"))):{};
+ if(Object.keys(answers).length!==24)return{error:"INCOMPLETE_LOVE_TYPE"};
+ return{value:{version:1,typeCode,typeName,axisScores,behaviorScores,answers,summary:String(body.summary||"").trim().slice(0,240),strength:String(body.strength||"").trim().slice(0,240),watchout:String(body.watchout||"").trim().slice(0,240),strategyFit:String(body.strategyFit||"").trim().slice(0,240),completedAt:new Date().toISOString()}};
+}
+function mapLoveTypeProfile(row){return row?{version:1,typeCode:row.type_code,typeName:row.type_name,axisScores:row.axis_scores||{},behaviorScores:row.behavior_scores||{},answers:row.answers||{},summary:row.summary||"",strength:row.strength||"",watchout:row.watchout||"",strategyFit:row.strategy_fit||"",completedAt:row.completed_at}:null}
+
 function cleanTimelineInput(body = {}, partial = false) {
   const result = {};
   if (!partial || Object.prototype.hasOwnProperty.call(body, "title")) {
@@ -457,6 +483,20 @@ app.get("/api/v1/me", requireUser, async (req, res) => {
   const { data, error } = await supabase.from("profiles").select("*").eq("id", req.user.id).single();
   if (error) return res.status(500).json({ error: "PROFILE_READ_FAILED" });
   res.json({ profile: data });
+});
+
+app.get("/api/v1/love-type-profile",requireUser,async(req,res)=>{
+ const{data,error}=await supabase.from("love_type_profiles").select("*").eq("user_id",req.user.id).maybeSingle();
+ if(error)return res.status(500).json({error:"LOVE_TYPE_READ_FAILED"});
+ return res.json({profile:mapLoveTypeProfile(data)});
+});
+
+app.put("/api/v1/love-type-profile",requireUser,express.json({limit:"32kb"}),async(req,res)=>{
+ const cleaned=cleanLoveTypeInput(req.body);if(cleaned.error)return res.status(400).json({error:cleaned.error});
+ const value=cleaned.value,{data,error}=await supabase.from("love_type_profiles").upsert({user_id:req.user.id,version:value.version,type_code:value.typeCode,type_name:value.typeName,axis_scores:value.axisScores,behavior_scores:value.behaviorScores,answers:value.answers,summary:value.summary,strength:value.strength,watchout:value.watchout,strategy_fit:value.strategyFit,completed_at:value.completedAt,updated_at:new Date().toISOString()},{onConflict:"user_id"}).select("*").single();
+ if(error)return res.status(500).json({error:"LOVE_TYPE_SAVE_FAILED"});
+ await tracking.record({name:"love_type_saved",businessKey:`love_type_saved:${req.user.id}:${value.completedAt}`,userId:req.user.id,source:"api",properties:{module:"strategy",type_code:value.typeCode}}).catch(()=>null);
+ return res.json({profile:mapLoveTypeProfile(data)});
 });
 
 app.post("/api/v1/billing/checkout", requireUser, express.json(), async (req, res) => {
@@ -1372,8 +1412,9 @@ app.post("/api/v1/anonymous/strategies", express.json({ limit: "128kb" }), async
   const requestId = crypto.randomUUID();
   try {
     if(authenticatedUser){
-      const {data:recent}=await supabase.from("analyses").select("title,result,completed_at").eq("user_id",authenticatedUser.id).eq("mode","analysis").eq("status","completed").order("completed_at",{ascending:false}).limit(2);
+      const [{data:recent},{data:savedLoveType}]=await Promise.all([supabase.from("analyses").select("title,result,completed_at").eq("user_id",authenticatedUser.id).eq("mode","analysis").eq("status","completed").order("completed_at",{ascending:false}).limit(2),supabase.from("love_type_profiles").select("*").eq("user_id",authenticatedUser.id).maybeSingle()]);
       cleaned.value.reusedContext=(recent||[]).map(item=>({title:item.title,summary:item.result?.summary||"",verdict:item.result?.verdict||"",nextSteps:item.result?.next_steps||[]}));
+      if(savedLoveType)cleaned.value.userLoveProfile=withLoveTypeRuntimeMeta(mapLoveTypeProfile(savedLoveType));
     }
     const output = await generateStrategy(cleaned.value, locale);
     await tracking.record({ name: "ai_usage_completed", businessKey: `strategy_ai_usage_completed:${requestId}`, userId: authenticatedUser?.id || null, anonymousId: identity?.deviceHash || null, source: "ai", properties: { ...output.usage, module: "strategy", mode: "strategy", topic_id: cleaned.value.topic.id, anonymous: !authenticatedUser } });
