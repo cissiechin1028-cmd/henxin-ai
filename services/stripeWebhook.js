@@ -37,4 +37,8 @@ function constructStripeWebhookEvent(stripe, rawBody, signature, env = process.e
   throw new Error("STRIPE_WEBHOOK_SIGNATURE_INVALID");
 }
 
-module.exports = { constructStripeWebhookEvent, webhookSecretCandidates };
+function shouldApplyStripeBusinessEffects(event) {
+  return event?.livemode === true;
+}
+
+module.exports = { constructStripeWebhookEvent, shouldApplyStripeBusinessEffects, webhookSecretCandidates };

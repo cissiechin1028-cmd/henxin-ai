@@ -1,7 +1,7 @@
 require("dotenv").config();
 
 const express = require("express");
-const { constructStripeWebhookEvent, webhookSecretCandidates } = require("./services/stripeWebhook");
+const { constructStripeWebhookEvent, shouldApplyStripeBusinessEffects, webhookSecretCandidates } = require("./services/stripeWebhook");
 const Stripe = require("stripe");
 const axios = require("axios");
 const crypto = require("crypto");
@@ -538,15 +538,23 @@ async function handleStripeWebhook(req, res) {
   }
   const object = event.data.object;
   const userId = object.metadata?.userId || object.client_reference_id || null;
+  const applyBusinessEffects = shouldApplyStripeBusinessEffects(event);
   const { error: eventInsertError } = await supabase.from("subscription_events").insert({
-    user_id: userId, stripe_event_id: event.id, event_type: event.type,
-    payload: { object_id: object.id, created: event.created }
+    // Sandbox webhooks share this service but must never mutate or reference
+    // Production customer records.
+    user_id: applyBusinessEffects ? userId : null,
+    stripe_event_id: event.id,
+    event_type: event.type,
+    payload: { object_id: object.id, created: event.created, livemode: event.livemode === true }
   });
   if (eventInsertError && eventInsertError.code !== "23505") {
     return res.status(500).json({ error: "EVENT_STORE_FAILED" });
   }
   if (eventInsertError?.code === "23505") {
     return res.json({ received: true, duplicate: true });
+  }
+  if (!applyBusinessEffects) {
+    return res.json({ received: true, processed: true, testMode: true });
   }
   try {
     if (event.type === "checkout.session.completed" && userId && object.payment_status === "paid") {

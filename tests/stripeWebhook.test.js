@@ -1,7 +1,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const Stripe = require("stripe");
-const { constructStripeWebhookEvent, webhookSecretCandidates } = require("../services/stripeWebhook");
+const { constructStripeWebhookEvent, shouldApplyStripeBusinessEffects, webhookSecretCandidates } = require("../services/stripeWebhook");
 
 const stripe = new Stripe("sk_test_placeholder");
 const testSecret = "whsec_test_fixture";
@@ -44,4 +44,10 @@ test("normalizes copied secret whitespace and wrapping quotes", () => {
     { mode: "test", secret: testSecret },
     { mode: "live", secret: liveSecret }
   ]);
+});
+
+test("only live Stripe events may apply customer entitlement side effects", () => {
+  assert.equal(shouldApplyStripeBusinessEffects({ livemode: true }), true);
+  assert.equal(shouldApplyStripeBusinessEffects({ livemode: false }), false);
+  assert.equal(shouldApplyStripeBusinessEffects({}), false);
 });
