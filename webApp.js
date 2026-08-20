@@ -1,7 +1,7 @@
 require("dotenv").config();
 
 const express = require("express");
-const { constructStripeWebhookEvent } = require("./services/stripeWebhook");
+const { constructStripeWebhookEvent, webhookSecretCandidates } = require("./services/stripeWebhook");
 const Stripe = require("stripe");
 const axios = require("axios");
 const crypto = require("crypto");
@@ -523,6 +523,15 @@ async function handleStripeWebhook(req, res) {
     // Public webhook URLs are routinely probed by bots and uptime scanners. A
     // request without Stripe's signature is not a failed Stripe delivery.
     if (req.headers["stripe-signature"]) {
+      console.error("STRIPE_WEBHOOK_SIGNATURE_FAILED", JSON.stringify({
+        signaturePresent: true,
+        contentType: String(req.headers["content-type"] || ""),
+        bodyType: Buffer.isBuffer(req.body) ? "buffer" : typeof req.body,
+        bodyLength: Buffer.isBuffer(req.body) ? req.body.length : 0,
+        candidates: webhookSecretCandidates().map(({ mode, secret }) => ({
+          mode, configured: true, validPrefix: secret.startsWith("whsec_"), length: secret.length
+        }))
+      }));
       await tracking.record({ name: "stripe_webhook_failed", businessKey: `stripe_webhook_failed:${Date.now()}:${Math.random()}`, source: "stripe", properties: { error_code: "INVALID_SIGNATURE" } });
     }
     return res.status(400).send("Invalid signature");
