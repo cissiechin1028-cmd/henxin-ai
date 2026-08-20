@@ -35,3 +35,13 @@ test("uses the legacy secret only when no mode-specific secrets exist", () => {
   }).map(({ mode }) => mode), ["test", "live"]);
   assert.deepEqual(webhookSecretCandidates({ STRIPE_WEBHOOK_SECRET: "legacy" }).map(({ mode }) => mode), ["legacy"]);
 });
+
+test("normalizes copied secret whitespace and wrapping quotes", () => {
+  assert.deepEqual(webhookSecretCandidates({
+    STRIPE_TEST_WEBHOOK_SECRET: `  "${testSecret}"\n`,
+    STRIPE_WEBHOOK_SECRET: ` ${liveSecret} `
+  }), [
+    { mode: "test", secret: testSecret },
+    { mode: "live", secret: liveSecret }
+  ]);
+});

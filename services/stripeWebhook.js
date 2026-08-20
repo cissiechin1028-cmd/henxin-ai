@@ -1,11 +1,21 @@
 function webhookSecretCandidates(env = process.env) {
+  const clean = (value) => {
+    const trimmed = String(value || "").trim();
+    if ((trimmed.startsWith('"') && trimmed.endsWith('"')) || (trimmed.startsWith("'") && trimmed.endsWith("'"))) {
+      return trimmed.slice(1, -1).trim();
+    }
+    return trimmed;
+  };
   const candidates = [];
-  if (env.STRIPE_TEST_WEBHOOK_SECRET) candidates.push({ mode: "test", secret: env.STRIPE_TEST_WEBHOOK_SECRET });
-  if (env.STRIPE_LIVE_WEBHOOK_SECRET) candidates.push({ mode: "live", secret: env.STRIPE_LIVE_WEBHOOK_SECRET });
+  const testSecret = clean(env.STRIPE_TEST_WEBHOOK_SECRET);
+  const liveSecret = clean(env.STRIPE_LIVE_WEBHOOK_SECRET);
+  const legacySecret = clean(env.STRIPE_WEBHOOK_SECRET);
+  if (testSecret) candidates.push({ mode: "test", secret: testSecret });
+  if (liveSecret) candidates.push({ mode: "live", secret: liveSecret });
   // Keep the existing Live secret working during the zero-downtime migration.
   // Once STRIPE_LIVE_WEBHOOK_SECRET is configured, the legacy name is ignored.
-  if (!env.STRIPE_LIVE_WEBHOOK_SECRET && env.STRIPE_WEBHOOK_SECRET) {
-    candidates.push({ mode: env.STRIPE_TEST_WEBHOOK_SECRET ? "live" : "legacy", secret: env.STRIPE_WEBHOOK_SECRET });
+  if (!liveSecret && legacySecret) {
+    candidates.push({ mode: testSecret ? "live" : "legacy", secret: legacySecret });
   }
   return candidates;
 }
