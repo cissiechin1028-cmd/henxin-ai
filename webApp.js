@@ -272,7 +272,7 @@ app.use((req, res, next) => {
     res.setHeader("Access-Control-Allow-Origin", origin);
     res.setHeader("Vary", "Origin");
   }
-  res.setHeader("Access-Control-Allow-Headers", "Authorization, Content-Type, X-Analysis-Mode, X-Locale, X-Reply-Goal, X-Reply-Style, X-Relationship-Status, X-User-Note, X-Analysis-Focus, X-RenAI-Device-ID, X-RenAI-Fingerprint");
+  res.setHeader("Access-Control-Allow-Headers", "Authorization, Content-Type, X-Analysis-Mode, X-Locale, X-Reply-Goal, X-Reply-Style, X-Relationship-Status, X-User-Note, X-Analysis-Focus, X-RenAI-Device-ID, X-RenAI-Tracking-ID, X-RenAI-Fingerprint");
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS");
   res.setHeader("X-Content-Type-Options", "nosniff");
   if (req.method === "OPTIONS") return res.sendStatus(204);
