@@ -272,7 +272,7 @@ app.use((req, res, next) => {
     res.setHeader("Access-Control-Allow-Origin", origin);
     res.setHeader("Vary", "Origin");
   }
-  res.setHeader("Access-Control-Allow-Headers", "Authorization, Content-Type, X-Analysis-Mode, X-Locale, X-Reply-Goal, X-Reply-Style, X-Relationship-Status, X-User-Note, X-Analysis-Focus, X-RenAI-Device-ID, X-RenAI-Tracking-ID, X-RenAI-Fingerprint");
+  res.setHeader("Access-Control-Allow-Headers", "Authorization, Content-Type, X-Analysis-Mode, X-Locale, X-Reply-Goal, X-Reply-Style, X-Relationship-Status, X-Relationship-ID, X-User-Note, X-Analysis-Focus, X-RenAI-Device-ID, X-RenAI-Tracking-ID, X-RenAI-Fingerprint");
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS");
   res.setHeader("X-Content-Type-Options", "nosniff");
   if (req.method === "OPTIONS") return res.sendStatus(204);
@@ -375,6 +375,20 @@ async function findOwnedRelationship(userId, relationshipId) {
 async function findActiveRelationship(userId) {
   return supabase.from("relationships").select("id")
     .eq("user_id", userId).eq("status", "active").maybeSingle();
+}
+
+async function resolveRelationship(userId, requestedId) {
+  const relationshipId = String(requestedId || "").trim();
+  if (relationshipId) {
+    const query = await findOwnedRelationship(userId, relationshipId);
+    if (query.error) return { error: query.error };
+    if (!query.data) return { status: 404, code: "RELATIONSHIP_NOT_FOUND" };
+    return { data: query.data, explicit: true };
+  }
+  const query = await findActiveRelationship(userId);
+  if (query.error) return { error: query.error };
+  if (!query.data) return { status: 404, code: "ACTIVE_RELATIONSHIP_NOT_FOUND" };
+  return { data: query.data, explicit: false };
 }
 
 app.get("/health", (_req, res) => res.json({
@@ -1364,7 +1378,7 @@ app.post("/api/v1/anonymous/conversation-analyses",express.json({limit:"192kb"})
   if(paidUsage)await usageService.recordSuccess(paidUsage);
   await tracking.record({name:"ai_usage_completed",businessKey:`topic_ai_usage_completed:${requestId}`,userId:authenticatedUser?.id||null,anonymousId:identity?.deviceHash||null,source:"ai",properties:{...output.usage,module:"analysis",mode:"analysis",topic_id:topicId,anonymous:!authenticatedUser}});
   let storedAnalysisId=requestId;
-  if(authenticatedUser){const relationship=await findActiveRelationship(authenticatedUser.id).then(result=>result.data);const{data:stored,error:storeError}=await supabase.from("analyses").insert({user_id:authenticatedUser.id,relationship_id:relationship?.id||null,mode:"analysis",status:"completed",title:String(topic.title||"チャット分析").slice(0,100),result:output.result,completed_at:new Date().toISOString(),input_metadata:{source:"parsed_conversation",topic_id:topicId,message_count:messages.length}}).select("id").single();if(storeError)throw new Error("ANALYSIS_SAVE_FAILED");storedAnalysisId=stored.id}
+  if(authenticatedUser){const resolved=await resolveRelationship(authenticatedUser.id,req.body?.relationshipId||req.headers["x-relationship-id"]);if(resolved.error||!resolved.data)return res.status(resolved.status||500).json({error:resolved.code||"RELATIONSHIP_READ_FAILED"});const{data:stored,error:storeError}=await supabase.from("analyses").insert({user_id:authenticatedUser.id,relationship_id:resolved.data.id,mode:"analysis",status:"completed",title:String(topic.title||"チャット分析").slice(0,100),result:output.result,completed_at:new Date().toISOString(),input_metadata:{source:"parsed_conversation",topic_id:topicId,message_count:messages.length}}).select("id").single();if(storeError)throw new Error("ANALYSIS_SAVE_FAILED");storedAnalysisId=stored.id}
   return res.status(201).json({analysis:{id:storedAnalysisId,mode:"analysis",status:"completed",result:output.result,completed_at:new Date().toISOString()},trial:credit?{replyUsed:Number(credit.reply_used),replyLimit:Number(credit.reply_limit),analysisUsed:Number(credit.analysis_used),analysisLimit:Number(credit.analysis_limit),expiresAt:credit.expires_at}:null});
  }catch(error){if(identity)try{await supabase.rpc("refund_anonymous_analysis_credit",{target_device_hash:identity.deviceHash,target_risk_hash:identity.riskHash,target_mode:"analysis"})}catch{}console.error("TOPIC ANALYSIS FAILED",requestId,String(error.message||error));return res.status(502).json({error:"ANALYSIS_FAILED"})}
 });
@@ -1411,15 +1425,19 @@ app.post("/api/v1/anonymous/strategies", express.json({ limit: "128kb" }), async
   }
   const requestId = crypto.randomUUID();
   try {
+    let relationship = null;
     if(authenticatedUser){
-      const [{data:recent},{data:savedLoveType}]=await Promise.all([supabase.from("analyses").select("title,result,completed_at").eq("user_id",authenticatedUser.id).eq("mode","analysis").eq("status","completed").order("completed_at",{ascending:false}).limit(2),supabase.from("love_type_profiles").select("*").eq("user_id",authenticatedUser.id).maybeSingle()]);
+      const resolved=await resolveRelationship(authenticatedUser.id,req.body?.relationshipId||req.headers["x-relationship-id"]);if(resolved.error||!resolved.data)return res.status(resolved.status||500).json({error:resolved.code||"RELATIONSHIP_READ_FAILED"});relationship=resolved.data;
+      const [{data:recent},{data:savedLoveType}]=await Promise.all([supabase.from("analyses").select("title,result,completed_at").eq("user_id",authenticatedUser.id).eq("relationship_id",relationship.id).eq("mode","analysis").eq("status","completed").order("completed_at",{ascending:false}).limit(2),supabase.from("love_type_profiles").select("*").eq("user_id",authenticatedUser.id).maybeSingle()]);
       cleaned.value.reusedContext=(recent||[]).map(item=>({title:item.title,summary:item.result?.summary||"",verdict:item.result?.verdict||"",nextSteps:item.result?.next_steps||[]}));
       if(savedLoveType)cleaned.value.userLoveProfile=withLoveTypeRuntimeMeta(mapLoveTypeProfile(savedLoveType));
     }
     const output = await generateStrategy(cleaned.value, locale);
+    let storedId=requestId,createdAt=new Date().toISOString();
+    if(authenticatedUser&&relationship){const{data:stored,error:storeError}=await supabase.from("strategy_results").insert({user_id:authenticatedUser.id,relationship_id:relationship.id,topic_id:cleaned.value.topic.id,title:String(cleaned.value.topic.title||"").slice(0,120),answers:cleaned.value.answers||{},places:cleaned.value.verifiedPlaces||[],weather:cleaned.value.weather||null,result:output.result,metadata:{external_data_status:cleaned.value.externalDataStatus||null}}).select("id,created_at").single();if(storeError)throw new Error("STRATEGY_SAVE_FAILED");storedId=stored.id;createdAt=stored.created_at}
     await tracking.record({ name: "ai_usage_completed", businessKey: `strategy_ai_usage_completed:${requestId}`, userId: authenticatedUser?.id || null, anonymousId: identity?.deviceHash || null, source: "ai", properties: { ...output.usage, module: "strategy", mode: "strategy", topic_id: cleaned.value.topic.id, anonymous: !authenticatedUser } });
     await tracking.record({name:"strategy_generation_succeeded",businessKey:`strategy_success:${requestId}`,userId:authenticatedUser?.id||null,anonymousId:identity?.deviceHash||null,source:"api",properties:{topic_id:cleaned.value.topic.id,weather_applied:Boolean(cleaned.value.weather),places_applied:Boolean(cleaned.value.verifiedPlaces.length),free_trial:Boolean(credit)}});
-    return res.status(201).json({ result: output.result, trial: credit || null });
+    return res.status(201).json({ id:storedId, relationshipId:relationship?.id||String(req.body?.relationshipId||""), createdAt, result: output.result, trial: credit || null });
   } catch (error) {
     if (identity) try {
       const refund = await supabase.rpc("refund_strategy_trial", { target_device_hash: identity.deviceHash, target_user_id: authenticatedUser?.id || null, target_risk_hash: identity.riskHash });
@@ -1435,12 +1453,51 @@ app.post("/api/v1/anonymous/strategies", express.json({ limit: "128kb" }), async
 
 app.get("/api/v1/analyses", requireUser, async (req, res) => {
   const limit = Math.min(50, Math.max(1, Number(req.query.limit || 20)));
-  const { data, error } = await supabase.from("analyses")
-    .select("id,mode,status,title,result,error_code,processing_ms,created_at,completed_at")
-    .eq("user_id", req.user.id).order("created_at", { ascending: false }).limit(limit);
+  let query = supabase.from("analyses")
+    .select("id,relationship_id,mode,status,title,result,error_code,processing_ms,created_at,completed_at")
+    .eq("user_id", req.user.id);
+  if(String(req.query.relationship_id||"").trim())query=query.eq("relationship_id",String(req.query.relationship_id).trim());
+  else if(req.query.legacy==="true")query=query.is("relationship_id",null);
+  const { data, error } = await query.order("created_at", { ascending: false }).limit(limit);
   if (error) return res.status(500).json({ error: "HISTORY_READ_FAILED" });
   res.json({ analyses: data });
 });
+
+app.post("/api/v1/analyses/:id/assign-relationship",requireUser,express.json({limit:"8kb"}),async(req,res)=>{
+  const resolved=await resolveRelationship(req.user.id,req.body?.relationshipId);
+  if(resolved.error||!resolved.data)return res.status(resolved.status||500).json({error:resolved.code||"RELATIONSHIP_READ_FAILED"});
+  const{data:existing,error:readError}=await supabase.from("analyses").select("id,relationship_id").eq("id",req.params.id).eq("user_id",req.user.id).maybeSingle();
+  if(readError)return res.status(500).json({error:"LEGACY_ANALYSIS_READ_FAILED"});
+  if(!existing)return res.status(404).json({error:"ANALYSIS_NOT_FOUND"});
+  if(existing.relationship_id&&existing.relationship_id!==resolved.data.id)return res.status(409).json({error:"ANALYSIS_ALREADY_ASSIGNED"});
+  if(existing.relationship_id===resolved.data.id)return res.json({analysis:existing,idempotent:true});
+  const{data,error}=await supabase.from("analyses").update({relationship_id:resolved.data.id}).eq("id",existing.id).eq("user_id",req.user.id).is("relationship_id",null).select("id,relationship_id").single();
+  if(error)return res.status(500).json({error:"LEGACY_ANALYSIS_ASSIGN_FAILED"});
+  res.json({analysis:data,idempotent:false});
+});
+
+app.get("/api/v1/strategy-results",requireUser,async(req,res)=>{const resolved=await resolveRelationship(req.user.id,req.query.relationship_id);if(resolved.error||!resolved.data)return res.status(resolved.status||500).json({error:resolved.code||"RELATIONSHIP_READ_FAILED"});const{data,error}=await supabase.from("strategy_results").select("id,relationship_id,topic_id,title,answers,places,weather,result,created_at,updated_at").eq("user_id",req.user.id).eq("relationship_id",resolved.data.id).order("created_at",{ascending:false}).limit(50);if(error)return res.status(500).json({error:"STRATEGY_HISTORY_READ_FAILED"});res.json({strategies:data})});
+
+app.post("/api/v1/strategy-results/import-legacy",requireUser,express.json({limit:"512kb"}),async(req,res)=>{
+  const resolved=await resolveRelationship(req.user.id,req.body?.relationshipId);
+  if(resolved.error||!resolved.data)return res.status(resolved.status||500).json({error:resolved.code||"RELATIONSHIP_READ_FAILED"});
+  const legacySourceId=String(req.body?.legacySourceId||"").trim().slice(0,160),result=req.body?.result;
+  if(!legacySourceId||!result||typeof result!=="object")return res.status(400).json({error:"INVALID_LEGACY_STRATEGY"});
+  const legacyCreatedAt=new Date(req.body?.createdAt||Date.now());
+  if(Number.isNaN(legacyCreatedAt.getTime()))return res.status(400).json({error:"INVALID_LEGACY_CREATED_AT"});
+  const row={user_id:req.user.id,relationship_id:resolved.data.id,legacy_source_id:legacySourceId,topic_id:String(req.body?.topicId||"legacy").slice(0,100),title:String(req.body?.title||"").slice(0,120),answers:req.body?.answers&&typeof req.body.answers==="object"?req.body.answers:{},places:Array.isArray(req.body?.places)?req.body.places:[],weather:req.body?.weather||null,result,metadata:{legacy_import:true},created_at:legacyCreatedAt.toISOString()};
+  const{data:existing}=await supabase.from("strategy_results").select("id,relationship_id,created_at").eq("user_id",req.user.id).eq("legacy_source_id",legacySourceId).maybeSingle();
+  if(existing){if(existing.relationship_id!==resolved.data.id)return res.status(409).json({error:"LEGACY_STRATEGY_ALREADY_ASSIGNED"});return res.json({strategy:existing,idempotent:true})}
+  const{data,error}=await supabase.from("strategy_results").insert(row).select("id,relationship_id,created_at").single();
+  if(error)return res.status(500).json({error:"LEGACY_STRATEGY_IMPORT_FAILED"});
+  res.status(201).json({strategy:data,idempotent:false});
+});
+
+app.get("/api/v1/reply-conversations",requireUser,async(req,res)=>{const resolved=await resolveRelationship(req.user.id,req.query.relationship_id);if(resolved.error||!resolved.data)return res.status(resolved.status||500).json({error:resolved.code||"RELATIONSHIP_READ_FAILED"});const{data,error}=await supabase.from("reply_conversations").select("id,client_id,relationship_id,name,partner_name,source,messages,import_batch_id,source_message_fingerprint,normalized_timestamp,participant_identity,raw_source_hash,client_updated_at,sync_version,created_at,updated_at").eq("user_id",req.user.id).eq("relationship_id",resolved.data.id).is("deleted_at",null).order("updated_at",{ascending:false}).limit(100);if(error)return res.status(500).json({error:"REPLY_HISTORY_READ_FAILED"});res.json({conversations:data})});
+
+app.put("/api/v1/reply-conversations/:clientId",requireUser,express.json({limit:"2mb"}),async(req,res)=>{const resolved=await resolveRelationship(req.user.id,req.body?.relationshipId);if(resolved.error||!resolved.data)return res.status(resolved.status||500).json({error:resolved.code||"RELATIONSHIP_READ_FAILED"});const source=String(req.body?.source||"");if(!["screenshots","line","manual"].includes(source))return res.status(400).json({error:"INVALID_CONVERSATION_SOURCE"});const clientId=String(req.params.clientId).slice(0,100),clientUpdatedAt=Math.max(1,Number(req.body?.updatedAt||Date.now()));const{data:existing,error:readError}=await supabase.from("reply_conversations").select("id,relationship_id,client_updated_at,deleted_at,sync_version,created_at,updated_at").eq("user_id",req.user.id).eq("client_id",clientId).maybeSingle();if(readError)return res.status(500).json({error:"REPLY_CONVERSATION_READ_FAILED"});if(existing?.relationship_id&&existing.relationship_id!==resolved.data.id)return res.status(409).json({error:"REPLY_RELATIONSHIP_CONFLICT"});if(existing?.deleted_at)return res.status(409).json({error:"REPLY_CONVERSATION_DELETED"});if(existing&&Number(existing.client_updated_at||0)>clientUpdatedAt)return res.json({conversation:existing,stale:true});const messages=Array.isArray(req.body?.messages)?req.body.messages.slice(-3000):[];const row={user_id:req.user.id,relationship_id:resolved.data.id,client_id:clientId,name:String(req.body?.name||"").slice(0,120),partner_name:String(req.body?.partnerName||"").slice(0,120),source,messages,import_batch_id:req.body?.importBatchId||null,source_message_fingerprint:req.body?.sourceMessageFingerprint||null,normalized_timestamp:req.body?.normalizedTimestamp||null,participant_identity:req.body?.participantIdentity||null,raw_source_hash:req.body?.rawSourceHash||null,client_updated_at:clientUpdatedAt,sync_version:Number(existing?.sync_version||0)+1,updated_at:new Date().toISOString()};const{data,error}=await supabase.from("reply_conversations").upsert(row,{onConflict:"user_id,client_id"}).select("id,client_id,relationship_id,client_updated_at,sync_version,created_at,updated_at").single();if(error)return res.status(500).json({error:"REPLY_CONVERSATION_SAVE_FAILED"});res.json({conversation:data,stale:false})});
+
+app.delete("/api/v1/reply-conversations/:clientId",requireUser,async(req,res)=>{const relationshipId=String(req.query.relationship_id||"");const resolved=await resolveRelationship(req.user.id,relationshipId);if(resolved.error||!resolved.data)return res.status(resolved.status||500).json({error:resolved.code||"RELATIONSHIP_READ_FAILED"});const deletedAt=new Date(Math.max(1,Number(req.query.deleted_at||Date.now()))).toISOString(),clientId=String(req.params.clientId);const{data:existing,error:readError}=await supabase.from("reply_conversations").select("id,relationship_id,deleted_at,sync_version").eq("user_id",req.user.id).eq("client_id",clientId).maybeSingle();if(readError)return res.status(500).json({error:"REPLY_CONVERSATION_READ_FAILED"});if(existing?.relationship_id&&existing.relationship_id!==resolved.data.id)return res.status(409).json({error:"REPLY_RELATIONSHIP_CONFLICT"});if(!existing)return res.status(204).end();if(existing.deleted_at)return res.status(204).end();const{error}=await supabase.from("reply_conversations").update({deleted_at:deletedAt,client_updated_at:new Date(deletedAt).getTime(),sync_version:Number(existing.sync_version||0)+1,updated_at:new Date().toISOString()}).eq("id",existing.id).eq("user_id",req.user.id);if(error)return res.status(500).json({error:"REPLY_CONVERSATION_DELETE_FAILED"});res.status(204).end()});
 
 app.post(
   "/api/v1/chat-extractions",
@@ -1694,11 +1751,12 @@ app.post(
       if (!paidFeature.allowed) return res.status(402).json({ error: "PAID_FEATURE_LIMIT_REACHED", feature, usage: paidFeature });
     }
 
-    const { data: activeRelationship, error: relationshipError } = await findActiveRelationship(req.user.id);
-    if (relationshipError || !activeRelationship) {
+    const relationshipResolution = await resolveRelationship(req.user.id, req.headers["x-relationship-id"]);
+    const activeRelationship = relationshipResolution.data;
+    if (relationshipResolution.error || !activeRelationship) {
       if (credit.reserved) await supabase.rpc("refund_analysis_credit", { target_user_id: req.user.id, charged_plan: credit.plan });
       if (paidFeature) await refundPaidFeature(req.user.id, mode === "reply" ? "reply" : "analysis_consultation");
-      return res.status(500).json({ error: "ACTIVE_RELATIONSHIP_NOT_FOUND" });
+      return res.status(relationshipResolution.status || 500).json({ error: relationshipResolution.code || "RELATIONSHIP_READ_FAILED" });
     }
 
     const { data: analysis, error: insertError } = await supabase.from("analyses").insert({
