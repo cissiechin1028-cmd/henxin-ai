@@ -50,7 +50,7 @@ test("normalizers reject mixed-language user-facing output", () => {
   assert.throws(() => normalizeReply({ ...baseReply, options: [{ ...baseReply.options[0], text: "這樣很好呀。" }, ...baseReply.options.slice(1)] }, "ja"), /AI_LANGUAGE_MISMATCH/);
   assert.throws(() => normalizeReply({ ...baseReply, options: [{ ...baseReply.options[0], text: "今度の約会を楽しみにしています。" }, ...baseReply.options.slice(1)] }, "ja"), /AI_LANGUAGE_MISMATCH/);
   assert.throws(() => normalizeReply({ ...baseReply, currentState: "The conversation is continuing.", options: baseReply.options.map((item, index) => ({ ...item, text: ["Sure.", "そうなんだね。", "Thank you."][index], reason: "This is natural." })) }, "en"), /AI_LANGUAGE_MISMATCH/);
-  assert.throws(() => normalizeAnalysis({ conversation_balance: 50, communication_quality: 50, relationship_trend: 50, progression_risk: 50, core_reason: "目前還需要觀察。", action_advice: "焦らず待ちましょう。", signals_to_observe: ["對方是否主動"] }, "zh-TW"), /AI_LANGUAGE_MISMATCH/);
+  assert.throws(() => normalizeAnalysis({ topic_compatibility: 50, tempo_compatibility: 50, interaction_balance: 50, closeness: 50, engagement: 50, dimension_reasons: {topic_compatibility:"話題を拾っています。",tempo_compatibility:"テンポは自然です。",interaction_balance:"双方が話しています。",closeness:"親しさがあります。",engagement:"反応があります。"}, core_reason: "目前還需要觀察。", action_advice: "焦らず待ちましょう。", signals_to_observe: ["對方是否主動"] }, "zh-TW"), /AI_LANGUAGE_MISMATCH/);
 });
 
 test("reply prompt may recommend no further message after a natural ending", () => {
@@ -127,16 +127,23 @@ test("reply output enforces locale-aware safety length ceilings", () => {
   }, "ja"), /AI_REPLY_TOO_LONG/);
 });
 
-test("analysis returns four internal metrics and concise guidance", () => {
+test("analysis returns five evidence-based dimensions and a deterministic overall score", () => {
   const value = normalizeAnalysis({
-    conversation_balance: 50, communication_quality: 62, relationship_trend: 50, progression_risk: 55,
+    topic_compatibility: 88, tempo_compatibility: 72, interaction_balance: 81, closeness: 65, engagement: 74,
+    dimension_reasons: {topic_compatibility:"話題を自然に拾い合っています。",tempo_compatibility:"無理のない順番で返しています。",interaction_balance:"双方から質問があります。",closeness:"具体的な気持ちを伝えています。",engagement:"会話を続ける反応があります。"},
     core_reason: "会話は成立していますが、関係変化を示す比較材料はまだ限られます。",
     action_advice: "今は自然に一度返し、相手が話題を広げるか見てください。",
     signals_to_observe: ["相手から質問が出るか", "具体的な提案が出るか"]
   });
-  assert.equal(value.relationshipTrend, 50);
-  assert.equal(value.conversationBalance, 50);
+  assert.equal(value.analysisVersion, 2);
+  assert.equal(value.overallScore, 76);
+  assert.deepEqual(value.dimensions, {topic:88,tempo:72,balance:81,closeness:65,engagement:74});
+  assert.equal(value.dimensionReasons.topic, "話題を自然に拾い合っています。");
   assert.equal(value.signalsToObserve.length, 2);
+});
+
+test("analysis rejects missing or invalid five-dimensional scores",()=>{
+ assert.throws(()=>normalizeAnalysis({topic_compatibility:101,tempo_compatibility:50,interaction_balance:50,closeness:50,engagement:50,dimension_reasons:{},core_reason:"判断材料があります。",action_advice:"様子を見ます。",signals_to_observe:["反応を見る"]}),/AI_INVALID_SCORE/);
 });
 
 test("timeline records only clear significant events", () => {

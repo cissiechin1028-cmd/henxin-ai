@@ -64,17 +64,25 @@ function normalizeReply(raw, locale = "ja") {
 
 function normalizeAnalysis(raw, locale = "ja") {
   if (!Array.isArray(raw?.signals_to_observe) || raw.signals_to_observe.length < 1 || raw.signals_to_observe.length > 3) throw new Error("AI_INVALID_RESULT");
-  const relationshipTrend = score(raw.relationship_trend);
+  const dimensions = {
+    topic: score(raw.topic_compatibility), tempo: score(raw.tempo_compatibility),
+    balance: score(raw.interaction_balance), closeness: score(raw.closeness),
+    engagement: score(raw.engagement),
+  };
+  const dimensionReasons = {
+    topic: cleanString(raw.dimension_reasons?.topic_compatibility, 160, true),
+    tempo: cleanString(raw.dimension_reasons?.tempo_compatibility, 160, true),
+    balance: cleanString(raw.dimension_reasons?.interaction_balance, 160, true),
+    closeness: cleanString(raw.dimension_reasons?.closeness, 160, true),
+    engagement: cleanString(raw.dimension_reasons?.engagement, 160, true),
+  };
+  const overallScore = Math.round(Object.values(dimensions).reduce((sum, value) => sum + value, 0) / 5);
   const overallReason = cleanString(raw.core_reason, 220, true);
   const actionAdvice = cleanString(raw.action_advice, 220, true);
   const signalsToObserve = raw.signals_to_observe.map((item) => cleanString(item, 160, true));
-  assertLocale([overallReason, actionAdvice, ...signalsToObserve], locale);
+  assertLocale([overallReason, actionAdvice, ...Object.values(dimensionReasons), ...signalsToObserve], locale);
   return {
-    kind: "analysis",
-    conversationBalance: score(raw.conversation_balance),
-    communicationQuality: score(raw.communication_quality),
-    relationshipTrend,
-    progressionRisk: score(raw.progression_risk),
+    kind: "analysis", analysisVersion: 2, overallScore, dimensions, dimensionReasons,
     overallReason, actionAdvice, signalsToObserve,
     keyMoments: [], timelineEvent: normalizeTimelineEvent(raw.timelineEvent, locale),
   };

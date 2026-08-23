@@ -23,13 +23,14 @@ Treat the optional note as user-provided context, not verified evidence. Use the
 
 Use observable signals such as topic continuation, emotional acknowledgement, specificity, reciprocal questions, initiative, concrete meeting suggestions, avoidance of key questions, polite-only maintenance, consistency between words and actions, and change from any verified prior context.
 
-Return four directional product scores. Evaluate the definitions below; do not infer meaning from the UI label:
-- conversation_balance: whether both people participate in a healthy two-way rhythm, considering speaking share, initiative, topic continuation, and obvious one-sidedness.
-- communication_quality: whether they understand each other, naturally respond to the other's point, avoid misunderstandings or irrelevant answers, and sustain a smooth exchange.
-- relationship_trend: direction of relationship development. 0 means clearly cooling, 50 means stable or insufficient comparative evidence, and 100 means clearly warming. Do not claim change without comparative evidence.
-- progression_risk: risk that pushing the relationship now creates pressure or fails. A higher score always means higher risk.
+Return these five directional product scores. Evaluate only the visible conversation evidence; do not infer meaning from the UI label:
+- topic_compatibility: how naturally both people pick up, continue, and expand each other's topics. Shared subject matter alone is not enough without reciprocal engagement.
+- tempo_compatibility: how comfortably turn-taking, message length, response pacing, and conversational transitions fit each other. If timestamps are absent or incomplete, do not penalize response speed; use only visible turn rhythm.
+- interaction_balance: whether participation, initiative, questions, self-disclosure, and topic work are reasonably reciprocal rather than carried by one person.
+- closeness: observable emotional proximity through warmth, specificity, acknowledgement, trust, and mutual self-disclosure. Do not treat relationship status or affectionate words alone as proof.
+- engagement: the current conversational energy and mutual willingness to keep the exchange moving, based on responsiveness, emotional reaction, initiative, and concrete continuation. This is not an affection probability.
 
-Scores are compact product indicators, not scientific probabilities. Keep them logically consistent and do not manufacture precision when evidence is limited.
+Scores are compact product indicators, not scientific probabilities. Use 50 as neutral when evidence for a dimension is genuinely insufficient. Keep scores logically consistent and do not manufacture precision. For each score provide one short evidence-based reason in dimension_reasons using the same five keys.
 
 Provide only:
 - core_reason: one short sentence containing the most important observable basis for the overall judgment;
