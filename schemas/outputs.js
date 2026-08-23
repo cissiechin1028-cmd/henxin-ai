@@ -18,7 +18,7 @@ const chatAnalysisSchema = {
   strict: true,
   schema: {
     type: "object", additionalProperties: false,
-    required: ["topic_compatibility", "tempo_compatibility", "interaction_balance", "intimacy", "excitement", "dimension_reasons", "core_reason", "action_advice", "signals_to_observe", "timelineEvent"],
+    required: ["topic_compatibility", "tempo_compatibility", "interaction_balance", "intimacy", "excitement", "dimension_reasons", "dimension_summary", "core_reason", "action_advice", "signals_to_observe", "timelineEvent"],
     properties: {
       topic_compatibility: { type: "integer", minimum: 0, maximum: 100 },
       tempo_compatibility: { type: "integer", minimum: 0, maximum: 100 },
@@ -26,6 +26,7 @@ const chatAnalysisSchema = {
       intimacy: { type: "integer", minimum: 0, maximum: 100 },
       excitement: { type: "integer", minimum: 0, maximum: 100 },
       dimension_reasons: { type: "object", additionalProperties: false, required: ["topic_compatibility", "tempo_compatibility", "interaction_balance", "intimacy", "excitement"], properties: { topic_compatibility: { type: "string" }, tempo_compatibility: { type: "string" }, interaction_balance: { type: "string" }, intimacy: { type: "string" }, excitement: { type: "string" } } },
+      dimension_summary: { type: "object", additionalProperties: false, required: ["topic_compatibility", "tempo_compatibility", "interaction_balance", "intimacy", "excitement"], properties: { topic_compatibility: { type: "string" }, tempo_compatibility: { type: "string" }, interaction_balance: { type: "string" }, intimacy: { type: "string" }, excitement: { type: "string" } } },
       core_reason: { type: "string" },
       action_advice: { type: "string" },
       signals_to_observe: { type: "array", minItems: 1, maxItems: 3, items: { type: "string" } },

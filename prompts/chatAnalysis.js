@@ -38,6 +38,8 @@ Return these five directional product scores. Evaluate only the visible conversa
 
 Scores are compact product indicators, not scientific probabilities. Use 50 as neutral when evidence for a dimension is genuinely insufficient. Keep scores logically consistent and do not manufacture precision. For each score provide one short evidence-based reason in dimension_reasons using the same five keys.
 
+For each score also provide a user-facing dimension_summary using the same five keys. In Japanese, each summary should be approximately 80–140 Japanese characters; in other locales, use two similarly compact natural sentences. Explain what the current score indicates, the most visible interaction characteristic, and only when supported a mild shortfall or tendency. This is a current-state description only. Do not include evidence headings, lists, quoted chat text, reasoning labels, next steps, advice, strategy, or instructions.
+
 Provide only:
 - core_reason: one short sentence containing the most important observable basis for the overall judgment;
 - action_advice: the single most useful concrete action now, in one sentence;

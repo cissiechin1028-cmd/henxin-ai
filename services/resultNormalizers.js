@@ -78,13 +78,20 @@ function normalizeAnalysis(raw, locale = "ja", options = {}) {
     intimacy: cleanString(raw.dimension_reasons?.intimacy, 160, true),
     excitement: cleanString(raw.dimension_reasons?.excitement, 160, true),
   };
+  const dimensionSummaries = {
+    topic_compatibility: cleanString(raw.dimension_summary?.topic_compatibility, 420, true),
+    tempo_compatibility: cleanString(raw.dimension_summary?.tempo_compatibility, 420, true),
+    interaction_balance: cleanString(raw.dimension_summary?.interaction_balance, 420, true),
+    intimacy: cleanString(raw.dimension_summary?.intimacy, 420, true),
+    excitement: cleanString(raw.dimension_summary?.excitement, 420, true),
+  };
   const overallScore = calculateOverallScore(dimensions);
   const overallReason = cleanString(raw.core_reason, 220, true);
   const actionAdvice = cleanString(raw.action_advice, 220, true);
   const signalsToObserve = raw.signals_to_observe.map((item) => cleanString(item, 160, true));
-  assertLocale([overallReason, actionAdvice, ...Object.values(dimensionReasons), ...signalsToObserve], locale);
+  assertLocale([overallReason, actionAdvice, ...Object.values(dimensionReasons), ...Object.values(dimensionSummaries), ...signalsToObserve], locale);
   return {
-    kind: "analysis", analysisVersion: ANALYSIS_VERSION, scoreVersion: SCORE_VERSION, overallScore, dimensions, dimensionReasons,
+    kind: "analysis", analysisVersion: ANALYSIS_VERSION, scoreVersion: SCORE_VERSION, overallScore, dimensions, dimensionReasons, dimensionSummaries,
     dataWindow: options.dataWindow || null,
     overallReason, actionAdvice, signalsToObserve,
     keyMoments: [], timelineEvent: normalizeTimelineEvent(raw.timelineEvent, locale),

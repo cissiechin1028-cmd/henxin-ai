@@ -50,7 +50,7 @@ test("normalizers reject mixed-language user-facing output", () => {
   assert.throws(() => normalizeReply({ ...baseReply, options: [{ ...baseReply.options[0], text: "這樣很好呀。" }, ...baseReply.options.slice(1)] }, "ja"), /AI_LANGUAGE_MISMATCH/);
   assert.throws(() => normalizeReply({ ...baseReply, options: [{ ...baseReply.options[0], text: "今度の約会を楽しみにしています。" }, ...baseReply.options.slice(1)] }, "ja"), /AI_LANGUAGE_MISMATCH/);
   assert.throws(() => normalizeReply({ ...baseReply, currentState: "The conversation is continuing.", options: baseReply.options.map((item, index) => ({ ...item, text: ["Sure.", "そうなんだね。", "Thank you."][index], reason: "This is natural." })) }, "en"), /AI_LANGUAGE_MISMATCH/);
-  assert.throws(() => normalizeAnalysis({ topic_compatibility: 50, tempo_compatibility: 50, interaction_balance: 50, intimacy: 50, excitement: 50, dimension_reasons: {topic_compatibility:"話題を拾っています。",tempo_compatibility:"テンポは自然です。",interaction_balance:"双方が話しています。",intimacy:"親しさがあります。",excitement:"反応があります。"}, core_reason: "目前還需要觀察。", action_advice: "焦らず待ちましょう。", signals_to_observe: ["對方是否主動"] }, "zh-TW"), /AI_LANGUAGE_MISMATCH/);
+  assert.throws(() => normalizeAnalysis({ topic_compatibility: 50, tempo_compatibility: 50, interaction_balance: 50, intimacy: 50, excitement: 50, dimension_reasons: {topic_compatibility:"話題を拾っています。",tempo_compatibility:"テンポは自然です。",interaction_balance:"双方が話しています。",intimacy:"親しさがあります。",excitement:"反応があります。"}, dimension_summary: {topic_compatibility:"話題を自然に拾っています。",tempo_compatibility:"テンポは安定しています。",interaction_balance:"双方が会話に参加しています。",intimacy:"親しさが見えています。",excitement:"反応が続いています。"}, core_reason: "目前還需要觀察。", action_advice: "焦らず待ちましょう。", signals_to_observe: ["對方是否主動"] }, "zh-TW"), /AI_LANGUAGE_MISMATCH/);
 });
 
 test("reply prompt may recommend no further message after a natural ending", () => {
@@ -131,6 +131,7 @@ test("analysis returns five evidence-based dimensions and a deterministic overal
   const value = normalizeAnalysis({
     topic_compatibility: 88, tempo_compatibility: 72, interaction_balance: 81, intimacy: 65, excitement: 74,
     dimension_reasons: {topic_compatibility:"話題を自然に拾い合っています。",tempo_compatibility:"無理のない順番で返しています。",interaction_balance:"双方から質問があります。",intimacy:"具体的な気持ちを伝えています。",excitement:"会話を続ける反応があります。"},
+    dimension_summary: {topic_compatibility:"互いの話題を自然に受け取り、質問や補足を重ねながら会話を広げられています。共通の関心だけに頼らず、相手の発言を次の話題につなげる流れが安定しています。",tempo_compatibility:"返信の順番や文章量はおおむね噛み合い、無理なく会話が進んでいます。間の取り方にわずかな差はありますが、流れを大きく崩すほどではありません。",interaction_balance:"質問、返答、話題の持ち込みが一方だけに偏らず、双方が会話を支えています。場面によって片方が少し長く話すことはありますが、全体では釣り合っています。",intimacy:"日常の具体的な出来事や気持ちを少しずつ共有できており、安心感のある距離に近づいています。ただし、深い本音の共有はまだ限定的です。",excitement:"相手の発言への明るい反応や話題を続ける動きがあり、会話には前向きな勢いがあります。常に高い熱量というより、自然に続く楽しさが中心です。"},
     core_reason: "会話は成立していますが、関係変化を示す比較材料はまだ限られます。",
     action_advice: "今は自然に一度返し、相手が話題を広げるか見てください。",
     signals_to_observe: ["相手から質問が出るか", "具体的な提案が出るか"]
@@ -140,6 +141,7 @@ test("analysis returns five evidence-based dimensions and a deterministic overal
   assert.equal(value.overallScore, 76);
   assert.deepEqual(value.dimensions, {topic_compatibility:88,tempo_compatibility:72,interaction_balance:81,intimacy:65,excitement:74});
   assert.equal(value.dimensionReasons.topic_compatibility, "話題を自然に拾い合っています。");
+  assert.match(value.dimensionSummaries.topic_compatibility, /相手の発言を次の話題/);
   assert.equal(value.signalsToObserve.length, 2);
 });
 
