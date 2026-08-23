@@ -131,7 +131,7 @@ test("analysis returns five evidence-based dimensions and a deterministic overal
   const value = normalizeAnalysis({
     topic_compatibility: 88, tempo_compatibility: 72, interaction_balance: 81, intimacy: 65, excitement: 74,
     dimension_reasons: {topic_compatibility:"話題を自然に拾い合っています。",tempo_compatibility:"無理のない順番で返しています。",interaction_balance:"双方から質問があります。",intimacy:"具体的な気持ちを伝えています。",excitement:"会話を続ける反応があります。"},
-    dimension_summary: {topic_compatibility:"互いの話題を自然に受け取り、質問や補足を重ねながら会話を広げられています。共通の関心だけに頼らず、相手の発言を次の話題につなげる流れが安定しています。",tempo_compatibility:"返信の順番や文章量はおおむね噛み合い、無理なく会話が進んでいます。間の取り方にわずかな差はありますが、流れを大きく崩すほどではありません。",interaction_balance:"質問、返答、話題の持ち込みが一方だけに偏らず、双方が会話を支えています。場面によって片方が少し長く話すことはありますが、全体では釣り合っています。",intimacy:"日常の具体的な出来事や気持ちを少しずつ共有できており、安心感のある距離に近づいています。ただし、深い本音の共有はまだ限定的です。",excitement:"相手の発言への明るい反応や話題を続ける動きがあり、会話には前向きな勢いがあります。常に高い熱量というより、自然に続く楽しさが中心です。"},
+    dimension_summary: {topic_compatibility:"互いの話題を自然に受け取り、質問や補足を重ねながら会話を広げられています。共通の関心だけに頼らず、相手の発言を次の話題につなげる流れが安定しています。".repeat(2),tempo_compatibility:"返信の順番や文章量はおおむね噛み合い、無理なく会話が進んでいます。間の取り方にわずかな差はありますが、流れを大きく崩すほどではありません。".repeat(2),interaction_balance:"質問、返答、話題の持ち込みが一方だけに偏らず、双方が会話を支えています。場面によって片方が少し長く話すことはありますが、全体では釣り合っています。".repeat(2),intimacy:"日常の具体的な出来事や気持ちを少しずつ共有できており、安心感のある距離に近づいています。ただし、深い本音の共有はまだ限定的です。".repeat(2),excitement:"相手の発言への明るい反応や話題を続ける動きがあり、会話には前向きな勢いがあります。常に高い熱量というより、自然に続く楽しさが中心です。".repeat(2)},
     core_reason: "会話は成立していますが、関係変化を示す比較材料はまだ限られます。",
     action_advice: "今は自然に一度返し、相手が話題を広げるか見てください。",
     signals_to_observe: ["相手から質問が出るか", "具体的な提案が出るか"]
