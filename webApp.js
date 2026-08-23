@@ -42,8 +42,8 @@ const chatExtractionSchema = {
   name: "renai_chat_extraction",
   strict: true,
   schema: {
-    type: "object", additionalProperties: false, required: ["messages"],
-    properties: { messages: { type: "array", maxItems: 200, items: {
+    type: "object", additionalProperties: false, required: ["messages", "partner_name"],
+    properties: { partner_name: { type: ["string", "null"], maxLength: 80 }, messages: { type: "array", maxItems: 200, items: {
       type: "object", additionalProperties: false, required: ["sender", "text", "timestamp"],
       properties: {
         sender: { type: "string", enum: ["self", "partner"] },
@@ -63,8 +63,8 @@ async function extractChatMessages({ imageBuffer, mimeType }) {
       model,
       messages: [
         { role: "system", content: pass === 0
-          ? "Extract only visible chat messages in chronological order. For LINE screenshots, green bubbles aligned to the right are self and white or light-gray bubbles aligned to the left are partner. For other chat apps, determine self versus partner from bubble alignment and UI conventions. Preserve the original message language, emoji, punctuation, and line breaks. For each message, copy its visibly associated date/time label exactly into timestamp (for example 19:53, 昨日 21:04, or 2026/08/10 09:30); use null when no time can be reliably associated. A date divider applies to following messages until the next divider, but never invent a missing date or time. Ignore names, navigation labels, reactions, system notices, stickers without readable text, and invented or uncertain text. Return an empty list if reliable chat messages are not visible."
-          : "Re-check the entire screenshot carefully. Treat every readable green bubble on the RIGHT as self and every readable white/light-gray bubble on the LEFT as partner. Read both columns from top to bottom, including short messages. Do not omit a side merely because its bubbles are smaller. Return visible message text in chronological order and preserve each reliably associated visible date/time label in timestamp. Use null rather than guessing when a message has no readable time. Ignore unrelated UI labels." },
+          ? "Extract only visible chat messages in chronological order. For LINE screenshots, green bubbles aligned to the right are self and white or light-gray bubbles aligned to the left are partner. For other chat apps, determine self versus partner from bubble alignment and UI conventions. Preserve the original message language, emoji, punctuation, and line breaks. For each message, copy its visibly associated date/time label exactly into timestamp (for example 19:53, 昨日 21:04, or 2026/08/10 09:30); use null when no time can be reliably associated. A date divider applies to following messages until the next divider, but never invent a missing date or time. Set partner_name only when the other person's display name or unambiguous nickname is visibly shown in the chat header or clearly used to address that person in the conversation; otherwise return null. Never infer a real name. Ignore navigation labels, reactions, system notices, stickers without readable text, and invented or uncertain text. Return an empty list if reliable chat messages are not visible."
+          : "Re-check the entire screenshot carefully. Treat every readable green bubble on the RIGHT as self and every readable white/light-gray bubble on the LEFT as partner. Read both columns from top to bottom, including short messages. Do not omit a side merely because its bubbles are smaller. Return visible message text in chronological order and preserve each reliably associated visible date/time label in timestamp. Use null rather than guessing when a message has no readable time. Set partner_name only when a visible display name or unambiguous nickname reliably identifies the partner; otherwise return null. Ignore unrelated UI labels." },
         { role: "user", content: [
           { type: "text", text: pass === 0 ? "Convert this chat screenshot into editable message bubbles." : "The first pass missed messages or one speaker. Carefully extract both left and right chat bubbles." },
           { type: "image_url", image_url: { url: `data:${mimeType};base64,${imageBuffer.toString("base64")}`, detail: "high" } },
@@ -79,11 +79,12 @@ async function extractChatMessages({ imageBuffer, mimeType }) {
       text: String(message?.text || "").trim().slice(0, 1000),
       timestamp: message?.timestamp == null ? null : String(message.timestamp).trim().slice(0, 80) || null,
     })).filter((message) => message.text) : [];
-    last = { messages, response };
+    const partnerName=raw?.partner_name==null?null:String(raw.partner_name).trim().slice(0,80)||null;
+    last = { messages, partnerName, response };
     const senders = new Set(messages.map((message) => message.sender));
     if (messages.length && senders.has("self") && senders.has("partner")) break;
   }
-  return { messages: last.messages, model: last.response?.data?.model || model, usage: aiUsageProperties(last.response, last.response?.data?.model || model, "chat_extraction") };
+  return { messages: last.messages, partnerName: last.partnerName || null, model: last.response?.data?.model || model, usage: aiUsageProperties(last.response, last.response?.data?.model || model, "chat_extraction") };
 }
 
 const consultationTask = {
@@ -1514,10 +1515,10 @@ app.post(
     if (!isSupportedImage(req.body, mimeType)) return res.status(415).json({ error: "INVALID_IMAGE_FILE" });
     // Version the fingerprint whenever the extraction contract changes so old
     // cached results cannot silently omit newly required evidence.
-    const fingerprint = crypto.createHash("sha256").update("chat-extraction-v2-timestamps:").update(req.body).digest("hex");
+    const fingerprint = crypto.createHash("sha256").update("chat-extraction-v3-partner-name:").update(req.body).digest("hex");
     const { data: cached } = await supabase.from("chat_extraction_cache").select("result,expires_at")
       .eq("content_fingerprint", fingerprint).gt("expires_at", new Date().toISOString()).maybeSingle();
-    if (cached?.result?.messages) return res.json({ messages: cached.result.messages, cached: true });
+    if (cached?.result?.messages) return res.json({ messages: cached.result.messages, partnerName: cached.result.partnerName || null, cached: true });
 
     let actorKey;
     let actorPlan = "anonymous";
@@ -1592,7 +1593,7 @@ app.post(
       }
       await supabase.from("chat_extraction_cache").upsert({
         content_fingerprint: fingerprint,
-        result: { messages: output.messages },
+        result: { messages: output.messages, partnerName: output.partnerName || null },
         model_name: output.model,
         expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
       });
@@ -1602,6 +1603,7 @@ app.post(
       });
       res.status(201).json({
         messages: output.messages,
+        partnerName: output.partnerName || null,
         cached: false,
         limit: {
           plan: actorPlan,
