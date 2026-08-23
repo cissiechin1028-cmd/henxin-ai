@@ -20,8 +20,14 @@ const app = express();
 app.set("trust proxy", 1);
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || "sk_test_placeholder");
 const port = Number(process.env.PORT || 3001);
-const allowedOrigins = String(process.env.WEB_APP_ORIGINS || "http://localhost:3000")
-  .split(",").map((value) => value.trim()).filter(Boolean);
+const allowedOrigins = [...new Set([
+  ...String(process.env.WEB_APP_ORIGINS || "http://localhost:3000")
+    .split(",").map((value) => value.trim()).filter(Boolean),
+  // Capacitor local bundles use these fixed, non-network origins. They are UI
+  // origins only; every protected endpoint still requires its Bearer token.
+  "capacitor://localhost",
+  "http://localhost",
+])];
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
