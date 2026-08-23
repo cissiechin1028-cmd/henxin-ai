@@ -86,6 +86,7 @@ function normalizeAnalysis(raw, locale = "ja", options = {}) {
     excitement: cleanString(raw.dimension_summary?.excitement, 420, true),
   };
   if (locale === "ja" && Object.values(dimensionSummaries).some((item) => Array.from(item.replace(/\s/g, "")).length < 80 || Array.from(item.replace(/\s/g, "")).length > 180)) throw new Error("AI_DIMENSION_SUMMARY_LENGTH");
+  if (locale === "ja" && Object.values(dimensionSummaries).some((item) => /今後|これから|期待できます|可能性が(?:あります|高いです)/.test(item))) throw new Error("AI_DIMENSION_SUMMARY_FUTURE");
   const overallScore = calculateOverallScore(dimensions);
   const overallReason = cleanString(raw.core_reason, 220, true);
   const actionAdvice = cleanString(raw.action_advice, 220, true);
