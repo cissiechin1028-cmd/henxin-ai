@@ -30,6 +30,16 @@ test("conversation analysis route never trusts a client topic contract", () => {
   assert.doesNotMatch(route, /requiredModules:\s*req\.body/);
 });
 
+test("saved conversations can request base five-dimensional analysis without a topic",()=>{
+ const appSource=fs.readFileSync(path.join(__dirname,"..","webApp.js"),"utf8");
+ const serviceSource=fs.readFileSync(path.join(__dirname,"..","services","webAnalysis.js"),"utf8");
+ assert.match(appSource,/topicId\?getAnalysisTopic\(topicId\):null/);
+ assert.match(appSource,/analyzeConversationBaseForWeb/);
+ assert.match(serviceSource,/async function analyzeConversationBaseForWeb/);
+ assert.match(serviceSource,/chatAnalysisPrompt\(locale,context\)/);
+ assert.match(serviceSource,/schema:chatAnalysisSchema/);
+});
+
 test("topic analysis keeps server-owned identifiers authoritative", () => {
   const source = fs.readFileSync(path.join(__dirname, "..", "services", "webAnalysis.js"), "utf8");
   const topicAnalysis = source.slice(source.indexOf("async function analyzeConversationTopicForWeb"), source.indexOf("async function analyzeForWeb"));
