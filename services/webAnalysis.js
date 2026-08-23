@@ -5,6 +5,7 @@ const { chatAnalysisPrompt } = require("../prompts/chatAnalysis");
 const { topicAnalysisPrompt } = require("../prompts/topicAnalysis");
 const { replyProposalSchema, chatAnalysisSchema, topicAnalysisSchema } = require("../schemas/outputs");
 const { assertLocale, normalizeReply, normalizeAnalysis } = require("./resultNormalizers");
+const { selectAnalysisWindow } = require("./analysisWindow");
 
 function parseJson(text = "") {
   const cleaned = String(text).replace(/```json|```/g, "").trim();
@@ -124,10 +125,12 @@ async function analyzeConversationForWeb({ messages = [], partnerName = "", loca
 async function analyzeConversationBaseForWeb({messages=[],partnerName="",locale="ja",context={}}){
  if(!process.env.OPENAI_API_KEY)throw new Error("OPENAI_NOT_CONFIGURED");
  const startedAt=Date.now(),model=process.env.OPENAI_VISION_MODEL||"gpt-4.1-mini";
- const transcript=messages.slice(-120).map(message=>`${message.timestamp?`[VISIBLE TIME: ${String(message.timestamp).trim()}]`:"[TIME UNKNOWN]"} ${message.sender==="self"?"SELF":"PARTNER"}: ${String(message.text||"").trim()}`).filter(line=>!line.endsWith(": ")).join("\n");
+ const window=selectAnalysisWindow(messages);
+ const line=(message,label)=>`[${label}] ${message.timestamp?`[VISIBLE TIME: ${String(message.timestamp).trim()}]`:"[TIME UNKNOWN]"} ${message.sender==="self"?"SELF":"PARTNER"}: ${String(message.text||"").trim()}`;
+ const transcript=[...window.baseline.map(message=>line(message,"LONG_TERM_BASELINE")),...window.recent.map(message=>line(message,"RECENT_PRIMARY"))].join("\n");
  if(!transcript)throw new Error("CONVERSATION_REQUIRED");
- const main=await callStructured({prompt:chatAnalysisPrompt(locale,context),task:`${taskFor(locale).topic(partnerName)}\n\n${transcript}`,schema:chatAnalysisSchema,maxTokens:1900,temperature:.2,validate:raw=>normalizeAnalysis(raw,locale)});
- return{result:normalizeAnalysis(main.raw,locale),model:main.response.data?.model||model,processingMs:Date.now()-startedAt,usage:aiUsageProperties(main.response,main.response.data?.model||model,"chat_analysis"),auxiliaryUsages:[]};
+ const main=await callStructured({prompt:chatAnalysisPrompt(locale,{...context,dataWindow:window.metadata}),task:`${taskFor(locale).topic(partnerName)}\n\n${transcript}`,schema:chatAnalysisSchema,maxTokens:1900,temperature:.2,validate:raw=>normalizeAnalysis(raw,locale,{dataWindow:window.metadata})});
+ return{result:normalizeAnalysis(main.raw,locale,{dataWindow:window.metadata}),model:main.response.data?.model||model,processingMs:Date.now()-startedAt,usage:aiUsageProperties(main.response,main.response.data?.model||model,"chat_analysis"),auxiliaryUsages:[]};
 }
 
 async function analyzeConversationTopicForWeb({messages=[],partnerName="",locale="ja",context={}}){

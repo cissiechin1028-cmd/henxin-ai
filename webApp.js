@@ -1367,7 +1367,7 @@ app.post("/api/v1/anonymous/conversation-replies", express.json({ limit: "128kb"
 });
 
 app.post("/api/v1/anonymous/conversation-analyses",express.json({limit:"192kb"}),async(req,res)=>{
- const messages=Array.isArray(req.body?.messages)?req.body.messages.filter(item=>["self","partner"].includes(item?.sender)&&String(item?.text||"").trim()).slice(-120).map(item=>({sender:item.sender,text:String(item.text).trim().slice(0,1500),timestamp:item.timestamp==null?null:String(item.timestamp).trim().slice(0,80)||null})):[];
+ const messages=Array.isArray(req.body?.messages)?req.body.messages.filter(item=>["self","partner"].includes(item?.sender)&&String(item?.text||"").trim()).slice(-500).map(item=>({sender:item.sender,text:String(item.text).trim().slice(0,1500),timestamp:item.timestamp==null?null:String(item.timestamp).trim().slice(0,80)||null})):[];
  if(!messages.length)return res.status(400).json({error:"CONVERSATION_REQUIRED"});
  const topicId=String(req.body?.topicId||"").trim(),topic=topicId?getAnalysisTopic(topicId):null;
  if(topicId&&!topic)return res.status(400).json({error:"INVALID_ANALYSIS_TOPIC"});
@@ -1385,7 +1385,7 @@ app.post("/api/v1/anonymous/conversation-analyses",express.json({limit:"192kb"})
   if(paidUsage)await usageService.recordSuccess(paidUsage);
   await tracking.record({name:"ai_usage_completed",businessKey:`${topic?"topic":"five_dimension"}_ai_usage_completed:${requestId}`,userId:authenticatedUser?.id||null,anonymousId:identity?.deviceHash||null,source:"ai",properties:{...output.usage,module:"analysis",mode:"analysis",...(topicId?{topic_id:topicId}:{}),anonymous:!authenticatedUser}});
   let storedAnalysisId=requestId;
-  if(authenticatedUser){const resolved=await resolveRelationship(authenticatedUser.id,req.body?.relationshipId||req.headers["x-relationship-id"]);if(resolved.error||!resolved.data)return res.status(resolved.status||500).json({error:resolved.code||"RELATIONSHIP_READ_FAILED"});const{data:stored,error:storeError}=await supabase.from("analyses").insert({user_id:authenticatedUser.id,relationship_id:resolved.data.id,mode:"analysis",status:"completed",title:String(topic?.title||"ふたりの相性").slice(0,100),result:output.result,completed_at:new Date().toISOString(),input_metadata:{source:"parsed_conversation",...(topicId?{topic_id:topicId}:{}),message_count:messages.length}}).select("id").single();if(storeError)throw new Error("ANALYSIS_SAVE_FAILED");storedAnalysisId=stored.id}
+  if(authenticatedUser){const resolved=await resolveRelationship(authenticatedUser.id,req.body?.relationshipId||req.headers["x-relationship-id"]);if(resolved.error||!resolved.data)return res.status(resolved.status||500).json({error:resolved.code||"RELATIONSHIP_READ_FAILED"});const{data:stored,error:storeError}=await supabase.from("analyses").insert({user_id:authenticatedUser.id,relationship_id:resolved.data.id,mode:"analysis",status:"completed",title:String(topic?.title||"ふたりの相性").slice(0,100),result:output.result,completed_at:new Date().toISOString(),input_metadata:{source:"parsed_conversation",source_reference:String(req.body?.sourceReference||"").slice(0,120)||null,...(topicId?{topic_id:topicId}:{}),message_count:messages.length,data_window:output.result?.dataWindow||null,analysis_snapshot_created:!topic}}).select("id").single();if(storeError)throw new Error("ANALYSIS_SAVE_FAILED");storedAnalysisId=stored.id}
   return res.status(201).json({analysis:{id:storedAnalysisId,mode:"analysis",status:"completed",result:output.result,completed_at:new Date().toISOString()},trial:credit?{replyUsed:Number(credit.reply_used),replyLimit:Number(credit.reply_limit),analysisUsed:Number(credit.analysis_used),analysisLimit:Number(credit.analysis_limit),expiresAt:credit.expires_at}:null});
  }catch(error){if(identity)try{await supabase.rpc("refund_anonymous_analysis_credit",{target_device_hash:identity.deviceHash,target_risk_hash:identity.riskHash,target_mode:"analysis"})}catch{}console.error("TOPIC ANALYSIS FAILED",requestId,String(error.message||error));return res.status(502).json({error:"ANALYSIS_FAILED"})}
 });
@@ -1468,6 +1468,15 @@ app.get("/api/v1/analyses", requireUser, async (req, res) => {
   const { data, error } = await query.order("created_at", { ascending: false }).limit(limit);
   if (error) return res.status(500).json({ error: "HISTORY_READ_FAILED" });
   res.json({ analyses: data });
+});
+
+app.get("/api/v1/relationships/:relationshipId/analysis-snapshots",requireUser,async(req,res)=>{
+ const resolved=await resolveRelationship(req.user.id,req.params.relationshipId);
+ if(resolved.error||!resolved.data)return res.status(resolved.status||500).json({error:resolved.code||"RELATIONSHIP_READ_FAILED"});
+ const limit=Math.min(50,Math.max(1,Number(req.query.limit||20)));
+ const{data,error}=await supabase.from("relationship_analysis_snapshots").select("id,analysis_id,relationship_id,user_id,created_at,source_reference,overall_score,topic_compatibility,tempo_compatibility,interaction_balance,intimacy,excitement,score_version,analysis_version,data_window,summary,metadata,result").eq("user_id",req.user.id).eq("relationship_id",resolved.data.id).order("created_at",{ascending:false}).limit(limit);
+ if(error)return res.status(500).json({error:"ANALYSIS_SNAPSHOT_READ_FAILED"});
+ res.json({snapshots:data});
 });
 
 app.post("/api/v1/analyses/:id/assign-relationship",requireUser,express.json({limit:"8kb"}),async(req,res)=>{

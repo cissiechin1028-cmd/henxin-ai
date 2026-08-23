@@ -10,6 +10,8 @@ function score(value) {
   return number;
 }
 
+const { SCORE_VERSION, ANALYSIS_VERSION, calculateOverallScore } = require("./fiveDimensionScoring");
+
 function cleanReplyText(value, locale) {
   const text = typeof value === "string" ? value.trim() : "";
   if (!text) throw new Error("AI_INVALID_RESULT");
@@ -62,27 +64,28 @@ function normalizeReply(raw, locale = "ja") {
   };
 }
 
-function normalizeAnalysis(raw, locale = "ja") {
+function normalizeAnalysis(raw, locale = "ja", options = {}) {
   if (!Array.isArray(raw?.signals_to_observe) || raw.signals_to_observe.length < 1 || raw.signals_to_observe.length > 3) throw new Error("AI_INVALID_RESULT");
   const dimensions = {
-    topic: score(raw.topic_compatibility), tempo: score(raw.tempo_compatibility),
-    balance: score(raw.interaction_balance), closeness: score(raw.closeness),
-    engagement: score(raw.engagement),
+    topic_compatibility: score(raw.topic_compatibility), tempo_compatibility: score(raw.tempo_compatibility),
+    interaction_balance: score(raw.interaction_balance), intimacy: score(raw.intimacy),
+    excitement: score(raw.excitement),
   };
   const dimensionReasons = {
-    topic: cleanString(raw.dimension_reasons?.topic_compatibility, 160, true),
-    tempo: cleanString(raw.dimension_reasons?.tempo_compatibility, 160, true),
-    balance: cleanString(raw.dimension_reasons?.interaction_balance, 160, true),
-    closeness: cleanString(raw.dimension_reasons?.closeness, 160, true),
-    engagement: cleanString(raw.dimension_reasons?.engagement, 160, true),
+    topic_compatibility: cleanString(raw.dimension_reasons?.topic_compatibility, 160, true),
+    tempo_compatibility: cleanString(raw.dimension_reasons?.tempo_compatibility, 160, true),
+    interaction_balance: cleanString(raw.dimension_reasons?.interaction_balance, 160, true),
+    intimacy: cleanString(raw.dimension_reasons?.intimacy, 160, true),
+    excitement: cleanString(raw.dimension_reasons?.excitement, 160, true),
   };
-  const overallScore = Math.round(Object.values(dimensions).reduce((sum, value) => sum + value, 0) / 5);
+  const overallScore = calculateOverallScore(dimensions);
   const overallReason = cleanString(raw.core_reason, 220, true);
   const actionAdvice = cleanString(raw.action_advice, 220, true);
   const signalsToObserve = raw.signals_to_observe.map((item) => cleanString(item, 160, true));
   assertLocale([overallReason, actionAdvice, ...Object.values(dimensionReasons), ...signalsToObserve], locale);
   return {
-    kind: "analysis", analysisVersion: 2, overallScore, dimensions, dimensionReasons,
+    kind: "analysis", analysisVersion: ANALYSIS_VERSION, scoreVersion: SCORE_VERSION, overallScore, dimensions, dimensionReasons,
+    dataWindow: options.dataWindow || null,
     overallReason, actionAdvice, signalsToObserve,
     keyMoments: [], timelineEvent: normalizeTimelineEvent(raw.timelineEvent, locale),
   };

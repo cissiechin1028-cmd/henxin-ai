@@ -23,12 +23,18 @@ Treat the optional note as user-provided context, not verified evidence. Use the
 
 Use observable signals such as topic continuation, emotional acknowledgement, specificity, reciprocal questions, initiative, concrete meeting suggestions, avoidance of key questions, polite-only maintenance, consistency between words and actions, and change from any verified prior context.
 
+CURRENT-STATE WINDOW
+- RECENT_PRIMARY messages define “今のふたり” and carry 80% of the interpretation.
+- LONG_TERM_BASELINE messages carry at most 20% and are context for normal patterns or meaningful change, never a simple all-history average.
+- When the supplied window is marked degraded or timestamps are sparse, lower apparent precision and keep unsupported dimensions near neutral rather than inventing change.
+- Window metadata: ${JSON.stringify(context.dataWindow || {})}
+
 Return these five directional product scores. Evaluate only the visible conversation evidence; do not infer meaning from the UI label:
 - topic_compatibility: how naturally both people pick up, continue, and expand each other's topics. Shared subject matter alone is not enough without reciprocal engagement.
 - tempo_compatibility: how comfortably turn-taking, message length, response pacing, and conversational transitions fit each other. If timestamps are absent or incomplete, do not penalize response speed; use only visible turn rhythm.
 - interaction_balance: whether participation, initiative, questions, self-disclosure, and topic work are reasonably reciprocal rather than carried by one person.
-- closeness: observable emotional proximity through warmth, specificity, acknowledgement, trust, and mutual self-disclosure. Do not treat relationship status or affectionate words alone as proof.
-- engagement: the current conversational energy and mutual willingness to keep the exchange moving, based on responsiveness, emotional reaction, initiative, and concrete continuation. This is not an affection probability.
+- intimacy: observable emotional proximity through warmth, specificity, acknowledgement, trust, and mutual self-disclosure. Do not treat relationship status or affectionate words alone as proof.
+- excitement: the current conversational energy and mutual willingness to keep the exchange moving, based on responsiveness, emotional reaction, initiative, and concrete continuation. This is not an affection probability.
 
 Scores are compact product indicators, not scientific probabilities. Use 50 as neutral when evidence for a dimension is genuinely insufficient. Keep scores logically consistent and do not manufacture precision. For each score provide one short evidence-based reason in dimension_reasons using the same five keys.
 
