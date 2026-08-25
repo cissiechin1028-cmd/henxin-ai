@@ -1059,6 +1059,28 @@ app.post("/api/v1/relationships", requireUser, express.json(), async (req, res) 
   res.status(201).json({ relationship: data });
 });
 
+app.delete("/api/v1/relationships/:relationshipId", requireUser, async (req, res) => {
+  const { data: relationship, error: relationshipError } = await findOwnedRelationship(req.user.id, req.params.relationshipId);
+  if (relationshipError) return res.status(500).json({ error: "RELATIONSHIP_READ_FAILED" });
+  if (!relationship) return res.status(404).json({ error: "RELATIONSHIP_NOT_FOUND" });
+
+  // Most relationship-owned tables already use ON DELETE CASCADE. Analyses
+  // intentionally use SET NULL for legacy preservation, and consultation
+  // threads also use SET NULL, so an explicit user delete removes those first.
+  const { error: consultationError } = await supabase.from("ai_consultation_threads").delete()
+    .eq("user_id", req.user.id).eq("relationship_id", relationship.id);
+  if (consultationError) return res.status(500).json({ error: "RELATIONSHIP_CONSULTATIONS_DELETE_FAILED" });
+
+  const { error: analysesError } = await supabase.from("analyses").delete()
+    .eq("user_id", req.user.id).eq("relationship_id", relationship.id);
+  if (analysesError) return res.status(500).json({ error: "RELATIONSHIP_ANALYSES_DELETE_FAILED" });
+
+  const { error: deleteError } = await supabase.from("relationships").delete()
+    .eq("id", relationship.id).eq("user_id", req.user.id);
+  if (deleteError) return res.status(500).json({ error: "RELATIONSHIP_DELETE_FAILED" });
+  res.sendStatus(204);
+});
+
 app.get("/api/v1/relationships/:relationshipId/events", requireUser, async (req, res) => {
   const { data: relationship, error: relationshipError } = await findOwnedRelationship(req.user.id, req.params.relationshipId);
   if (relationshipError) return res.status(500).json({ error: "RELATIONSHIP_READ_FAILED" });
