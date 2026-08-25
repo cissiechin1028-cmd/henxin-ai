@@ -5,6 +5,15 @@ const test=require("node:test");
 
 const source=fs.readFileSync(path.join(__dirname,"..","webApp.js"),"utf8");
 
+test("authentication never bootstraps a replacement relationship",()=>{
+  const start=source.indexOf("async function requireUser");
+  const end=source.indexOf("async function requireAdmin",start);
+  const middleware=source.slice(start,end);
+  assert.doesNotMatch(middleware,/findActiveRelationship/);
+  assert.doesNotMatch(middleware,/switch_relationship/);
+  assert.doesNotMatch(middleware,/RELATIONSHIP_BOOTSTRAP_FAILED/);
+});
+
 test("relationship deletion is authenticated and owner scoped",()=>{
   assert.match(source,/app\.delete\("\/api\/v1\/relationships\/:relationshipId", requireUser/);
   assert.match(source,/findOwnedRelationship\(req\.user\.id, req\.params\.relationshipId\)/);

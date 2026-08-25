@@ -298,23 +298,6 @@ async function requireUser(req, res, next) {
   const { data, error } = await supabase.auth.getUser(token);
   if (error || !data.user) return res.status(401).json({ error: "INVALID_SESSION" });
 
-  // 自动创建默认 Relationship
-  const { data: relationship } = await findActiveRelationship(data.user.id);
-
-if (!relationship) {
-  const { error } = await supabase.rpc("switch_relationship", {
-    target_user_id: data.user.id,
-    archive_current: true,
-    new_title: null,
-    new_started_on: new Date().toISOString().slice(0, 10)
-  });
-
-  if (error) {
-    console.error(error);
-    return res.status(500).json({ error: "RELATIONSHIP_BOOTSTRAP_FAILED" });
-  }
-}
-
   req.user = data.user;
   next();
 }
