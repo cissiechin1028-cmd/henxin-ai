@@ -20,6 +20,9 @@ const app = express();
 app.set("trust proxy", 1);
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || "sk_test_placeholder");
 const port = Number(process.env.PORT || 3001);
+const stagingPreviewOrigins = process.env.RENDER_SERVICE_NAME === "renai-relationship-sync-staging"
+  ? ["http://localhost:4174"]
+  : [];
 const allowedOrigins = [...new Set([
   ...String(process.env.WEB_APP_ORIGINS || "http://localhost:3000")
     .split(",").map((value) => value.trim()).filter(Boolean),
@@ -27,6 +30,7 @@ const allowedOrigins = [...new Set([
   // origins only; every protected endpoint still requires its Bearer token.
   "capacitor://localhost",
   "http://localhost",
+  ...stagingPreviewOrigins,
 ])];
 
 const supabase = createClient(
