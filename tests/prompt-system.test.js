@@ -12,6 +12,17 @@ const scenarios = [
   "read_without_reply", "insufficient_information", "emotional_user", "advance_relationship", "set_boundary"
 ];
 
+function validAnalysis(overrides = {}) {
+  const summary = "会話では相手の話題を受け止めながら、自分の話も自然に返すやり取りが見えています。短いやり取りの中でも質問と反応が交互にあり、今のところ無理のない会話の流れが続いています。";
+  return {
+    topic_compatibility: 62, tempo_compatibility: 58, interaction_balance: 60, intimacy: 54, excitement: 57,
+    dimension_reasons: { topic_compatibility: "話題を互いに拾っています。", tempo_compatibility: "無理のない応答が続いています。", interaction_balance: "双方から質問があります。", intimacy: "温かな反応が見えます。", excitement: "会話を続ける反応があります。" },
+    dimension_summary: { topic_compatibility: summary, tempo_compatibility: summary, interaction_balance: summary, intimacy: summary, excitement: summary },
+    core_reason: "会話は自然に続いています。", action_advice: "今のテンポで話題を返してみてください。", signals_to_observe: ["相手から質問が出るか"],
+    ...overrides,
+  };
+}
+
 test("quality scenario matrix covers required product situations", () => {
   assert.deepEqual(scenarios, [
     "ambiguous", "new_relationship", "long_term_relationship", "coldness", "argument",
@@ -50,7 +61,7 @@ test("normalizers reject mixed-language user-facing output", () => {
   assert.throws(() => normalizeReply({ ...baseReply, options: [{ ...baseReply.options[0], text: "這樣很好呀。" }, ...baseReply.options.slice(1)] }, "ja"), /AI_LANGUAGE_MISMATCH/);
   assert.throws(() => normalizeReply({ ...baseReply, options: [{ ...baseReply.options[0], text: "今度の約会を楽しみにしています。" }, ...baseReply.options.slice(1)] }, "ja"), /AI_LANGUAGE_MISMATCH/);
   assert.throws(() => normalizeReply({ ...baseReply, currentState: "The conversation is continuing.", options: baseReply.options.map((item, index) => ({ ...item, text: ["Sure.", "そうなんだね。", "Thank you."][index], reason: "This is natural." })) }, "en"), /AI_LANGUAGE_MISMATCH/);
-  assert.throws(() => normalizeAnalysis({ conversation_balance: 50, communication_quality: 50, relationship_trend: 50, progression_risk: 50, core_reason: "目前還需要觀察。", action_advice: "焦らず待ちましょう。", signals_to_observe: ["對方是否主動"] }, "zh-TW"), /AI_LANGUAGE_MISMATCH/);
+  assert.throws(() => normalizeAnalysis(validAnalysis({ core_reason: "目前還需要觀察。", action_advice: "焦らず待ちましょう。", signals_to_observe: ["對方是否主動"] }), "zh-TW"), /AI_LANGUAGE_MISMATCH/);
 });
 
 test("reply prompt may recommend no further message after a natural ending", () => {
@@ -127,15 +138,12 @@ test("reply output enforces locale-aware safety length ceilings", () => {
   }, "ja"), /AI_REPLY_TOO_LONG/);
 });
 
-test("analysis returns four internal metrics and concise guidance", () => {
-  const value = normalizeAnalysis({
-    conversation_balance: 50, communication_quality: 62, relationship_trend: 50, progression_risk: 55,
-    core_reason: "会話は成立していますが、関係変化を示す比較材料はまだ限られます。",
-    action_advice: "今は自然に一度返し、相手が話題を広げるか見てください。",
-    signals_to_observe: ["相手から質問が出るか", "具体的な提案が出るか"]
-  });
-  assert.equal(value.relationshipTrend, 50);
-  assert.equal(value.conversationBalance, 50);
+test("analysis returns the versioned five-dimension result contract", () => {
+  const value = normalizeAnalysis(validAnalysis({ signals_to_observe: ["相手から質問が出るか", "具体的な提案が出るか"] }));
+  assert.equal(value.analysisVersion, 3);
+  assert.equal(value.scoreVersion, "five_dimension_v1");
+  assert.equal(Object.keys(value.dimensions).length, 5);
+  assert.equal(value.overallScore, 58);
   assert.equal(value.signalsToObserve.length, 2);
 });
 

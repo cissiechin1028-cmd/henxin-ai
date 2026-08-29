@@ -25,6 +25,18 @@ test("base analysis is accepted without a topic and linked to the requested rela
   assert.match(route, /relationship_id:resolved\.data\.id/);
   assert.match(analysisService, /async function analyzeConversationBaseForWeb/);
   assert.match(analysisService, /chatAnalysisSchema/);
+  assert.match(analysisService, /selectAnalysisWindow/);
+  assert.match(analysisService, /dataWindow: window\.metadata/);
+});
+
+test("base analysis produces the snapshot-compatible five-dimension version", () => {
+  const normalizer = fs.readFileSync(path.join(__dirname, "..", "services", "resultNormalizers.js"), "utf8");
+  const scoring = fs.readFileSync(path.join(__dirname, "..", "services", "fiveDimensionScoring.js"), "utf8");
+  assert.match(normalizer, /analysisVersion: ANALYSIS_VERSION/);
+  assert.match(normalizer, /scoreVersion: SCORE_VERSION/);
+  assert.match(normalizer, /overallScore/);
+  assert.match(normalizer, /dimensions/);
+  assert.match(scoring, /const ANALYSIS_VERSION = 3/);
 });
 
 test("completed relationship analysis can reopen through the snapshot route", () => {
@@ -32,4 +44,3 @@ test("completed relationship analysis can reopen through the snapshot route", ()
   assert.match(server, /relationship_analysis_snapshots/);
   assert.match(server, /\.eq\("relationship_id", resolved\.data\.id\)/);
 });
-

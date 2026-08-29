@@ -10,6 +10,8 @@ function score(value) {
   return number;
 }
 
+const { SCORE_VERSION, ANALYSIS_VERSION, calculateOverallScore } = require("./fiveDimensionScoring");
+
 function cleanReplyText(value, locale) {
   const text = typeof value === "string" ? value.trim() : "";
   if (!text) throw new Error("AI_INVALID_RESULT");
@@ -62,19 +64,45 @@ function normalizeReply(raw, locale = "ja") {
   };
 }
 
-function normalizeAnalysis(raw, locale = "ja") {
+function normalizeAnalysis(raw, locale = "ja", options = {}) {
   if (!Array.isArray(raw?.signals_to_observe) || raw.signals_to_observe.length < 1 || raw.signals_to_observe.length > 3) throw new Error("AI_INVALID_RESULT");
-  const relationshipTrend = score(raw.relationship_trend);
+  const dimensions = {
+    topic_compatibility: score(raw.topic_compatibility),
+    tempo_compatibility: score(raw.tempo_compatibility),
+    interaction_balance: score(raw.interaction_balance),
+    intimacy: score(raw.intimacy),
+    excitement: score(raw.excitement),
+  };
+  const dimensionReasons = {
+    topic_compatibility: cleanString(raw.dimension_reasons?.topic_compatibility, 160, true),
+    tempo_compatibility: cleanString(raw.dimension_reasons?.tempo_compatibility, 160, true),
+    interaction_balance: cleanString(raw.dimension_reasons?.interaction_balance, 160, true),
+    intimacy: cleanString(raw.dimension_reasons?.intimacy, 160, true),
+    excitement: cleanString(raw.dimension_reasons?.excitement, 160, true),
+  };
+  const dimensionSummaries = {
+    topic_compatibility: cleanString(raw.dimension_summary?.topic_compatibility, 420, true),
+    tempo_compatibility: cleanString(raw.dimension_summary?.tempo_compatibility, 420, true),
+    interaction_balance: cleanString(raw.dimension_summary?.interaction_balance, 420, true),
+    intimacy: cleanString(raw.dimension_summary?.intimacy, 420, true),
+    excitement: cleanString(raw.dimension_summary?.excitement, 420, true),
+  };
+  if (locale === "ja" && Object.values(dimensionSummaries).some(item => Array.from(item.replace(/\s/g, "")).length < 80 || Array.from(item.replace(/\s/g, "")).length > 180)) throw new Error("AI_DIMENSION_SUMMARY_LENGTH");
+  if (locale === "ja" && Object.values(dimensionSummaries).some(item => /今後|これから|期待できます|可能性が(?:あります|高いです)/.test(item))) throw new Error("AI_DIMENSION_SUMMARY_FUTURE");
+  const overallScore = calculateOverallScore(dimensions);
   const overallReason = cleanString(raw.core_reason, 220, true);
   const actionAdvice = cleanString(raw.action_advice, 220, true);
   const signalsToObserve = raw.signals_to_observe.map((item) => cleanString(item, 160, true));
-  assertLocale([overallReason, actionAdvice, ...signalsToObserve], locale);
+  assertLocale([overallReason, actionAdvice, ...Object.values(dimensionReasons), ...Object.values(dimensionSummaries), ...signalsToObserve], locale);
   return {
     kind: "analysis",
-    conversationBalance: score(raw.conversation_balance),
-    communicationQuality: score(raw.communication_quality),
-    relationshipTrend,
-    progressionRisk: score(raw.progression_risk),
+    analysisVersion: ANALYSIS_VERSION,
+    scoreVersion: SCORE_VERSION,
+    overallScore,
+    dimensions,
+    dimensionReasons,
+    dimensionSummaries,
+    dataWindow: options.dataWindow || null,
     overallReason, actionAdvice, signalsToObserve,
     keyMoments: [], timelineEvent: normalizeTimelineEvent(raw.timelineEvent, locale),
   };

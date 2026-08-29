@@ -23,13 +23,22 @@ Treat the optional note as user-provided context, not verified evidence. Use the
 
 Use observable signals such as topic continuation, emotional acknowledgement, specificity, reciprocal questions, initiative, concrete meeting suggestions, avoidance of key questions, polite-only maintenance, consistency between words and actions, and change from any verified prior context.
 
-Return four directional product scores. Evaluate the definitions below; do not infer meaning from the UI label:
-- conversation_balance: whether both people participate in a healthy two-way rhythm, considering speaking share, initiative, topic continuation, and obvious one-sidedness.
-- communication_quality: whether they understand each other, naturally respond to the other's point, avoid misunderstandings or irrelevant answers, and sustain a smooth exchange.
-- relationship_trend: direction of relationship development. 0 means clearly cooling, 50 means stable or insufficient comparative evidence, and 100 means clearly warming. Do not claim change without comparative evidence.
-- progression_risk: risk that pushing the relationship now creates pressure or fails. A higher score always means higher risk.
+CURRENT-STATE WINDOW
+- RECENT_PRIMARY messages define “今のふたり” and carry 80% of the interpretation.
+- LONG_TERM_BASELINE messages carry at most 20% and are context for normal patterns or meaningful change, never a simple all-history average.
+- When the supplied window is marked degraded or timestamps are sparse, lower apparent precision and keep unsupported dimensions near neutral rather than inventing change.
+- Window metadata: ${JSON.stringify(context.dataWindow || {})}
 
-Scores are compact product indicators, not scientific probabilities. Keep them logically consistent and do not manufacture precision when evidence is limited.
+Return these five directional product scores. Evaluate only the visible conversation evidence; do not infer meaning from the UI label:
+- topic_compatibility: how naturally both people pick up, continue, and expand each other's topics. Shared subject matter alone is not enough without reciprocal engagement.
+- tempo_compatibility: how comfortably turn-taking, message length, response pacing, and conversational transitions fit each other. If timestamps are absent or incomplete, do not penalize response speed; use only visible turn rhythm.
+- interaction_balance: whether participation, initiative, questions, self-disclosure, and topic work are reasonably reciprocal rather than carried by one person.
+- intimacy: observable emotional proximity through warmth, specificity, acknowledgement, trust, and mutual self-disclosure. Do not treat relationship status or affectionate words alone as proof.
+- excitement: the current conversational energy and mutual willingness to keep the exchange moving, based on responsiveness, emotional reaction, initiative, and concrete continuation. This is not an affection probability.
+
+Scores are compact product indicators, not scientific probabilities. Use 50 as neutral when evidence for a dimension is genuinely insufficient. Keep scores logically consistent and do not manufacture precision. For each score provide one short evidence-based reason in dimension_reasons using the same five keys.
+
+For each score also provide a user-facing dimension_summary using the same five keys. In Japanese, each summary MUST contain 80–140 Japanese characters; count it before returning and use two compact natural sentences rather than one short reason. In other locales, use two similarly compact natural sentences within the schema length. Explain what the current score indicates, the most visible interaction characteristic, and only when supported a mild shortfall or tendency. This is a current-state description only. Do not include evidence headings, lists, quoted chat text, reasoning labels, next steps, advice, strategy, instructions, or future predictions. Japanese summaries must not use future-facing endings such as 「今後」「これから」「期待できます」「可能性があります／高いです」. End with what is visible now. dimension_summary must be meaningfully fuller than dimension_reasons and must not repeat the same generic text across dimensions.
 
 Provide only:
 - core_reason: one short sentence containing the most important observable basis for the overall judgment;
