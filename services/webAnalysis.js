@@ -121,6 +121,32 @@ async function analyzeConversationForWeb({ messages = [], partnerName = "", loca
   };
 }
 
+async function analyzeConversationBaseForWeb({ messages = [], partnerName = "", locale = "ja", context = {} }) {
+  if (!process.env.OPENAI_API_KEY) throw new Error("OPENAI_NOT_CONFIGURED");
+  const startedAt = Date.now();
+  const model = process.env.OPENAI_VISION_MODEL || "gpt-4.1-mini";
+  const transcript = messages.slice(-120).map((message) => {
+    const timestamp = String(message.timestamp || "").trim();
+    return `${timestamp ? `[VISIBLE TIME: ${timestamp}] ` : "[TIME UNKNOWN] "}${message.sender === "self" ? "SELF" : "PARTNER"}: ${String(message.text || "").trim()}`;
+  }).filter((line) => !line.endsWith(": ")).join("\n");
+  if (!transcript) throw new Error("CONVERSATION_REQUIRED");
+  const main = await callStructured({
+    prompt: chatAnalysisPrompt(locale, context),
+    task: `${taskFor(locale).topic(partnerName)}\n\n${transcript}`,
+    schema: chatAnalysisSchema,
+    maxTokens: 1900,
+    temperature: 0.2,
+    validate: raw => normalizeAnalysis(raw, locale),
+  });
+  return {
+    result: normalizeAnalysis(main.raw, locale),
+    model: main.response.data?.model || model,
+    processingMs: Date.now() - startedAt,
+    usage: aiUsageProperties(main.response, main.response.data?.model || model, "chat_analysis"),
+    auxiliaryUsages: [],
+  };
+}
+
 async function analyzeConversationTopicForWeb({messages=[],partnerName="",locale="ja",context={}}){
  if(!process.env.OPENAI_API_KEY)throw new Error("OPENAI_NOT_CONFIGURED");
  const startedAt=Date.now(),model=process.env.OPENAI_VISION_MODEL||"gpt-4.1-mini";
@@ -167,4 +193,4 @@ async function analyzeForWeb({ imageBuffer, mimeType, mode, locale = "ja", conte
   };
 }
 
-module.exports = { analyzeForWeb, analyzeConversationForWeb, analyzeConversationTopicForWeb };
+module.exports = { analyzeForWeb, analyzeConversationForWeb, analyzeConversationBaseForWeb, analyzeConversationTopicForWeb };

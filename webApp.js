@@ -6,7 +6,7 @@ const Stripe = require("stripe");
 const axios = require("axios");
 const crypto = require("crypto");
 const { createClient } = require("@supabase/supabase-js");
-const { analyzeForWeb, analyzeConversationForWeb, analyzeConversationTopicForWeb } = require("./services/webAnalysis");
+const { analyzeForWeb, analyzeConversationForWeb, analyzeConversationBaseForWeb, analyzeConversationTopicForWeb } = require("./services/webAnalysis");
 const { aiUsageProperties } = require("./tracking/cost");
 const { generateRelationshipReport, periodBounds } = require("./services/relationshipReports");
 const { createTracking } = require("./tracking/service");
@@ -20,8 +20,12 @@ const app = express();
 app.set("trust proxy", 1);
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || "sk_test_placeholder");
 const port = Number(process.env.PORT || 3001);
-const allowedOrigins = String(process.env.WEB_APP_ORIGINS || "http://localhost:3000")
-  .split(",").map((value) => value.trim()).filter(Boolean);
+const allowedOrigins = [...new Set([
+  ...String(process.env.WEB_APP_ORIGINS || "http://localhost:3000")
+    .split(",").map((value) => value.trim()).filter(Boolean),
+  "capacitor://localhost",
+  "http://localhost",
+])];
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -272,7 +276,7 @@ app.use((req, res, next) => {
     res.setHeader("Access-Control-Allow-Origin", origin);
     res.setHeader("Vary", "Origin");
   }
-  res.setHeader("Access-Control-Allow-Headers", "Authorization, Content-Type, X-Analysis-Mode, X-Locale, X-Reply-Goal, X-Reply-Style, X-Relationship-Status, X-User-Note, X-Analysis-Focus, X-RenAI-Device-ID, X-RenAI-Tracking-ID, X-RenAI-Fingerprint");
+  res.setHeader("Access-Control-Allow-Headers", "Authorization, Content-Type, X-Analysis-Mode, X-Locale, X-Reply-Goal, X-Reply-Style, X-Relationship-Status, X-Relationship-ID, X-User-Note, X-Analysis-Focus, X-RenAI-Device-ID, X-RenAI-Tracking-ID, X-RenAI-Fingerprint");
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS");
   res.setHeader("X-Content-Type-Options", "nosniff");
   if (req.method === "OPTIONS") return res.sendStatus(204);
@@ -286,23 +290,6 @@ async function requireUser(req, res, next) {
 
   const { data, error } = await supabase.auth.getUser(token);
   if (error || !data.user) return res.status(401).json({ error: "INVALID_SESSION" });
-
-  // 自动创建默认 Relationship
-  const { data: relationship } = await findActiveRelationship(data.user.id);
-
-if (!relationship) {
-  const { error } = await supabase.rpc("switch_relationship", {
-    target_user_id: data.user.id,
-    archive_current: true,
-    new_title: null,
-    new_started_on: new Date().toISOString().slice(0, 10)
-  });
-
-  if (error) {
-    console.error(error);
-    return res.status(500).json({ error: "RELATIONSHIP_BOOTSTRAP_FAILED" });
-  }
-}
 
   req.user = data.user;
   next();
@@ -375,6 +362,20 @@ async function findOwnedRelationship(userId, relationshipId) {
 async function findActiveRelationship(userId) {
   return supabase.from("relationships").select("id")
     .eq("user_id", userId).eq("status", "active").maybeSingle();
+}
+
+async function resolveRelationship(userId, requestedId) {
+  const relationshipId = String(requestedId || "").trim();
+  if (relationshipId) {
+    const query = await findOwnedRelationship(userId, relationshipId);
+    if (query.error) return { error: query.error };
+    if (!query.data) return { status: 404, code: "RELATIONSHIP_NOT_FOUND" };
+    return { data: query.data, explicit: true };
+  }
+  const query = await findActiveRelationship(userId);
+  if (query.error) return { error: query.error };
+  if (!query.data) return { status: 404, code: "ACTIVE_RELATIONSHIP_NOT_FOUND" };
+  return { data: query.data, explicit: false };
 }
 
 app.get("/health", (_req, res) => res.json({
@@ -1034,6 +1035,25 @@ app.post("/api/v1/relationships", requireUser, express.json(), async (req, res) 
   res.status(201).json({ relationship: data });
 });
 
+app.delete("/api/v1/relationships/:relationshipId", requireUser, async (req, res) => {
+  const { data: relationship, error: relationshipError } = await findOwnedRelationship(req.user.id, req.params.relationshipId);
+  if (relationshipError) return res.status(500).json({ error: "RELATIONSHIP_READ_FAILED" });
+  if (!relationship) return res.status(404).json({ error: "RELATIONSHIP_NOT_FOUND" });
+
+  const { error: consultationError } = await supabase.from("ai_consultation_threads").delete()
+    .eq("user_id", req.user.id).eq("relationship_id", relationship.id);
+  if (consultationError) return res.status(500).json({ error: "RELATIONSHIP_CONSULTATIONS_DELETE_FAILED" });
+
+  const { error: analysesError } = await supabase.from("analyses").delete()
+    .eq("user_id", req.user.id).eq("relationship_id", relationship.id);
+  if (analysesError) return res.status(500).json({ error: "RELATIONSHIP_ANALYSES_DELETE_FAILED" });
+
+  const { error: deleteError } = await supabase.from("relationships").delete()
+    .eq("id", relationship.id).eq("user_id", req.user.id);
+  if (deleteError) return res.status(500).json({ error: "RELATIONSHIP_DELETE_FAILED" });
+  res.sendStatus(204);
+});
+
 app.get("/api/v1/relationships/:relationshipId/events", requireUser, async (req, res) => {
   const { data: relationship, error: relationshipError } = await findOwnedRelationship(req.user.id, req.params.relationshipId);
   if (relationshipError) return res.status(500).json({ error: "RELATIONSHIP_READ_FAILED" });
@@ -1346,10 +1366,10 @@ app.post("/api/v1/anonymous/conversation-replies", express.json({ limit: "128kb"
 });
 
 app.post("/api/v1/anonymous/conversation-analyses",express.json({limit:"192kb"}),async(req,res)=>{
- const messages=Array.isArray(req.body?.messages)?req.body.messages.filter(item=>["self","partner"].includes(item?.sender)&&String(item?.text||"").trim()).slice(-120).map(item=>({sender:item.sender,text:String(item.text).trim().slice(0,1500),timestamp:item.timestamp==null?null:String(item.timestamp).trim().slice(0,80)||null})):[];
+ const messages=Array.isArray(req.body?.messages)?req.body.messages.filter(item=>["self","partner"].includes(item?.sender)&&String(item?.text||"").trim()).slice(-500).map(item=>({sender:item.sender,text:String(item.text).trim().slice(0,1500),timestamp:item.timestamp==null?null:String(item.timestamp).trim().slice(0,80)||null})):[];
  if(!messages.length)return res.status(400).json({error:"CONVERSATION_REQUIRED"});
- const topicId=String(req.body?.topicId||"").trim(),topic=getAnalysisTopic(topicId);
- if(!topic)return res.status(400).json({error:"INVALID_ANALYSIS_TOPIC"});
+ const topicId=String(req.body?.topicId||"").trim(),topic=topicId?getAnalysisTopic(topicId):null;
+ if(topicId&&!topic)return res.status(400).json({error:"INVALID_ANALYSIS_TOPIC"});
  const requestedLocale=String(req.headers["x-locale"]||"ja"),locale=["ja","zh-TW","en"].includes(requestedLocale)?requestedLocale:"ja";
  const token=String(req.headers.authorization||"").replace(/^Bearer\s+/i,""),authenticatedUser=token?(await supabase.auth.getUser(token)).data?.user:null;
  const{data:profile}=authenticatedUser?await supabase.from("profiles").select("plan,billing_tier,role,is_test_account").eq("id",authenticatedUser.id).maybeSingle():{data:null};
@@ -1360,11 +1380,11 @@ app.post("/api/v1/anonymous/conversation-analyses",express.json({limit:"192kb"})
  }else if(!privileged){identity=anonymousIdentity(req);if(!identity)return res.status(400).json({error:"ANONYMOUS_ID_REQUIRED"});const{data:rows,error:reserveError}=await supabase.rpc("reserve_anonymous_analysis_credit",{target_device_hash:identity.deviceHash,target_risk_hash:identity.riskHash,target_network_hash:identity.networkHash,target_mode:"analysis"});if(reserveError)return res.status(500).json({error:"CREDIT_CHECK_FAILED"});credit=rows?.[0];if(!credit?.allowed)return res.status(402).json({error:credit?.reason||"TRIAL_LIMIT_REACHED",trial:credit||null})}
  const requestId=crypto.randomUUID();
  try{
-  const output=await analyzeConversationTopicForWeb({messages,partnerName:String(req.body?.partnerName||"").slice(0,80),locale,context:{topicId:topic.id,topicTitle:topic.title,question:topic.question,evidenceInstruction:topic.evidenceInstruction,requiredModules:topic.requiredModules,optionalModules:topic.optionalModules,readinessStatus:req.body?.readinessStatus==="partial"?"partial":"sufficient"}});
+  const output=topic?await analyzeConversationTopicForWeb({messages,partnerName:String(req.body?.partnerName||"").slice(0,80),locale,context:{topicId:topic.id,topicTitle:topic.title,question:topic.question,evidenceInstruction:topic.evidenceInstruction,requiredModules:topic.requiredModules,optionalModules:topic.optionalModules,readinessStatus:req.body?.readinessStatus==="partial"?"partial":"sufficient"}}):await analyzeConversationBaseForWeb({messages,partnerName:String(req.body?.partnerName||"").slice(0,80),locale,context:{relationshipStatus:String(req.body?.relationshipStatus||"").slice(0,40)}});
   if(paidUsage)await usageService.recordSuccess(paidUsage);
-  await tracking.record({name:"ai_usage_completed",businessKey:`topic_ai_usage_completed:${requestId}`,userId:authenticatedUser?.id||null,anonymousId:identity?.deviceHash||null,source:"ai",properties:{...output.usage,module:"analysis",mode:"analysis",topic_id:topicId,anonymous:!authenticatedUser}});
+  await tracking.record({name:"ai_usage_completed",businessKey:`${topic?"topic":"five_dimension"}_ai_usage_completed:${requestId}`,userId:authenticatedUser?.id||null,anonymousId:identity?.deviceHash||null,source:"ai",properties:{...output.usage,module:"analysis",mode:"analysis",...(topicId?{topic_id:topicId}:{}),anonymous:!authenticatedUser}});
   let storedAnalysisId=requestId;
-  if(authenticatedUser){const relationship=await findActiveRelationship(authenticatedUser.id).then(result=>result.data);const{data:stored,error:storeError}=await supabase.from("analyses").insert({user_id:authenticatedUser.id,relationship_id:relationship?.id||null,mode:"analysis",status:"completed",title:String(topic.title||"チャット分析").slice(0,100),result:output.result,completed_at:new Date().toISOString(),input_metadata:{source:"parsed_conversation",topic_id:topicId,message_count:messages.length}}).select("id").single();if(storeError)throw new Error("ANALYSIS_SAVE_FAILED");storedAnalysisId=stored.id}
+  if(authenticatedUser){const resolved=await resolveRelationship(authenticatedUser.id,req.body?.relationshipId||req.headers["x-relationship-id"]);if(resolved.error||!resolved.data)return res.status(resolved.status||500).json({error:resolved.code||"RELATIONSHIP_READ_FAILED"});const{data:stored,error:storeError}=await supabase.from("analyses").insert({user_id:authenticatedUser.id,relationship_id:resolved.data.id,mode:"analysis",status:"completed",title:String(topic?.title||"ふたりの相性").slice(0,100),result:output.result,completed_at:new Date().toISOString(),input_metadata:{source:"parsed_conversation",source_reference:String(req.body?.sourceReference||"").slice(0,120)||null,...(topicId?{topic_id:topicId}:{}),message_count:messages.length,data_window:output.result?.dataWindow||null,analysis_snapshot_created:!topic}}).select("id").single();if(storeError)throw new Error("ANALYSIS_SAVE_FAILED");storedAnalysisId=stored.id}
   return res.status(201).json({analysis:{id:storedAnalysisId,mode:"analysis",status:"completed",result:output.result,completed_at:new Date().toISOString()},trial:credit?{replyUsed:Number(credit.reply_used),replyLimit:Number(credit.reply_limit),analysisUsed:Number(credit.analysis_used),analysisLimit:Number(credit.analysis_limit),expiresAt:credit.expires_at}:null});
  }catch(error){if(identity)try{await supabase.rpc("refund_anonymous_analysis_credit",{target_device_hash:identity.deviceHash,target_risk_hash:identity.riskHash,target_mode:"analysis"})}catch{}console.error("TOPIC ANALYSIS FAILED",requestId,String(error.message||error));return res.status(502).json({error:"ANALYSIS_FAILED"})}
 });
@@ -1435,11 +1455,28 @@ app.post("/api/v1/anonymous/strategies", express.json({ limit: "128kb" }), async
 
 app.get("/api/v1/analyses", requireUser, async (req, res) => {
   const limit = Math.min(50, Math.max(1, Number(req.query.limit || 20)));
-  const { data, error } = await supabase.from("analyses")
-    .select("id,mode,status,title,result,error_code,processing_ms,created_at,completed_at")
-    .eq("user_id", req.user.id).order("created_at", { ascending: false }).limit(limit);
+  let query = supabase.from("analyses")
+    .select("id,relationship_id,mode,status,title,result,error_code,processing_ms,created_at,completed_at")
+    .eq("user_id", req.user.id);
+  if (String(req.query.relationship_id || "").trim()) query = query.eq("relationship_id", String(req.query.relationship_id).trim());
+  else if (req.query.legacy === "true") query = query.is("relationship_id", null);
+  const { data, error } = await query.order("created_at", { ascending: false }).limit(limit);
   if (error) return res.status(500).json({ error: "HISTORY_READ_FAILED" });
   res.json({ analyses: data });
+});
+
+app.get("/api/v1/relationships/:relationshipId/analysis-snapshots", requireUser, async (req, res) => {
+  const resolved = await resolveRelationship(req.user.id, req.params.relationshipId);
+  if (resolved.error || !resolved.data) return res.status(resolved.status || 500).json({ error: resolved.code || "RELATIONSHIP_READ_FAILED" });
+  const limit = Math.min(50, Math.max(1, Number(req.query.limit || 20)));
+  const { data, error } = await supabase.from("relationship_analysis_snapshots")
+    .select("id,analysis_id,relationship_id,user_id,created_at,source_reference,overall_score,topic_compatibility,tempo_compatibility,interaction_balance,intimacy,excitement,score_version,analysis_version,data_window,summary,metadata,result")
+    .eq("user_id", req.user.id)
+    .eq("relationship_id", resolved.data.id)
+    .order("created_at", { ascending: false })
+    .limit(limit);
+  if (error) return res.status(500).json({ error: "ANALYSIS_SNAPSHOT_READ_FAILED" });
+  res.json({ snapshots: data });
 });
 
 app.post(
