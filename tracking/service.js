@@ -8,7 +8,8 @@ const SAFE_PROPERTY_KEYS = new Set([
   "provider", "creative_id", "campaign", "failure_message", "source", "medium",
   "campaign_id", "ad_group", "ad_group_id", "ad", "ad_id", "utm_content",
   "utm_term", "placement", "ttclid", "landing_page", "captured_at", "anonymous",
-  "topic_id", "weather_applied", "places_applied", "external_status", "free_trial", "module"
+  "topic_id", "weather_applied", "places_applied", "external_status", "free_trial", "module",
+  "request_id", "relationship_id", "message_count", "stage"
 ]);
 
 function environment() {
@@ -93,12 +94,14 @@ function createTracking({ supabase }) {
 
   function requestMiddleware(req, res, next) {
     const started = Date.now();
+    const requestId = String(req.headers["x-renai-request-id"] || crypto.randomUUID()).slice(0, 100);
+    res.setHeader("X-RenAI-Request-ID", requestId);
     res.on("finish", () => {
       if (!req.path.startsWith("/api/") || req.path.startsWith("/api/v1/admin/")) return;
       const status = res.statusCode;
       const common = {
         businessKey: `api:${crypto.randomUUID()}`, userId: req.user?.id || null, source: "api",
-        properties: { method: req.method, path: req.route?.path || req.path, status_code: status, duration_ms: Date.now() - started }
+        properties: { method: req.method, path: req.route?.path || req.path, status_code: status, duration_ms: Date.now() - started, request_id: requestId }
       };
       void record({ ...common, name: "api_request_completed" });
       if (status >= 500) void record({ ...common, name: "api_request_failed", businessKey: `api-failed:${crypto.randomUUID()}` });
