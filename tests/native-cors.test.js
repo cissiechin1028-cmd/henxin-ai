@@ -7,6 +7,7 @@ test("Capacitor local bundle origins are explicit CORS allow-list entries", () =
   assert.match(source, /"capacitor:\/\/localhost"/);
   assert.match(source, /"http:\/\/localhost"/);
   assert.match(source, /allowedOrigins\.includes\(origin\)/);
+  assert.match(source, /Access-Control-Allow-Headers[^\n]+X-RenAI-Request-ID/);
 });
 
 test("Remote Preview origin is allowed only by the Staging Render service", () => {
