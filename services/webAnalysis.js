@@ -36,7 +36,7 @@ const taskFor = (locale) => webTasks[locale] || webTasks.ja;
 const topicStrings = (raw) => {
   const output = [];
   const visit = (value, key = "") => {
-    if (typeof value === "string" && !["id", "type", "status", "level", "topic_id"].includes(key)) output.push(value);
+    if (typeof value === "string" && !["id", "type", "status", "level", "topic_id", "excerpt"].includes(key)) output.push(value);
     else if (Array.isArray(value)) value.forEach((item) => visit(item, key));
     else if (value && typeof value === "object") Object.entries(value).forEach(([childKey, child]) => visit(child, childKey));
   };
@@ -59,7 +59,13 @@ function validateTopicDepth(raw, context = {}) {
   } else if (raw.missing_evidence.length < 1) throw new Error("AI_MISSING_LIMITATION");
 }
 
-async function callStructured({ prompt, task, imageDataUrl, schema, maxTokens, temperature, validate, reasoningEffort }) {
+const localeRetryInstruction = {
+  ja: "RETRY LOCALE REQUIREMENT: Keep TARGET_OUTPUT_LOCALE=ja. Rewrite every analysis field in Japanese. The source transcript language and original names do not change the output locale.",
+  "zh-TW": "重試語言要求：維持 TARGET_OUTPUT_LOCALE=zh-TW。所有分析欄位都使用台灣繁體中文；來源對話語言與原始人名不得改變輸出語言。",
+  en: "RETRY LOCALE REQUIREMENT: Keep TARGET_OUTPUT_LOCALE=en. Rewrite every analysis field in English. The source transcript language and original names do not change the output locale.",
+};
+
+async function callStructured({ prompt, task, imageDataUrl, schema, maxTokens, temperature, validate, reasoningEffort, locale = "ja" }) {
   let lastError;
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
@@ -68,7 +74,7 @@ async function callStructured({ prompt, task, imageDataUrl, schema, maxTokens, t
       const requestBody = {
         model,
         messages: [
-          { role: "system", content: prompt },
+          { role: "system", content: attempt === 0 ? prompt : `${prompt}\n\n${localeRetryInstruction[locale] || localeRetryInstruction.ja}` },
           { role: "user", content: imageDataUrl ? [
             { type: "text", text: task },
             { type: "image_url", image_url: { url: imageDataUrl } },
@@ -113,6 +119,7 @@ async function analyzeConversationForWeb({ messages = [], partnerName = "", loca
     prompt: replyProposalPrompt(locale, context),
     task: `${taskFor(locale).reply(partnerName)}\n\n${transcript}`,
     schema: replyProposalSchema, maxTokens: 1100, temperature: 0.3,
+    locale,
     validate: raw => normalizeReply(raw, locale),
   });
   return {
@@ -129,7 +136,7 @@ async function analyzeConversationBaseForWeb({messages=[],partnerName="",locale=
  const line=(message,label)=>`[${label}] ${message.timestamp?`[VISIBLE TIME: ${String(message.timestamp).trim()}]`:"[TIME UNKNOWN]"} ${message.sender==="self"?"SELF":"PARTNER"}: ${String(message.text||"").trim()}`;
  const transcript=[...window.baseline.map(message=>line(message,"LONG_TERM_BASELINE")),...window.recent.map(message=>line(message,"RECENT_PRIMARY"))].join("\n");
  if(!transcript)throw new Error("CONVERSATION_REQUIRED");
- const main=await callStructured({prompt:chatAnalysisPrompt(locale,{...context,dataWindow:window.metadata}),task:`${taskFor(locale).topic(partnerName)}\n\n${transcript}`,schema:chatAnalysisSchema,maxTokens:1900,temperature:.2,validate:raw=>normalizeAnalysis(raw,locale,{dataWindow:window.metadata})});
+ const main=await callStructured({prompt:chatAnalysisPrompt(locale,{...context,dataWindow:window.metadata}),task:`${taskFor(locale).topic(partnerName)}\n\n${transcript}`,schema:chatAnalysisSchema,maxTokens:1900,temperature:.2,locale,validate:raw=>normalizeAnalysis(raw,locale,{dataWindow:window.metadata})});
  return{result:normalizeAnalysis(main.raw,locale,{dataWindow:window.metadata}),model:main.response.data?.model||model,processingMs:Date.now()-startedAt,usage:aiUsageProperties(main.response,main.response.data?.model||model,"chat_analysis"),auxiliaryUsages:[]};
 }
 
@@ -138,7 +145,7 @@ async function analyzeConversationTopicForWeb({messages=[],partnerName="",locale
  const startedAt=Date.now(),model=process.env.OPENAI_VISION_MODEL||"gpt-4.1-mini";
  const transcript=messages.slice(-120).map(message=>`${message.timestamp?`[VISIBLE TIME: ${String(message.timestamp).trim()}]`:"[TIME UNKNOWN]"} ${message.sender==="self"?"SELF":"PARTNER"}: ${String(message.text||"").trim()}`).join("\n");
  if(!transcript)throw new Error("CONVERSATION_REQUIRED");
- const main=await callStructured({prompt:topicAnalysisPrompt(locale,context),task:`${taskFor(locale).topic(partnerName)}\n\n${transcript}`,schema:topicAnalysisSchema,maxTokens:5200,temperature:.2,reasoningEffort:"low",validate:raw=>{validateTopicDepth(raw,context);assertLocale(topicStrings(raw),locale)}});
+ const main=await callStructured({prompt:topicAnalysisPrompt(locale,context),task:`${taskFor(locale).topic(partnerName)}\n\n${transcript}`,schema:topicAnalysisSchema,maxTokens:5200,temperature:.2,reasoningEffort:"low",locale,validate:raw=>{validateTopicDepth(raw,context);assertLocale(topicStrings(raw),locale)}});
  return{result:{kind:"topic_analysis",...main.raw,topic_id:context.topicId,readiness_status:context.readinessStatus},model:main.response.data?.model||model,processingMs:Date.now()-startedAt,usage:aiUsageProperties(main.response,main.response.data?.model||model,"topic_analysis"),auxiliaryUsages:[]};
 }
 
@@ -153,6 +160,7 @@ async function analyzeForWeb({ imageBuffer, mimeType, mode, locale = "ja", conte
       prompt: replyProposalPrompt(locale, context),
       task: taskFor(locale).screenshotReply,
       imageDataUrl, schema: replyProposalSchema, maxTokens: 1100, temperature: 0.3,
+      locale,
       validate: raw => normalizeReply(raw, locale),
     });
     const result = normalizeReply(main.raw, locale);
@@ -168,6 +176,7 @@ async function analyzeForWeb({ imageBuffer, mimeType, mode, locale = "ja", conte
     prompt: chatAnalysisPrompt(locale, context),
     task: taskFor(locale).screenshotAnalysis,
     imageDataUrl, schema: chatAnalysisSchema, maxTokens: 1700, temperature: 0.2,
+    locale,
     validate: raw => normalizeAnalysis(raw, locale),
   });
   const result = normalizeAnalysis(main.raw, locale);

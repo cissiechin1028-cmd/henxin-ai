@@ -28,16 +28,65 @@ function compactForDiversity(text) {
   return text.toLowerCase().replace(/[\s、。！？!?.,~〜ー…「」『』（）()]/g, "");
 }
 
+function scriptStats(value) {
+  const text = String(value || "").replace(/https?:\/\/\S+/gi, " ");
+  return {
+    kana: (text.match(/[\u3040-\u30ff]/g) || []).length,
+    han: (text.match(/[\u3400-\u9fff]/g) || []).length,
+    latinLetters: (text.match(/[A-Za-z]/g) || []).length,
+    latinWords: (text.match(/[A-Za-z]+(?:['’-][A-Za-z]+)*/g) || []).length,
+  };
+}
+
+function languageMismatch(locale, reason, fieldIndex, stats) {
+  const error = new Error(`AI_LANGUAGE_MISMATCH:${locale}:${reason}:field_${fieldIndex}`);
+  error.code = "AI_LANGUAGE_MISMATCH";
+  error.locale = locale;
+  error.reason = reason;
+  error.fieldIndex = fieldIndex;
+  error.scriptStats = stats;
+  throw error;
+}
+
 function assertLocale(strings, locale) {
-  const text = strings.filter(Boolean).join("\n");
-  if (!text) throw new Error("AI_INVALID_RESULT");
-  const kana = /[\u3040-\u30ff]/;
-  const cjk = /[\u3040-\u30ff\u3400-\u9fff]/;
-  const strongTraditionalChinese = /[這個們嗎讓裡為與從對請說還會麼]/;
-  const japaneseHighRiskChineseTerms = /約会/;
-  if (locale === "en" && cjk.test(text)) throw new Error("AI_LANGUAGE_MISMATCH");
-  if (locale === "zh-TW" && kana.test(text)) throw new Error("AI_LANGUAGE_MISMATCH");
-  if (locale === "ja" && (strongTraditionalChinese.test(text) || japaneseHighRiskChineseTerms.test(text) || !kana.test(text))) throw new Error("AI_LANGUAGE_MISMATCH");
+  const values = strings.filter(value => typeof value === "string" && value.trim());
+  if (!values.length) throw new Error("AI_INVALID_RESULT");
+  const fields = values.map(scriptStats);
+  const total = fields.reduce((sum, item) => ({
+    kana: sum.kana + item.kana,
+    han: sum.han + item.han,
+    latinLetters: sum.latinLetters + item.latinLetters,
+    latinWords: sum.latinWords + item.latinWords,
+  }), { kana: 0, han: 0, latinLetters: 0, latinWords: 0 });
+
+  if (locale === "en") {
+    const fieldIndex = fields.findIndex(item => item.kana + item.han >= 6 && item.latinWords < 3);
+    if (fieldIndex >= 0) languageMismatch(locale, "foreign_script_field", fieldIndex, fields[fieldIndex]);
+    if (total.latinWords < 6 || total.kana + total.han > Math.max(24, Math.floor(total.latinLetters * 0.45))) {
+      languageMismatch(locale, "english_not_dominant", -1, total);
+    }
+    return;
+  }
+
+  if (locale === "zh-TW") {
+    const simplifiedChinese = /[这们吗让里为与从对请说还会么发后关爱应过进气间无实认给经长当样开点]/;
+    const simplifiedIndex = values.findIndex(value => simplifiedChinese.test(value));
+    if (simplifiedIndex >= 0) languageMismatch(locale, "simplified_chinese", simplifiedIndex, fields[simplifiedIndex]);
+    const japaneseFieldIndex = fields.findIndex(item => item.kana >= 6 && item.han < 4);
+    if (japaneseFieldIndex >= 0) languageMismatch(locale, "japanese_field", japaneseFieldIndex, fields[japaneseFieldIndex]);
+    if (total.han < 6 || total.kana > Math.max(8, Math.floor(total.han * 0.25))) {
+      languageMismatch(locale, "traditional_chinese_not_dominant", -1, total);
+    }
+    return;
+  }
+
+  const distinctiveChinese = /[這們嗎讓裡與從對請說還麼會]/;
+  const highRiskChineseTerm = /約会/;
+  const chineseIndex = values.findIndex(value => distinctiveChinese.test(value) || highRiskChineseTerm.test(value));
+  if (chineseIndex >= 0) languageMismatch(locale, "chinese_wording", chineseIndex, fields[chineseIndex]);
+  const nonJapaneseFieldIndex = fields.findIndex(item => item.han >= 8 && item.kana < 2 && item.latinWords < 3);
+  if (nonJapaneseFieldIndex >= 0) languageMismatch(locale, "japanese_not_present_in_field", nonJapaneseFieldIndex, fields[nonJapaneseFieldIndex]);
+  if (total.kana < 6) languageMismatch(locale, "japanese_not_dominant", -1, total);
 }
 
 function normalizeReply(raw, locale = "ja") {
@@ -93,7 +142,7 @@ function normalizeAnalysis(raw, locale = "ja", options = {}) {
   const signalsToObserve = raw.signals_to_observe.map((item) => cleanString(item, 160, true));
   assertLocale([overallReason, actionAdvice, ...Object.values(dimensionReasons), ...Object.values(dimensionSummaries), ...signalsToObserve], locale);
   return {
-    kind: "analysis", analysisVersion: ANALYSIS_VERSION, scoreVersion: SCORE_VERSION, overallScore, dimensions, dimensionReasons, dimensionSummaries,
+    kind: "analysis", outputLocale: locale, analysisVersion: ANALYSIS_VERSION, scoreVersion: SCORE_VERSION, overallScore, dimensions, dimensionReasons, dimensionSummaries,
     dataWindow: options.dataWindow || null,
     overallReason, actionAdvice, signalsToObserve,
     keyMoments: [], timelineEvent: normalizeTimelineEvent(raw.timelineEvent, locale),
