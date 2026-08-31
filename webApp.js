@@ -20,7 +20,8 @@ const app = express();
 app.set("trust proxy", 1);
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || "sk_test_placeholder");
 const port = Number(process.env.PORT || 3001);
-const stagingPreviewOrigins = process.env.RENDER_SERVICE_NAME === "renai-relationship-sync-staging"
+const isStagingService = process.env.RENDER_SERVICE_NAME === "renai-relationship-sync-staging";
+const stagingPreviewOrigins = isStagingService
   ? ["http://localhost:4174"]
   : [];
 const allowedOrigins = [...new Set([
@@ -1383,7 +1384,10 @@ app.post("/api/v1/anonymous/conversation-analyses",express.json({limit:"192kb"})
  const requestedLocale=String(req.headers["x-locale"]||"ja"),locale=["ja","zh-TW","en"].includes(requestedLocale)?requestedLocale:"ja";
  const token=String(req.headers.authorization||"").replace(/^Bearer\s+/i,""),authenticatedUser=token?(await supabase.auth.getUser(token)).data?.user:null;
  const{data:profile}=authenticatedUser?await supabase.from("profiles").select("plan,billing_tier,role,is_test_account").eq("id",authenticatedUser.id).maybeSingle():{data:null};
- const privileged=profile?.role==="admin"||Boolean(profile?.is_test_account);let paidUsage=null,identity=null,credit=null;
+ const requestedRelationshipId=String(req.body?.relationshipId||req.headers["x-relationship-id"]||"").trim();
+ let stagingRelationship=null;
+ if(isStagingService&&authenticatedUser&&requestedRelationshipId){const resolved=await resolveRelationship(authenticatedUser.id,requestedRelationshipId);if(resolved.error||!resolved.data)return res.status(resolved.status||500).json({error:resolved.code||"RELATIONSHIP_READ_FAILED"});stagingRelationship=resolved.data}
+ const privileged=profile?.role==="admin"||Boolean(profile?.is_test_account)||Boolean(stagingRelationship);let paidUsage=null,identity=null,credit=null;
  if(!privileged&&profile?.plan==="pro"){
   try{paidUsage=await usageService.check(authenticatedUser.id,"analysis")}catch(error){console.error("TOPIC ANALYSIS USAGE CHECK FAILED",String(error.message||error));return res.status(500).json({error:"CREDIT_CHECK_FAILED"})}
   if(!paidUsage.allowed)return res.status(429).json({error:"FAIR_USE_LIMIT_REACHED"});
@@ -1394,7 +1398,7 @@ app.post("/api/v1/anonymous/conversation-analyses",express.json({limit:"192kb"})
   if(paidUsage)await usageService.recordSuccess(paidUsage);
   await tracking.record({name:"ai_usage_completed",businessKey:`${topic?"topic":"five_dimension"}_ai_usage_completed:${requestId}`,userId:authenticatedUser?.id||null,anonymousId:identity?.deviceHash||null,source:"ai",properties:{...output.usage,module:"analysis",mode:"analysis",...(topicId?{topic_id:topicId}:{}),anonymous:!authenticatedUser}});
   let storedAnalysisId=requestId;
-  if(authenticatedUser){const resolved=await resolveRelationship(authenticatedUser.id,req.body?.relationshipId||req.headers["x-relationship-id"]);if(resolved.error||!resolved.data)return res.status(resolved.status||500).json({error:resolved.code||"RELATIONSHIP_READ_FAILED"});const localizedTitle={ja:"ふたりの相性","zh-TW":"兩人的契合度",en:"Relationship compatibility"}[locale];const{data:stored,error:storeError}=await supabase.from("analyses").insert({user_id:authenticatedUser.id,relationship_id:resolved.data.id,mode:"analysis",status:"completed",title:String(topic?.title||localizedTitle).slice(0,100),result:output.result,completed_at:new Date().toISOString(),input_metadata:{source:"parsed_conversation",source_reference:String(req.body?.sourceReference||"").slice(0,120)||null,locale,...(topicId?{topic_id:topicId}:{}),message_count:messages.length,data_window:output.result?.dataWindow||null,analysis_snapshot_created:!topic}}).select("id").single();if(storeError)throw new Error("ANALYSIS_SAVE_FAILED");storedAnalysisId=stored.id}
+  if(authenticatedUser){const resolved=stagingRelationship?{data:stagingRelationship,error:null}:await resolveRelationship(authenticatedUser.id,requestedRelationshipId);if(resolved.error||!resolved.data)return res.status(resolved.status||500).json({error:resolved.code||"RELATIONSHIP_READ_FAILED"});const localizedTitle={ja:"ふたりの相性","zh-TW":"兩人的契合度",en:"Relationship compatibility"}[locale];const{data:stored,error:storeError}=await supabase.from("analyses").insert({user_id:authenticatedUser.id,relationship_id:resolved.data.id,mode:"analysis",status:"completed",title:String(topic?.title||localizedTitle).slice(0,100),result:output.result,completed_at:new Date().toISOString(),input_metadata:{source:"parsed_conversation",source_reference:String(req.body?.sourceReference||"").slice(0,120)||null,locale,...(topicId?{topic_id:topicId}:{}),message_count:messages.length,data_window:output.result?.dataWindow||null,analysis_snapshot_created:!topic}}).select("id").single();if(storeError)throw new Error("ANALYSIS_SAVE_FAILED");storedAnalysisId=stored.id}
   res.setHeader("Content-Language",locale);return res.status(201).json({analysis:{id:storedAnalysisId,mode:"analysis",status:"completed",result:output.result,completed_at:new Date().toISOString()},trial:credit?{replyUsed:Number(credit.reply_used),replyLimit:Number(credit.reply_limit),analysisUsed:Number(credit.analysis_used),analysisLimit:Number(credit.analysis_limit),expiresAt:credit.expires_at}:null});
  }catch(error){if(identity)try{await supabase.rpc("refund_anonymous_analysis_credit",{target_device_hash:identity.deviceHash,target_risk_hash:identity.riskHash,target_mode:"analysis"})}catch{}console.error("TOPIC ANALYSIS FAILED",requestId,`locale=${locale}`,String(error.message||error));return res.status(502).json({error:"ANALYSIS_FAILED"})}
 });
