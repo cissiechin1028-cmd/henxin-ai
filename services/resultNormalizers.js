@@ -134,7 +134,11 @@ function normalizeAnalysis(raw, locale = "ja", options = {}) {
     intimacy: cleanString(raw.dimension_summary?.intimacy, 420, true),
     excitement: cleanString(raw.dimension_summary?.excitement, 420, true),
   };
-  if (locale === "ja" && Object.values(dimensionSummaries).some((item) => Array.from(item.replace(/\s/g, "")).length < 80 || Array.from(item.replace(/\s/g, "")).length > 180)) throw new Error("AI_DIMENSION_SUMMARY_LENGTH");
+  // A concise, valid Japanese summary must not make the entire analysis fail.
+  // Structured-output minLength is not a reliable quality boundary for Japanese
+  // (and counts whitespace differently from the old check). Keep only the safety
+  // ceiling here; the prompt still asks for a fuller two-sentence explanation.
+  if (locale === "ja" && Object.values(dimensionSummaries).some((item) => Array.from(item.replace(/\s/g, "")).length > 180)) throw new Error("AI_DIMENSION_SUMMARY_LENGTH");
   if (locale === "ja" && Object.values(dimensionSummaries).some((item) => /今後|これから|期待できます|可能性が(?:あります|高いです)/.test(item))) throw new Error("AI_DIMENSION_SUMMARY_FUTURE");
   const overallScore = calculateOverallScore(dimensions);
   const overallReason = cleanString(raw.core_reason, 220, true);
