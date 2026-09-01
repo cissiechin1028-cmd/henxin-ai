@@ -5,7 +5,7 @@ const { chatAnalysisPrompt } = require("../prompts/chatAnalysis");
 const { topicAnalysisPrompt } = require("../prompts/topicAnalysis");
 const { replyProposalSchema, chatAnalysisSchema, topicAnalysisSchema } = require("../schemas/outputs");
 const { assertLocale, normalizeReply, normalizeAnalysis } = require("./resultNormalizers");
-const { selectAnalysisWindow } = require("./analysisWindow");
+const { prepareDeterministicAnalysis } = require("./deterministicFiveDimension");
 
 function parseJson(text = "") {
   const cleaned = String(text).replace(/```json|```/g, "").trim();
@@ -90,13 +90,17 @@ async function callStructured({ prompt, task, imageDataUrl, schema, maxTokens, t
         requestBody.max_tokens = maxTokens;
         requestBody.temperature = attempt === 0 ? temperature : 0;
       }
+      const modelStartedAt = Date.now();
       const response = await axios.post("https://api.openai.com/v1/chat/completions", requestBody, {
         timeout: 60000,
         headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}`, "Content-Type": "application/json" },
       });
+      const modelTotalMs = Date.now() - modelStartedAt;
+      const parseStartedAt = Date.now();
       const raw = parseJson(response.data?.choices?.[0]?.message?.content);
-      validate?.(raw);
-      return { raw, response };
+      const normalizeStartedAt = Date.now();
+      const normalized = validate?.(raw);
+      return { raw, response, normalized, timings: { model_ttfb_ms: null, model_total_ms: modelTotalMs, parse_ms: normalizeStartedAt - parseStartedAt, language_validate_ms: Date.now() - normalizeStartedAt } };
     } catch (error) {
       lastError = error;
       const status = Number(error?.response?.status || 0);
@@ -129,15 +133,16 @@ async function analyzeConversationForWeb({ messages = [], partnerName = "", loca
   };
 }
 
-async function analyzeConversationBaseForWeb({messages=[],partnerName="",locale="ja",context={}}){
+async function analyzeConversationBaseForWeb({messages=[],partnerName="",locale="ja",context={},preparedInput}){
  if(!process.env.OPENAI_API_KEY)throw new Error("OPENAI_NOT_CONFIGURED");
  const startedAt=Date.now(),model=process.env.OPENAI_VISION_MODEL||"gpt-4.1-mini";
- const window=selectAnalysisWindow(messages);
+ const featureStartedAt=Date.now(),prepared=preparedInput||prepareDeterministicAnalysis(messages),window=prepared.window,featureExtractMs=Date.now()-featureStartedAt;
  const line=(message,label)=>`[${label}] ${message.timestamp?`[VISIBLE TIME: ${String(message.timestamp).trim()}]`:"[TIME UNKNOWN]"} ${message.sender==="self"?"SELF":"PARTNER"}: ${String(message.text||"").trim()}`;
  const transcript=[...window.baseline.map(message=>line(message,"LONG_TERM_BASELINE")),...window.recent.map(message=>line(message,"RECENT_PRIMARY"))].join("\n");
  if(!transcript)throw new Error("CONVERSATION_REQUIRED");
- const main=await callStructured({prompt:chatAnalysisPrompt(locale,{...context,dataWindow:window.metadata}),task:`${taskFor(locale).topic(partnerName)}\n\n${transcript}`,schema:chatAnalysisSchema,maxTokens:1900,temperature:.2,locale,validate:raw=>normalizeAnalysis(raw,locale,{dataWindow:window.metadata})});
- return{result:normalizeAnalysis(main.raw,locale,{dataWindow:window.metadata}),model:main.response.data?.model||model,processingMs:Date.now()-startedAt,usage:aiUsageProperties(main.response,main.response.data?.model||model,"chat_analysis"),auxiliaryUsages:[]};
+ const normalizeOptions={dataWindow:window.metadata,authoritativeDimensions:prepared.dimensions,inputFingerprint:prepared.fingerprint};
+ const main=await callStructured({prompt:chatAnalysisPrompt(locale,{...context,dataWindow:window.metadata,authoritativeScores:prepared.dimensions}),task:`${taskFor(locale).topic(partnerName)}\n\n${transcript}`,schema:chatAnalysisSchema,maxTokens:1900,temperature:.2,locale,validate:raw=>normalizeAnalysis(raw,locale,normalizeOptions)});
+ return{result:main.normalized||normalizeAnalysis(main.raw,locale,normalizeOptions),model:main.response.data?.model||model,processingMs:Date.now()-startedAt,inputFingerprint:prepared.fingerprint,timings:{feature_extract_ms:featureExtractMs,...main.timings,normalize_ms:0,total_ms:Date.now()-startedAt},usage:aiUsageProperties(main.response,main.response.data?.model||model,"chat_analysis"),auxiliaryUsages:[]};
 }
 
 async function analyzeConversationTopicForWeb({messages=[],partnerName="",locale="ja",context={}}){
@@ -188,4 +193,4 @@ async function analyzeForWeb({ imageBuffer, mimeType, mode, locale = "ja", conte
   };
 }
 
-module.exports = { analyzeForWeb, analyzeConversationForWeb, analyzeConversationBaseForWeb, analyzeConversationTopicForWeb };
+module.exports = { analyzeForWeb, analyzeConversationForWeb, analyzeConversationBaseForWeb, analyzeConversationTopicForWeb, prepareDeterministicAnalysis };

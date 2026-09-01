@@ -29,6 +29,11 @@ CURRENT-STATE WINDOW
 - When the supplied window is marked degraded or timestamps are sparse, lower apparent precision and keep unsupported dimensions near neutral rather than inventing change.
 - Window metadata: ${JSON.stringify(context.dataWindow || {})}
 
+AUTHORITATIVE PRODUCT SCORES
+- The product has already calculated the five scores deterministically from the normalized transcript: ${JSON.stringify(context.authoritativeScores || {})}
+- Return those exact integer values in the five score fields. Do not revise, smooth, or reinterpret them.
+- Your role is to explain the supplied scores using visible evidence. Generated wording must never change the quantitative result.
+
 Return these five directional product scores. Evaluate only the visible conversation evidence; do not infer meaning from the UI label:
 - topic_compatibility: how naturally both people pick up, continue, and expand each other's topics. Shared subject matter alone is not enough without reciprocal engagement.
 - tempo_compatibility: how comfortably turn-taking, message length, response pacing, and conversational transitions fit each other. If timestamps are absent or incomplete, do not penalize response speed; use only visible turn rhythm.

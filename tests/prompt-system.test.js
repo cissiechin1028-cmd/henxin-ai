@@ -137,7 +137,7 @@ test("analysis returns five evidence-based dimensions and a deterministic overal
     signals_to_observe: ["相手から質問が出るか", "具体的な提案が出るか"]
   });
   assert.equal(value.analysisVersion, 3);
-  assert.equal(value.scoreVersion, "five_dimension_v1");
+  assert.equal(value.scoreVersion, "five_dimension_v2_deterministic");
   assert.equal(value.overallScore, 76);
   assert.deepEqual(value.dimensions, {topic_compatibility:88,tempo_compatibility:72,interaction_balance:81,intimacy:65,excitement:74});
   assert.equal(value.dimensionReasons.topic_compatibility, "話題を自然に拾い合っています。");

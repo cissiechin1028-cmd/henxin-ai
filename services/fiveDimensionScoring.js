@@ -1,4 +1,5 @@
-const SCORE_VERSION = "five_dimension_v1";
+const SCORE_VERSION = "five_dimension_v2_deterministic";
+const FEATURE_VERSION = "deterministic_chat_features_v1";
 const ANALYSIS_VERSION = 3;
 const SCORE_WEIGHTS = Object.freeze({
   topic_compatibility: 0.20,
@@ -19,4 +20,4 @@ function calculateOverallScore(dimensions) {
   return clampScore(total);
 }
 
-module.exports = { SCORE_VERSION, ANALYSIS_VERSION, SCORE_WEIGHTS, clampScore, calculateOverallScore };
+module.exports = { SCORE_VERSION, FEATURE_VERSION, ANALYSIS_VERSION, SCORE_WEIGHTS, clampScore, calculateOverallScore };

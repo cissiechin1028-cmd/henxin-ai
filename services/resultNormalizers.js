@@ -115,7 +115,11 @@ function normalizeReply(raw, locale = "ja") {
 
 function normalizeAnalysis(raw, locale = "ja", options = {}) {
   if (!Array.isArray(raw?.signals_to_observe) || raw.signals_to_observe.length < 1 || raw.signals_to_observe.length > 3) throw new Error("AI_INVALID_RESULT");
-  const dimensions = {
+  const dimensions = options.authoritativeDimensions ? {
+    topic_compatibility: score(options.authoritativeDimensions.topic_compatibility), tempo_compatibility: score(options.authoritativeDimensions.tempo_compatibility),
+    interaction_balance: score(options.authoritativeDimensions.interaction_balance), intimacy: score(options.authoritativeDimensions.intimacy),
+    excitement: score(options.authoritativeDimensions.excitement),
+  } : {
     topic_compatibility: score(raw.topic_compatibility), tempo_compatibility: score(raw.tempo_compatibility),
     interaction_balance: score(raw.interaction_balance), intimacy: score(raw.intimacy),
     excitement: score(raw.excitement),
@@ -147,7 +151,7 @@ function normalizeAnalysis(raw, locale = "ja", options = {}) {
   assertLocale([overallReason, actionAdvice, ...Object.values(dimensionReasons), ...Object.values(dimensionSummaries), ...signalsToObserve], locale);
   return {
     kind: "analysis", outputLocale: locale, analysisVersion: ANALYSIS_VERSION, scoreVersion: SCORE_VERSION, overallScore, dimensions, dimensionReasons, dimensionSummaries,
-    dataWindow: options.dataWindow || null,
+    dataWindow: options.dataWindow || null, inputFingerprint: options.inputFingerprint || null,
     overallReason, actionAdvice, signalsToObserve,
     keyMoments: [], timelineEvent: normalizeTimelineEvent(raw.timelineEvent, locale),
   };

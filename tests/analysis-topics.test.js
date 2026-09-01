@@ -36,7 +36,8 @@ test("saved conversations can request base five-dimensional analysis without a t
  assert.match(appSource,/topicId\?getAnalysisTopic\(topicId\):null/);
  assert.match(appSource,/analyzeConversationBaseForWeb/);
  assert.match(serviceSource,/async function analyzeConversationBaseForWeb/);
- assert.match(serviceSource,/chatAnalysisPrompt\(locale,\{\.\.\.context,dataWindow:window\.metadata\}\)/);
+ assert.match(serviceSource,/chatAnalysisPrompt\(locale,\{\.\.\.context,dataWindow:window\.metadata,authoritativeScores:prepared\.dimensions\}\)/);
+ assert.match(serviceSource,/authoritativeDimensions:prepared\.dimensions/);
  assert.match(serviceSource,/schema:chatAnalysisSchema/);
 });
 

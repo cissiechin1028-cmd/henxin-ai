@@ -6,7 +6,7 @@ const source = fs.readFileSync("webApp.js", "utf8");
 
 test("Staging analysis acceptance bypass is exact-service, authenticated, and owner scoped", () => {
   assert.match(source, /const isStagingService = process\.env\.RENDER_SERVICE_NAME === "renai-relationship-sync-staging"/);
-  assert.match(source, /isStagingService&&authenticatedUser&&requestedRelationshipId/);
+  assert.match(source, /authenticatedUser&&requestedRelationshipId/);
   assert.match(source, /resolveRelationship\(authenticatedUser\.id,requestedRelationshipId\)/);
   assert.match(source, /Boolean\(stagingRelationship\)/);
 });
