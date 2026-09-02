@@ -59,3 +59,12 @@ test("dating safety check performs cautious longitudinal pattern analysis", () =
   assert.match(promptSource, /checked_points as a compact auxiliary module/);
   assert.match(promptSource, /Never open or investigate URLs/);
 });
+
+test("sparse premium theme reports preserve honest partial chapters instead of failing the whole report", () => {
+  const source = fs.readFileSync(path.join(__dirname, "..", "services", "webAnalysis.js"), "utf8");
+  const theme = source.slice(source.indexOf("async function analyzeConversationThemeForWeb"), source.indexOf("async function analyzeForWeb"));
+  assert.match(theme, /allowPartialModules:!sufficient/);
+  assert.match(theme, /timeoutMs:120000/);
+  assert.match(theme, /maxTokens:9000/);
+  assert.match(source, /!context\.allowPartialModules && required\.some/);
+});

@@ -51,7 +51,7 @@ function validateTopicDepth(raw, context = {}) {
   if (!titled(raw.verdict) || !meaningful(raw.summary)) throw new Error("AI_SHALLOW_TOPIC_REPORT");
   const moduleTypes = new Set(raw.modules.map(module => module?.type));
   const required = Array.isArray(context.requiredModules) ? context.requiredModules : [];
-  if (required.some(type => !moduleTypes.has(type))) throw new Error("AI_INCOMPLETE_TOPIC_REPORT");
+  if (!context.allowPartialModules && required.some(type => !moduleTypes.has(type))) throw new Error("AI_INCOMPLETE_TOPIC_REPORT");
   if (raw.modules.some(module => !titled(module?.title) || !Array.isArray(module?.items) || module.items.length < 1 || module.items.some(item => !meaningful(item)))) throw new Error("AI_SHALLOW_TOPIC_REPORT");
   if (context.readinessStatus === "sufficient") {
     if (raw.evidence.length < 2 || raw.modules.length < Math.max(3, required.length)) throw new Error("AI_SHALLOW_TOPIC_REPORT");
@@ -59,7 +59,7 @@ function validateTopicDepth(raw, context = {}) {
   } else if (raw.missing_evidence.length < 1) throw new Error("AI_MISSING_LIMITATION");
 }
 
-async function callStructured({ prompt, task, imageDataUrl, schema, maxTokens, temperature, validate, reasoningEffort }) {
+async function callStructured({ prompt, task, imageDataUrl, schema, maxTokens, temperature, validate, reasoningEffort, timeoutMs=60000 }) {
   let lastError;
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
@@ -85,7 +85,7 @@ async function callStructured({ prompt, task, imageDataUrl, schema, maxTokens, t
         requestBody.temperature = attempt === 0 ? temperature : 0;
       }
       const response = await axios.post("https://api.openai.com/v1/chat/completions", requestBody, {
-        timeout: 60000,
+        timeout: timeoutMs,
         headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}`, "Content-Type": "application/json" },
       });
       const raw = parseJson(response.data?.choices?.[0]?.message?.content);
@@ -161,7 +161,8 @@ async function analyzeConversationThemeForWeb({messages=[],partnerName="",locale
  const model=process.env.OPENAI_VISION_MODEL||"gpt-4.1-mini",window=selectAnalysisWindow(messages),selected=[...window.baseline,...window.recent],transcript=selected.map((message,index)=>`${index+1}. ${message.sender}: ${message.text} [${message.timestamp||"TIME UNKNOWN"}]`).join("\n");
  const topicContract=topics.map(topic=>({topic_id:topic.id,title:topic.title,question:topic.question,evidenceInstruction:topic.evidenceInstruction,requiredModules:topic.requiredModules,optionalModules:topic.optionalModules}));
  const prompt=`You are generating one premium relationship theme report in a single AI call. Return one complete TopicAnalysisResult chapter for every supplied topic, in the same order. Each chapter must satisfy the existing legacy mini-report contract: substantial verdict and summary, evidence with short verbatim excerpts and confidence, all required modules with distinct evidence-backed items, uncertainty or missing evidence, and practical next steps. Never invent chat facts or private feelings. Keep chapters complementary rather than repeating the same conclusion.\n\n${JSON.stringify(topicContract)}`;
- const main=await callStructured({prompt,task:`${taskFor(locale).topic(partnerName)}\n\n${transcript}`,schema:themeReportSchema,maxTokens:12000,temperature:.2,reasoningEffort:"low",validate:raw=>{if(!Array.isArray(raw?.chapters)||raw.chapters.length!==topics.length)throw new Error("AI_INCOMPLETE_THEME_REPORT");raw.chapters.forEach((chapter,index)=>{if(chapter.topic_id!==topics[index].id)throw new Error("AI_THEME_TOPIC_MISMATCH");validateTopicDepth(chapter,{requiredModules:topics[index].requiredModules,readinessStatus:selected.length>=20?"sufficient":"partial"})});assertLocale(topicStrings(raw),locale)}});
+ const sufficient=selected.length>=20;
+ const main=await callStructured({prompt,task:`${taskFor(locale).topic(partnerName)}\n\n${transcript}`,schema:themeReportSchema,maxTokens:9000,temperature:.2,reasoningEffort:"low",timeoutMs:120000,validate:raw=>{if(!Array.isArray(raw?.chapters)||raw.chapters.length!==topics.length)throw new Error("AI_INCOMPLETE_THEME_REPORT");raw.chapters.forEach((chapter,index)=>{if(chapter.topic_id!==topics[index].id)throw new Error("AI_THEME_TOPIC_MISMATCH");validateTopicDepth(chapter,{requiredModules:topics[index].requiredModules,readinessStatus:sufficient?"sufficient":"partial",allowPartialModules:!sufficient})});assertLocale(topicStrings(raw),locale)}});
  return{result:main.raw,model:main.response.data?.model||model,usage:aiUsageProperties(main.response,main.response.data?.model||model,"diagnosis_theme_report")};
 }
 
