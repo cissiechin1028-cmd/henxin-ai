@@ -6,7 +6,7 @@ const Stripe = require("stripe");
 const axios = require("axios");
 const crypto = require("crypto");
 const { createClient } = require("@supabase/supabase-js");
-const { analyzeForWeb, analyzeConversationForWeb, analyzeConversationBaseForWeb, analyzeConversationTopicForWeb } = require("./services/webAnalysis");
+const { analyzeForWeb, analyzeConversationForWeb, analyzeConversationBaseForWeb, analyzeConversationTopicForWeb, analyzeConversationThemeForWeb } = require("./services/webAnalysis");
 const { aiUsageProperties } = require("./tracking/cost");
 const { generateRelationshipReport, periodBounds } = require("./services/relationshipReports");
 const { createTracking } = require("./tracking/service");
@@ -1387,6 +1387,29 @@ app.post("/api/v1/anonymous/conversation-analyses",express.json({limit:"192kb"})
   if(authenticatedUser){const resolved=await resolveRelationship(authenticatedUser.id,req.body?.relationshipId||req.headers["x-relationship-id"]);if(resolved.error||!resolved.data)return res.status(resolved.status||500).json({error:resolved.code||"RELATIONSHIP_READ_FAILED"});const{data:stored,error:storeError}=await supabase.from("analyses").insert({user_id:authenticatedUser.id,relationship_id:resolved.data.id,mode:"analysis",status:"completed",title:String(topic?.title||"ふたりの相性").slice(0,100),result:output.result,completed_at:new Date().toISOString(),input_metadata:{source:"parsed_conversation",source_reference:String(req.body?.sourceReference||"").slice(0,120)||null,...(topicId?{topic_id:topicId}:{}),message_count:messages.length,data_window:output.result?.dataWindow||null,analysis_snapshot_created:!topic}}).select("id").single();if(storeError)throw new Error("ANALYSIS_SAVE_FAILED");storedAnalysisId=stored.id}
   return res.status(201).json({analysis:{id:storedAnalysisId,mode:"analysis",status:"completed",result:output.result,completed_at:new Date().toISOString()},trial:credit?{replyUsed:Number(credit.reply_used),replyLimit:Number(credit.reply_limit),analysisUsed:Number(credit.analysis_used),analysisLimit:Number(credit.analysis_limit),expiresAt:credit.expires_at}:null});
  }catch(error){if(identity)try{await supabase.rpc("refund_anonymous_analysis_credit",{target_device_hash:identity.deviceHash,target_risk_hash:identity.riskHash,target_mode:"analysis"})}catch{}console.error("TOPIC ANALYSIS FAILED",requestId,String(error.message||error));return res.status(502).json({error:"ANALYSIS_FAILED"})}
+});
+
+app.post("/api/v1/anonymous/conversation-theme-reports",express.json({limit:"256kb"}),async(req,res)=>{
+ const token=String(req.headers.authorization||"").replace(/^Bearer\s+/i,""),authenticatedUser=token?(await supabase.auth.getUser(token)).data?.user:null;
+ if(!authenticatedUser)return res.status(401).json({error:"AUTH_REQUIRED"});
+ const relationshipId=String(req.body?.relationshipId||""),resolved=await resolveRelationship(authenticatedUser.id,relationshipId);if(resolved.error||!resolved.data)return res.status(resolved.status||500).json({error:resolved.code||"RELATIONSHIP_READ_FAILED"});
+ const themeId=String(req.body?.themeId||""),themeTopics={futarirashisa:["compatibility","stalled-relationship"],feelings:["interest","seriousness","distance","true-feelings"],future:["stalled-relationship","confession-timing","future"]}[themeId];
+ if(!themeTopics)return res.status(400).json({error:"INVALID_DIAGNOSIS_THEME"});
+ const sourceSnapshotId=String(req.body?.sourceSnapshotId||"").slice(0,120),sourceVersion=String(req.body?.sourceVersion||"").slice(0,160),requestedLocale=String(req.headers["x-locale"]||"ja"),locale=["ja","zh-TW","en"].includes(requestedLocale)?requestedLocale:"ja";
+ const{data:profile}=await supabase.from("profiles").select("role,is_test_account").eq("id",authenticatedUser.id).maybeSingle(),privileged=profile?.role==="admin"||Boolean(profile?.is_test_account);
+ const{data:cached}=await supabase.from("analyses").select("result").eq("user_id",authenticatedUser.id).eq("relationship_id",resolved.data.id).eq("status","completed").contains("input_metadata",{theme_id:themeId,source_snapshot_id:sourceSnapshotId,locale}).order("completed_at",{ascending:false}).limit(1).maybeSingle();
+ if(cached?.result)return res.json({report:{...cached.result,generation:{aiCalls:1,granularity:"theme",cached:true}}});
+ const messages=Array.isArray(req.body?.messages)?req.body.messages.filter(item=>["self","partner"].includes(item?.sender)&&String(item?.text||"").trim()).slice(-500).map(item=>({sender:item.sender,text:String(item.text).trim().slice(0,1500),timestamp:item.timestamp==null?null:String(item.timestamp).trim().slice(0,80)||null})):[];
+ if(!messages.length)return res.status(400).json({error:"CONVERSATION_REQUIRED"});
+ const topics=themeTopics.map(getAnalysisTopic).filter(Boolean);if(topics.length!==themeTopics.length)return res.status(500).json({error:"THEME_TOPIC_CONTRACT_INVALID"});
+ try{
+  const usage=privileged?null:await usageService.check(authenticatedUser.id,"analysis");if(usage&&!usage.allowed)return res.status(429).json({error:"FAIR_USE_LIMIT_REACHED"});
+  const output=await analyzeConversationThemeForWeb({messages,partnerName:String(req.body?.partnerName||"").slice(0,80),locale,topics}),hookCopy={ja:{futarirashisa:["ふたりらしさ","ふたりの関係らしさを整理しました。","会話の重なり方と今の段階を見ます。"],feelings:["気持ち","今の気持ちに関わるサインを整理しました。","見える行動と、まだ分からない部分を分けます。"],future:["これから","これからの動き方を整理しました。","進みやすい条件と慎重に見たい点を扱います。"]},"zh-TW":{futarirashisa:["兩人的樣子","整理了你們的關係特色。","看看互動方式與目前階段。"],feelings:["心意","整理了目前與心意相關的訊號。","分開可見行為與未知部分。"],future:["接下來","整理了接下來的方向。","看看有利條件與需謹慎之處。"]},en:{futarirashisa:["What makes you two you","Your relationship pattern is ready.","See how your conversation and stage fit together."],feelings:["Feelings","The current emotional signals are ready.","Separate visible behavior from what remains unknown."],future:["What comes next","Your current direction is ready.","See what supports movement and what still calls for care."]}}[locale][themeId];
+  const report={relationshipId:resolved.data.id,themeId,sourceSnapshotId,sourceVersion,locale,schemaVersion:"diagnosis-theme-report-v1",generatedAt:new Date().toISOString(),hook:{title:hookCopy[0],judgment:hookCopy[1],explanation:hookCopy[2],visual:themeId==="futarirashisa"?"mascot-type":themeId==="feelings"?"feelings-balance":"future-direction",position:2},chapters:output.result.chapters.map(chapter=>({kind:"topic_analysis",...chapter})),generation:{aiCalls:1,granularity:"theme",cached:false}};
+  const{error}=await supabase.from("analyses").insert({user_id:authenticatedUser.id,relationship_id:resolved.data.id,mode:"analysis",status:"completed",title:`theme:${themeId}`,result:report,completed_at:new Date().toISOString(),input_metadata:{source:"premium_theme",theme_id:themeId,source_snapshot_id:sourceSnapshotId,source_version:sourceVersion,locale,message_count:messages.length}});if(error)throw new Error("THEME_REPORT_SAVE_FAILED");
+  if(usage)await usageService.recordSuccess(usage);await tracking.record({name:"ai_usage_completed",businessKey:`theme_report:${authenticatedUser.id}:${themeId}:${sourceSnapshotId}`,userId:authenticatedUser.id,source:"ai",properties:{...output.usage,module:"analysis",mode:"premium_theme",theme_id:themeId,privileged}}).catch(()=>null);
+  return res.status(201).json({report});
+ }catch(error){console.error("THEME REPORT FAILED",String(error.message||error));return res.status(502).json({error:"THEME_REPORT_FAILED"})}
 });
 
 app.post("/api/v1/anonymous/strategies", express.json({ limit: "128kb" }), async (req, res) => {

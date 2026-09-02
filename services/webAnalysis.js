@@ -3,7 +3,7 @@ const { aiUsageProperties } = require("../tracking/cost");
 const { replyProposalPrompt } = require("../prompts/replyProposal");
 const { chatAnalysisPrompt } = require("../prompts/chatAnalysis");
 const { topicAnalysisPrompt } = require("../prompts/topicAnalysis");
-const { replyProposalSchema, chatAnalysisSchema, topicAnalysisSchema } = require("../schemas/outputs");
+const { replyProposalSchema, chatAnalysisSchema, topicAnalysisSchema, themeReportSchema } = require("../schemas/outputs");
 const { assertLocale, normalizeReply, normalizeAnalysis } = require("./resultNormalizers");
 const { selectAnalysisWindow } = require("./analysisWindow");
 
@@ -156,6 +156,15 @@ async function analyzeConversationTopicForWeb({messages=[],partnerName="",locale
  return{result:{kind:"topic_analysis",...main.raw,topic_id:context.topicId,readiness_status:context.readinessStatus},model:main.response.data?.model||model,processingMs:Date.now()-startedAt,usage:aiUsageProperties(main.response,main.response.data?.model||model,"topic_analysis"),auxiliaryUsages:[]};
 }
 
+async function analyzeConversationThemeForWeb({messages=[],partnerName="",locale="ja",topics=[]}){
+ if(!process.env.OPENAI_API_KEY)throw new Error("OPENAI_NOT_CONFIGURED");
+ const model=process.env.OPENAI_VISION_MODEL||"gpt-4.1-mini",window=selectAnalysisWindow(messages),selected=[...window.baseline,...window.recent],transcript=selected.map((message,index)=>`${index+1}. ${message.sender}: ${message.text} [${message.timestamp||"TIME UNKNOWN"}]`).join("\n");
+ const topicContract=topics.map(topic=>({topic_id:topic.id,title:topic.title,question:topic.question,evidenceInstruction:topic.evidenceInstruction,requiredModules:topic.requiredModules,optionalModules:topic.optionalModules}));
+ const prompt=`You are generating one premium relationship theme report in a single AI call. Return one complete TopicAnalysisResult chapter for every supplied topic, in the same order. Each chapter must satisfy the existing legacy mini-report contract: substantial verdict and summary, evidence with short verbatim excerpts and confidence, all required modules with distinct evidence-backed items, uncertainty or missing evidence, and practical next steps. Never invent chat facts or private feelings. Keep chapters complementary rather than repeating the same conclusion.\n\n${JSON.stringify(topicContract)}`;
+ const main=await callStructured({prompt,task:`${taskFor(locale).topic(partnerName)}\n\n${transcript}`,schema:themeReportSchema,maxTokens:12000,temperature:.2,reasoningEffort:"low",validate:raw=>{if(!Array.isArray(raw?.chapters)||raw.chapters.length!==topics.length)throw new Error("AI_INCOMPLETE_THEME_REPORT");raw.chapters.forEach((chapter,index)=>{if(chapter.topic_id!==topics[index].id)throw new Error("AI_THEME_TOPIC_MISMATCH");validateTopicDepth(chapter,{requiredModules:topics[index].requiredModules,readinessStatus:selected.length>=20?"sufficient":"partial"})});assertLocale(topicStrings(raw),locale)}});
+ return{result:main.raw,model:main.response.data?.model||model,usage:aiUsageProperties(main.response,main.response.data?.model||model,"diagnosis_theme_report")};
+}
+
 async function analyzeForWeb({ imageBuffer, mimeType, mode, locale = "ja", context = {} }) {
   if (!process.env.OPENAI_API_KEY) throw new Error("OPENAI_NOT_CONFIGURED");
   const startedAt = Date.now();
@@ -193,4 +202,4 @@ async function analyzeForWeb({ imageBuffer, mimeType, mode, locale = "ja", conte
   };
 }
 
-module.exports = { analyzeForWeb, analyzeConversationForWeb, analyzeConversationBaseForWeb, analyzeConversationTopicForWeb };
+module.exports = { analyzeForWeb, analyzeConversationForWeb, analyzeConversationBaseForWeb, analyzeConversationTopicForWeb, analyzeConversationThemeForWeb };

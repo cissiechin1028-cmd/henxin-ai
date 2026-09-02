@@ -44,3 +44,15 @@ test("completed relationship analysis can reopen through the snapshot route", ()
   assert.match(server, /relationship_analysis_snapshots/);
   assert.match(server, /\.eq\("relationship_id", resolved\.data\.id\)/);
 });
+
+test("premium theme reports use one server-owned contract and exempt only privileged accounts from usage limits", () => {
+  const routeStart = server.indexOf('app.post("/api/v1/anonymous/conversation-theme-reports"');
+  const route = server.slice(routeStart, server.indexOf('app.post("/api/v1/anonymous/strategies"', routeStart));
+  assert.ok(routeStart >= 0);
+  assert.match(route, /role,is_test_account/);
+  assert.match(route, /profile\?\.role==="admin"\|\|Boolean\(profile\?\.is_test_account\)/);
+  assert.match(route, /privileged\?null:await usageService\.check/);
+  assert.match(route, /analyzeConversationThemeForWeb/);
+  assert.match(route, /themeTopics\.map\(getAnalysisTopic\)/);
+  assert.match(analysisService, /themeReportSchema/);
+});
