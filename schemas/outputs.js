@@ -36,6 +36,11 @@ const chatAnalysisSchema = {
 };
 
 const topicAnalysisSchema={name:"renai_topic_analysis",strict:true,schema:{type:"object",additionalProperties:false,required:["topic_id","readiness_status","verdict","summary","evidence","modules","missing_evidence","next_steps","follow_up_hint"],properties:{topic_id:{type:"string"},readiness_status:{type:"string",enum:["sufficient","partial"]},verdict:{type:"string"},summary:{type:"string"},evidence:{type:"array",maxItems:8,items:{type:"object",additionalProperties:false,required:["claim","excerpt","confidence"],properties:{claim:{type:"string"},excerpt:{type:"string"},confidence:{type:"string",enum:["high","medium","low"]}}}},modules:{type:"array",maxItems:10,items:{type:"object",additionalProperties:false,required:["type","title","items"],properties:{type:{type:"string"},title:{type:"string"},items:{type:"array",maxItems:6,items:{type:"string"}}}}},missing_evidence:{type:"array",maxItems:6,items:{type:"string"}},next_steps:{type:"array",minItems:1,maxItems:3,items:{type:"string"}},follow_up_hint:{type:"string",enum:["none","reply","strategy"]}}}};
+const themeReportSchema={name:"renai_diagnosis_theme_report_v2",strict:true,schema:{type:"object",additionalProperties:false,required:["coreQuestion","overallConclusion","conclusions"],properties:{
+  coreQuestion:{type:"string"},
+  overallConclusion:{type:"string"},
+  conclusions:{type:"array",minItems:3,maxItems:5,items:{type:"object",additionalProperties:false,required:["id","question","conclusion","deepening"],properties:{id:{type:"string"},question:{type:"string"},conclusion:{type:"string"},deepening:{type:"string"}}}}
+}}};
 
 const relationshipEventSchema = {
   name: "relationship_event",
@@ -76,4 +81,4 @@ const relationshipReportSchema = {
   }
 };
 
-module.exports = { replyProposalSchema, chatAnalysisSchema, topicAnalysisSchema, relationshipEventSchema, relationshipReportSchema };
+module.exports = { replyProposalSchema, chatAnalysisSchema, topicAnalysisSchema, themeReportSchema, relationshipEventSchema, relationshipReportSchema };

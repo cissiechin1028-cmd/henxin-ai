@@ -3,9 +3,10 @@ const { aiUsageProperties } = require("../tracking/cost");
 const { replyProposalPrompt } = require("../prompts/replyProposal");
 const { chatAnalysisPrompt } = require("../prompts/chatAnalysis");
 const { topicAnalysisPrompt } = require("../prompts/topicAnalysis");
-const { replyProposalSchema, chatAnalysisSchema, topicAnalysisSchema } = require("../schemas/outputs");
+const { replyProposalSchema, chatAnalysisSchema, topicAnalysisSchema, themeReportSchema } = require("../schemas/outputs");
 const { assertLocale, normalizeReply, normalizeAnalysis } = require("./resultNormalizers");
 const { prepareDeterministicAnalysis } = require("./deterministicFiveDimension");
+const { selectAnalysisWindow } = require("./analysisWindow");
 
 function parseJson(text = "") {
   const cleaned = String(text).replace(/```json|```/g, "").trim();
@@ -154,6 +155,16 @@ async function analyzeConversationTopicForWeb({messages=[],partnerName="",locale
  return{result:{kind:"topic_analysis",...main.raw,topic_id:context.topicId,readiness_status:context.readinessStatus},model:main.response.data?.model||model,processingMs:Date.now()-startedAt,usage:aiUsageProperties(main.response,main.response.data?.model||model,"topic_analysis"),auxiliaryUsages:[]};
 }
 
+async function analyzeConversationThemeForWeb({messages=[],partnerName="",locale="ja",themeId,topics=[]}){
+ if(!process.env.OPENAI_API_KEY)throw new Error("OPENAI_NOT_CONFIGURED");
+ const model=process.env.OPENAI_VISION_MODEL||"gpt-4.1-mini",window=selectAnalysisWindow(messages),selected=[...window.baseline,...window.recent],transcript=selected.map((message,index)=>`${index+1}. ${message.sender}: ${message.text} [${message.timestamp||"TIME UNKNOWN"}]`).join("\n");
+ const topicContract=topics.map(topic=>({topic_id:topic.id,question:topic.question,evidenceInstruction:topic.evidenceInstruction,analysisDimensions:[...topic.requiredModules,...topic.optionalModules]}));
+ const promises={futarirashisa:"Answer: What kind of pair are we, really? Reveal relationship identity, roles, attraction, friction, and the distinctive thing that exists because it is these two people.",feelings:"Answer explicitly: How does the other person really feel? Translate the kind, priority, restraint, expectation, fear, or ambiguity behind their observable behavior without presenting unknowable thoughts as fact.",future:"Answer explicitly: Does this romance have real potential, and what happens next? State whether the trajectory is promising, ambiguous, friend-leaning, stalled, or moving away; explain the likely path, turning point, and whether waiting or moving is more appropriate."};
+ const prompt=`You create RenAI premium Diagnosis content. The user pays for a clear, emotionally meaningful answer to something they cannot work out alone—not for an evidence report.\n\nTHEME PROMISE:\n${promises[themeId]||promises.futarirashisa}\n\nAnalyze the supplied REAL chat internally using the following topic lenses. Evidence, quotes, signals, confidence scoring, model reasoning, methodology, and supporting/counter-evidence are INTERNAL ONLY and must never appear in the output.\n${JSON.stringify(topicContract)}\n\nOUTPUT CONTRACT:\n- coreQuestion: one direct localized expression of the theme promise.\n- overallConclusion: the clearest one- or two-sentence answer. For Future, directly resolve the has-potential/does-not-have-potential style question. Do not hide behind generic factors.\n- conclusions: select 3 to 5 relationship-specific questions that matter most here. Each item contains a stable id, the user question, a direct deep conclusion, and a short deepening explaining what it means for this relationship.\n- Do not mechanically cover every possible question and do not use fixed report-category headings.\n- Do not output evidence, chat quotations, signs, judgment basis, confidence, analysis process, generic advice checklists, or motivational endings.\n- Emotional satisfaction comes from recognition, specificity, and naming ambiguity—not optimism. Negative or cautious conclusions are required when supported.\n- Use decisive but calibrated language. Do not claim private thoughts as objective fact, but do not weaken every sentence with repetitive hedging.\n- Keep Type, Feelings, and Future semantically distinct.\n- Write only in the requested locale.`;
+ const main=await callStructured({prompt,task:`${taskFor(locale).topic(partnerName)}\n\n${transcript}`,schema:themeReportSchema,maxTokens:5200,temperature:.2,reasoningEffort:"low",validate:raw=>{if(!raw||!Array.isArray(raw.conclusions)||raw.conclusions.length<3||raw.conclusions.length>5)throw new Error("AI_INCOMPLETE_THEME_REPORT");const meaningful=value=>typeof value==="string"&&value.replace(/\s/g,"").length>=8;if(!meaningful(raw.coreQuestion)||!meaningful(raw.overallConclusion)||raw.conclusions.some(item=>!item?.id||!meaningful(item.question)||!meaningful(item.conclusion)||!meaningful(item.deepening)))throw new Error("AI_SHALLOW_THEME_REPORT");assertLocale(topicStrings(raw),locale)}});
+ return{result:main.raw,model:main.response.data?.model||model,usage:aiUsageProperties(main.response,main.response.data?.model||model,"diagnosis_theme_report")};
+}
+
 async function analyzeForWeb({ imageBuffer, mimeType, mode, locale = "ja", context = {} }) {
   if (!process.env.OPENAI_API_KEY) throw new Error("OPENAI_NOT_CONFIGURED");
   const startedAt = Date.now();
@@ -193,4 +204,4 @@ async function analyzeForWeb({ imageBuffer, mimeType, mode, locale = "ja", conte
   };
 }
 
-module.exports = { analyzeForWeb, analyzeConversationForWeb, analyzeConversationBaseForWeb, analyzeConversationTopicForWeb, prepareDeterministicAnalysis };
+module.exports = { analyzeForWeb, analyzeConversationForWeb, analyzeConversationBaseForWeb, analyzeConversationTopicForWeb, analyzeConversationThemeForWeb, prepareDeterministicAnalysis };
