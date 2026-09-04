@@ -70,3 +70,16 @@ test("dating safety check performs cautious longitudinal pattern analysis", () =
   assert.match(promptSource, /checked_points as a compact auxiliary module/);
   assert.match(promptSource, /Never open or investigate URLs/);
 });
+
+test("premium themes require a named emotional portrait and three deep conclusions",()=>{
+ const service=fs.readFileSync(path.join(__dirname,"..","services","webAnalysis.js"),"utf8"),schema=fs.readFileSync(path.join(__dirname,"..","schemas","outputs.js"),"utf8"),server=fs.readFileSync(path.join(__dirname,"..","webApp.js"),"utf8");
+ const theme=service.slice(service.indexOf("async function analyzeConversationThemeForWeb"),service.indexOf("async function analyzeForWeb"));
+ assert.match(schema,/renai_diagnosis_theme_report_v3/);
+ assert.match(schema,/required:\["coreQuestion","headline","summary","conclusions"\]/);
+ assert.match(schema,/minItems:3,maxItems:3/);
+ assert.match(theme,/Use the actual names naturally/);
+ assert.match(theme,/Do not output evidence/);
+ assert.match(theme,/conclusions\.length!==3/);
+ assert.match(server,/content_version:"diagnosis-theme-content-v3"/);
+ assert.match(server,/source:"real-ai"/);
+});
