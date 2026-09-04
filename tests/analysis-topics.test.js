@@ -80,6 +80,6 @@ test("premium themes require a named emotional portrait and three deep conclusio
  assert.match(theme,/Use the actual names naturally/);
  assert.match(theme,/Do not output evidence/);
  assert.match(theme,/conclusions\.length!==3/);
- assert.match(server,/content_version:"diagnosis-theme-content-v3"/);
+ assert.match(server,/content_version:"diagnosis-theme-content-v4"/);
  assert.match(server,/source:"real-ai"/);
 });
