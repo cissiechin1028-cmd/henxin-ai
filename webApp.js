@@ -1414,8 +1414,8 @@ app.post("/api/v1/anonymous/conversation-analyses",express.json({limit:"192kb"})
 
 const THEME_ANALYSIS_SCHEMA_VERSION="diagnosis-theme-analysis-v1";
 const THEME_FINAL_COPY_SCHEMA_VERSION="diagnosis-theme-final-copy-v1";
-const THEME_FINAL_COPY_PROMPT_VERSION="diagnosis-theme-final-copy-prompt-v2";
-const THEME_CONTENT_VERSION="diagnosis-theme-content-v6";
+const THEME_FINAL_COPY_PROMPT_VERSION="diagnosis-theme-final-copy-prompt-v3";
+const THEME_CONTENT_VERSION="diagnosis-theme-content-v7";
 
 app.post("/api/v1/anonymous/conversation-theme-reports",express.json({limit:"256kb"}),async(req,res)=>{
  const token=String(req.headers.authorization||"").replace(/^Bearer\s+/i,""),authenticatedUser=token?(await supabase.auth.getUser(token)).data?.user:null;
