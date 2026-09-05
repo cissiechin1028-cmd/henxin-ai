@@ -20,18 +20,34 @@ function validateAnalysis(value,context,expectedFocalPersonId){
  const ids=new Set(value.facts.map(f=>f.id));if(ids.size!==value.facts.length)throw new Error('PREMIUM_DUPLICATE_FACT_ID');validateReferences(value,ids);
  const statements=value.facts.map(f=>normalize(f.statement));if(new Set(statements).size!==statements.length)throw new Error('PREMIUM_DUPLICATE_FACT_MATERIAL');
  for(const f of value.facts){if(f.secondaryThemes.includes(f.primaryTheme)||new Set(f.secondaryThemes).size!==f.secondaryThemes.length)throw new Error('PREMIUM_FACT_MULTIPLE_PRIMARY_OWNERS');if(f.primaryTheme==='feelings'&&f.subject!=='partner')throw new Error('PREMIUM_FEELINGS_FACT_WRONG_SUBJECT')}
- for(const t of themes){const owned=value.facts.filter(f=>f.primaryTheme===t);if(owned.length<2)throw new Error('PREMIUM_ANALYSIS_INSUFFICIENT_PRIMARY_FACTS:'+t);if(!validOwnedSupport(value[t+'Analysis'].coreFactIds,t,value.facts))throw new Error('PREMIUM_ANALYSIS_OWNERSHIP_FAIL:'+t)}
+ for(const t of themes){const owned=value.facts.filter(f=>f.primaryTheme===t);if(owned.length<2)throw new Error('PREMIUM_ANALYSIS_INSUFFICIENT_PRIMARY_FACTS:'+t);if(!validOwnedSupport(value[t+'Analysis'].coreFactIds,t,value.facts))throw ownershipError('PREMIUM_ANALYSIS_OWNERSHIP_FAIL:'+t,value[t+'Analysis'].coreFactIds,t,value.facts,t+'Analysis.coreFactIds')}
  const future=value.facts.filter(f=>f.primaryTheme==='future');if(future.some(f=>!['trajectory','planning','cooling','repair','next_development','branch_point','confirming_signal','stagnation_signal'].includes(f.category)))throw new Error('PREMIUM_FUTURE_NON_TEMPORAL_FACT');
- for(const field of ['nextStepFactIds','branchFactIds'])if(!validOwnedSupport(value.futureAnalysis[field],'future',value.facts))throw new Error('PREMIUM_FUTURE_UNSUPPORTED_CONCLUSION:'+field);
+ for(const field of ['nextStepFactIds','branchFactIds'])if(!validOwnedSupport(value.futureAnalysis[field],'future',value.facts))throw ownershipError('PREMIUM_FUTURE_UNSUPPORTED_CONCLUSION:'+field,value.futureAnalysis[field],'future',value.facts,'futureAnalysis.'+field);
  if(context){const messages=new Map([...context.baseline,...context.recent].map(m=>[m.id,m]));for(const f of value.facts){if(f.sourceMessageIds.some(id=>!messages.has(id)))throw new Error('PREMIUM_UNKNOWN_MESSAGE_ID');if(f.subject==='partner'&&!f.sourceMessageIds.some(id=>messages.get(id).sender==='partner'))throw new Error('PREMIUM_PARTNER_FACT_WITHOUT_PARTNER_EVIDENCE')}}
  return value;
 }
 // First reference is the conclusion's primary support. An explicitly licensed contextual
 // reference may accompany it 1:1; counting a tie as foreign dominance rejected valid use.
-function validOwnedSupport(ids,theme,facts){const byId=new Map(facts.map(f=>[f.id,f]));const selected=ids.map(id=>byId.get(id));if(!selected.length||selected.some(f=>!f))return false;const own=selected.filter(f=>f.primaryTheme===theme);return selected[0].primaryTheme===theme&&own.length>=selected.length-own.length&&selected.every(f=>f.primaryTheme===theme||f.secondaryThemes.includes(theme))}
+function ownershipDetails(ids,theme,facts,path){
+ const byId=new Map(facts.map(f=>[f.id,f]));
+ const references=ids.map(id=>{const f=byId.get(id);return f?{id,primaryTheme:f.primaryTheme,secondaryThemes:f.secondaryThemes,category:f.category}:{id,missing:true}});
+ const ownedReferenceIds=references.filter(f=>f.primaryTheme===theme).map(f=>f.id);
+ const secondaryReferenceIds=references.filter(f=>!f.missing&&f.primaryTheme!==theme).map(f=>f.id);
+ const missingFactIds=references.filter(f=>f.missing).map(f=>f.id);
+ const unlicensedSecondaryFactIds=references.filter(f=>!f.missing&&f.primaryTheme!==theme&&!f.secondaryThemes.includes(theme)).map(f=>f.id);
+ const failedRules=[];
+ if(!ids.length)failedRules.push('EMPTY_SUPPORT');
+ if(missingFactIds.length)failedRules.push('UNKNOWN_FACT_IDS');
+ if(references[0]?.primaryTheme!==theme)failedRules.push('FIRST_REFERENCE_NOT_PRIMARY_OWNED');
+ if(ownedReferenceIds.length<secondaryReferenceIds.length)failedRules.push('SECONDARY_SUPPORT_OUTNUMBERS_PRIMARY');
+ if(unlicensedSecondaryFactIds.length)failedRules.push('SECONDARY_THEME_NOT_LICENSED');
+ return {path,theme,referenceIds:ids,references,availablePrimaryFactIds:facts.filter(f=>f.primaryTheme===theme).map(f=>f.id),ownedReferenceIds,secondaryReferenceIds,missingFactIds,unlicensedSecondaryFactIds,failedRules};
+}
+function ownershipError(code,ids,theme,facts,path){const error=new Error(code);error.validationDetails=ownershipDetails(ids,theme,facts,path);return error}
+function validOwnedSupport(ids,theme,facts){return ownershipDetails(ids,theme,facts).failedRules.length===0}
 function ownershipChecks(copy,analysis){
  const byId=new Map(analysis.facts.map(f=>[f.id,f])),result={};
- for(const t of themes){const blocks=[copy[t],...copy[t].insights];const owned=new Set();for(const block of blocks){const facts=block.supportFactIds.map(id=>byId.get(id));if(facts.some(f=>!f))throw new Error('PREMIUM_UNKNOWN_OR_DUPLICATE_FACT_ID');const primary=facts.filter(f=>f.primaryTheme===t);if(!validOwnedSupport(block.supportFactIds,t,analysis.facts))throw new Error('PREMIUM_CONTENT_OWNERSHIP_FAIL:'+t);primary.forEach(f=>owned.add(f.id))}if(owned.size<2)throw new Error('PREMIUM_CONTENT_INSUFFICIENT_OWNED_FACTS:'+t);result[t]={ownedFactIds:[...owned],blocksValidated:3}}
+ for(const t of themes){const blocks=[copy[t],...copy[t].insights];const owned=new Set();for(const block of blocks){const facts=block.supportFactIds.map(id=>byId.get(id));if(facts.some(f=>!f))throw new Error('PREMIUM_UNKNOWN_OR_DUPLICATE_FACT_ID');const primary=facts.filter(f=>f.primaryTheme===t);if(!validOwnedSupport(block.supportFactIds,t,analysis.facts))throw ownershipError('PREMIUM_CONTENT_OWNERSHIP_FAIL:'+t,block.supportFactIds,t,analysis.facts,block===copy[t]?t+'.supportFactIds':t+'.insights['+copy[t].insights.indexOf(block)+'].supportFactIds');primary.forEach(f=>owned.add(f.id))}if(owned.size<2)throw new Error('PREMIUM_CONTENT_INSUFFICIENT_OWNED_FACTS:'+t);result[t]={ownedFactIds:[...owned],blocksValidated:3}}
  return result;
 }
 const sensitiveClaims=[
@@ -44,4 +60,4 @@ function claimStrengthChecks(copy,analysis,context){const byId=new Map(analysis.
 const normalize=s=>s.normalize('NFKC').toLowerCase().replace(/[\p{P}\p{S}\s]/gu,'');
 function overlapChecks(copy){const titles=themes.flatMap(t=>copy[t].insights.map(i=>normalize(i.title)));if(new Set(titles).size!==6)throw new Error('PREMIUM_DUPLICATE_INSIGHT_TITLE');const primary=themes.map(t=>copy[t].insights.map(i=>i.supportFactIds[0]));if(primary[0].some(id=>primary[1].includes(id)&&primary[2].includes(id)))throw new Error('PREMIUM_PRIMARY_FACT_DOMINATES_ALL_THEMES');const texts=themes.flatMap(t=>[copy[t].narrative,...copy[t].insights.map(i=>i.body)]).map(normalize);for(let i=0;i<texts.length;i++)for(let j=i+1;j<texts.length;j++){const a=texts[i],b=texts[j],grams=new Set(Array.from({length:Math.max(0,a.length-17)},(_,n)=>a.slice(n,n+18)));const hits=Array.from({length:Math.max(0,b.length-17)},(_,n)=>b.slice(n,n+18)).filter(g=>grams.has(g)).length;if(hits>12&&hits/Math.max(1,Math.min(a.length,b.length)-17)>.45)throw new Error('PREMIUM_EXCESSIVE_PHRASE_OVERLAP')}return{identicalTitles:false,excessiveRepeatedPhrases:false,samePrimaryFactAcrossAllThemes:false}}
 function validateFinalCopy(value,analysis,context,expectedFocalPersonId){validateShape(value,finalBody);validateAnalysis(analysis,context,expectedFocalPersonId);validateReferences(value,new Set(analysis.facts.map(f=>f.id)));overlapChecks(value);ownershipChecks(value,analysis);claimStrengthChecks(value,analysis,context);for(const t of themes){if(value[t].insights.some(i=>/[?？]/u.test(i.title)))throw new Error('PREMIUM_QUESTION_TITLE');const prose=[value[t].headline,value[t].narrative,...value[t].insights.flatMap(i=>[i.title,i.body])].join('\n');if(/ユーザー|相手側|\b(?:user|other person|SELF|PARTNER)\b/iu.test(prose))throw new Error('PREMIUM_SYSTEM_ACTOR_LANGUAGE')}return value}
-module.exports={VERSIONS,analysisSchema,analysisSchemaFor,finalCopySchema,validateAnalysis,validateFinalCopy,overlapChecks,ownershipChecks,claimStrengthChecks,validOwnedSupport,themes};
+module.exports={VERSIONS,analysisSchema,analysisSchemaFor,finalCopySchema,validateAnalysis,validateFinalCopy,overlapChecks,ownershipChecks,claimStrengthChecks,validOwnedSupport,ownershipDetails,themes};

@@ -23,7 +23,7 @@ function registerPremiumDiagnosisRoute(app,{express,supabase,resolveRelationship
  const people=premiumPeople(relationship.data.id,{selfName:identity.selfName||req.body?.selfName,partnerName:identity.partnerName||saved?.partner_name||req.body?.partnerName});
  const report=await pipeline.generate({userId:user.id,relationshipId:relationship.data.id,sourceSnapshotId,sourceVersion,locale},messages,people);
  return res.status(report.generation.cached?200:201).json({premiumReport:report});
- }catch(error){const code=String(error.message||'PREMIUM_REPORT_FAILED');console.error('PREMIUM REPORT FAILED',code);return res.status(code==='FAIR_USE_LIMIT_REACHED'?429:code==='CONVERSATION_REQUIRED'?400:502).json({error:code})}
+ }catch(error){const code=String(error.message||'PREMIUM_REPORT_FAILED');console.error('PREMIUM REPORT FAILED',code);if(error.validationDetails)console.error('PREMIUM VALIDATION DETAILS',JSON.stringify(error.validationDetails));return res.status(code==='FAIR_USE_LIMIT_REACHED'?429:code==='CONVERSATION_REQUIRED'?400:502).json({error:code,...(error.validationDetails?{validationDetails:error.validationDetails}:{})})}
  });return pipeline;
 }
 module.exports={registerPremiumDiagnosisRoute};
