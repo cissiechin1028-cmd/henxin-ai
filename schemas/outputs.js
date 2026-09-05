@@ -42,6 +42,7 @@ const themeReportSchema={name:"renai_diagnosis_theme_report_v3",strict:true,sche
   summary:{type:"string",minLength:80,maxLength:260},
   conclusions:{type:"array",minItems:3,maxItems:3,items:{type:"object",additionalProperties:false,required:["id","question","conclusion","deepening"],properties:{id:{type:"string",minLength:2,maxLength:60},question:{type:"string",minLength:8,maxLength:80},conclusion:{type:"string",minLength:20,maxLength:160},deepening:{type:"string",minLength:60,maxLength:280}}}}
 }}};
+const themeFinalCopySchema={name:"renai_diagnosis_theme_final_copy_v1",strict:true,schema:{type:"object",additionalProperties:false,required:["headline","narrative","insights"],properties:{headline:{type:"string",minLength:8,maxLength:80},narrative:{type:"string",minLength:60,maxLength:240},insights:{type:"array",minItems:2,maxItems:2,items:{type:"object",additionalProperties:false,required:["id","title","body"],properties:{id:{type:"string",minLength:2,maxLength:60},title:{type:"string",minLength:6,maxLength:60},body:{type:"string",minLength:35,maxLength:180}}}}}}};
 
 const relationshipEventSchema = {
   name: "relationship_event",
@@ -82,4 +83,4 @@ const relationshipReportSchema = {
   }
 };
 
-module.exports = { replyProposalSchema, chatAnalysisSchema, topicAnalysisSchema, themeReportSchema, relationshipEventSchema, relationshipReportSchema };
+module.exports = { replyProposalSchema, chatAnalysisSchema, topicAnalysisSchema, themeReportSchema, themeFinalCopySchema, relationshipEventSchema, relationshipReportSchema };

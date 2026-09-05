@@ -71,15 +71,16 @@ test("dating safety check performs cautious longitudinal pattern analysis", () =
   assert.match(promptSource, /Never open or investigate URLs/);
 });
 
-test("premium themes require a named emotional portrait and three deep conclusions",()=>{
+test("premium themes keep internal trajectory analysis and generate separate final copy",()=>{
  const service=fs.readFileSync(path.join(__dirname,"..","services","webAnalysis.js"),"utf8"),schema=fs.readFileSync(path.join(__dirname,"..","schemas","outputs.js"),"utf8"),server=fs.readFileSync(path.join(__dirname,"..","webApp.js"),"utf8");
  const theme=service.slice(service.indexOf("async function analyzeConversationThemeForWeb"),service.indexOf("async function analyzeForWeb"));
  assert.match(schema,/renai_diagnosis_theme_report_v3/);
- assert.match(schema,/required:\["coreQuestion","headline","summary","conclusions"\]/);
- assert.match(schema,/minItems:3,maxItems:3/);
- assert.match(theme,/Use the actual names naturally/);
- assert.match(theme,/Do not output evidence/);
- assert.match(theme,/conclusions\.length!==3/);
- assert.match(server,/content_version:"diagnosis-theme-content-v4"/);
+ assert.match(schema,/renai_diagnosis_theme_final_copy_v1/);
+ assert.match(schema,/required:\["headline","narrative","insights"\]/);
+ assert.match(schema,/minItems:2,maxItems:2/);
+ assert.match(theme,/selectedContext/);
+ assert.match(theme,/internalAnalysis/);
+ assert.match(theme,/Never write question titles/);
+ assert.match(server,/THEME_CONTENT_VERSION="diagnosis-theme-content-v5"/);
  assert.match(server,/source:"real-ai"/);
 });
