@@ -71,18 +71,8 @@ test("dating safety check performs cautious longitudinal pattern analysis", () =
   assert.match(promptSource, /Never open or investigate URLs/);
 });
 
-test("premium themes keep internal trajectory analysis and generate separate final copy",()=>{
- const service=fs.readFileSync(path.join(__dirname,"..","services","webAnalysis.js"),"utf8"),schema=fs.readFileSync(path.join(__dirname,"..","schemas","outputs.js"),"utf8"),server=fs.readFileSync(path.join(__dirname,"..","webApp.js"),"utf8");
- const theme=service.slice(service.indexOf("async function analyzeConversationThemeForWeb"),service.indexOf("async function analyzeForWeb"));
- assert.match(schema,/renai_diagnosis_theme_report_v3/);
- assert.match(schema,/renai_diagnosis_theme_final_copy_v1/);
- assert.match(schema,/required:\["headline","narrative","insights"\]/);
- assert.match(schema,/minItems:2,maxItems:2/);
- assert.match(theme,/selectedContext/);
- assert.match(theme,/internalAnalysis/);
- assert.match(fs.readFileSync(path.join(__dirname,"..","prompts","themeFinalCopy.js"),"utf8"),/No questions as titles/);
- assert.match(server,/THEME_CONTENT_VERSION="diagnosis-theme-content-v7"/);
- assert.match(server,/THEME_FINAL_COPY_PROMPT_VERSION="diagnosis-theme-final-copy-prompt-v3"/);
- assert.match(server,/siblingFinalCopies/);
- assert.match(server,/source:"real-ai"/);
+test("Premium route uses the unified pipeline instead of per-theme AI",()=>{
+ const source=fs.readFileSync(path.join(__dirname,"..","webApp.js"),"utf8");
+ assert.match(source,/registerPremiumDiagnosisRoute/);
+ assert.doesNotMatch(source,/analyzeConversationThemeForWeb/);
 });
