@@ -80,7 +80,9 @@ test("premium themes keep internal trajectory analysis and generate separate fin
  assert.match(schema,/minItems:2,maxItems:2/);
  assert.match(theme,/selectedContext/);
  assert.match(theme,/internalAnalysis/);
- assert.match(theme,/Never write question titles/);
- assert.match(server,/THEME_CONTENT_VERSION="diagnosis-theme-content-v5"/);
+ assert.match(theme,/No questions as titles/);
+ assert.match(server,/THEME_CONTENT_VERSION="diagnosis-theme-content-v6"/);
+ assert.match(server,/THEME_FINAL_COPY_PROMPT_VERSION="diagnosis-theme-final-copy-prompt-v2"/);
+ assert.match(server,/siblingFinalCopies/);
  assert.match(server,/source:"real-ai"/);
 });
